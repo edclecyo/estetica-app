@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1043439367326",
+    "project_id": "agenda-beleza-75106",
+    "storage_bucket": "agenda-beleza-75106.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1043439367326:android:df9f2a2ef0e8f491baf78f",
+        "android_client_info": {
+          "package_name": "com.esteticaapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSFd6v_uZgd98WKLwZNR-tDtEUNzMg4fU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

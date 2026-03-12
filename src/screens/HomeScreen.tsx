@@ -2,14 +2,15 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   TextInput, StyleSheet, ActivityIndicator,
-  StatusBar, ScrollView, Dimensions,
+  StatusBar, ScrollView,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
 import type { Estabelecimento } from '../types';
-
-const { width } = Dimensions.get('window');
-
+import { logoutCliente } from '../services/clienteAuthService';
+import { Alert } from 'react-native';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 const TIPOS = ['Todos', 'Salão de Beleza', 'Barbearia Premium', 'Espaço de Unhas', 'Clínica Estética', 'Spa & Relaxamento'];
 
 const TIPO_ICONS: Record<string, string> = {
@@ -27,6 +28,14 @@ export default function HomeScreen() {
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('Todos');
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(auth().currentUser);
+
+  useEffect(() => {
+  const unsubscribeAuth = auth().onAuthStateChanged(u => {
+    setUser(u);
+  });
+  return unsubscribeAuth;
+}, []);
 
   useEffect(() => {
     const unsubscribe = firestore()
@@ -63,17 +72,50 @@ export default function HomeScreen() {
 
       {/* Header */}
       <View style={s.header}>
-        <View style={s.headerTop}>
-          <View>
-            <Text style={s.headerSub}>Bem-vindo 👋</Text>
-            <Text style={s.headerTitulo}>Encontre seu espaço</Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('AdminLogin')}
-            style={s.adminBtn}>
-            <Text style={s.adminBtnText}>⚙</Text>
-          </TouchableOpacity>
-        </View>
+       <View style={s.headerTop}>
+  <View>
+    <Text style={s.headerSub}>
+      {user
+        ? `Olá, ${user.displayName?.split(' ')[0] || user.email?.split('@')[0]} 👋`
+        : 'Bem-vindo 👋'}
+    </Text>
+    <Text style={s.headerTitulo}>Encontre seu espaço</Text>
+  </View>
+
+  <View style={s.headerBtns}>
+    {/* Botão logout — só aparece se logado */}
+    {user && (
+  <TouchableOpacity
+    onPress={() => {
+      Alert.alert('Sair', 'Deseja sair da sua conta?', [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sair',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await auth().signOut();
+              try { await GoogleSignin.signOut(); } catch {}
+            } catch (e) {
+              console.log('Erro logout:', e);
+            }
+          },
+        },
+      ]);
+    }}
+    style={s.sairBtn}>
+    <Text style={s.sairBtnText}>Sair</Text>
+  </TouchableOpacity>
+)}
+
+    {/* Botão admin */}
+    <TouchableOpacity
+      onPress={() => navigation.navigate('AdminLogin')}
+      style={s.adminBtn}>
+      <Text style={s.adminBtnText}>🔧 Admin</Text>
+    </TouchableOpacity>
+  </View>
+</View>
 
         {/* Busca */}
         <View style={s.buscaWrap}>
@@ -130,9 +172,14 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={s.card}
             activeOpacity={0.92}
-            onPress={() => navigation.navigate('Detalhe', { estabelecimentoId: item.id })}>
+            onPress={() => {
+              if (user) {
+                navigation.navigate('Detalhe', { estabelecimentoId: item.id });
+              } else {
+                navigation.navigate('ClienteLogin', { estabelecimentoId: item.id });
+              }
+            }}>
 
-            {/* Topo colorido */}
             <View style={[s.cardHeader, { backgroundColor: item.cor + '33' }]}>
               <Text style={s.cardEmoji}>{item.img}</Text>
               <View style={s.cardBadge}>
@@ -140,7 +187,6 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* Corpo */}
             <View style={s.cardBody}>
               <View style={s.cardRow}>
                 <Text style={s.cardNome} numberOfLines={1}>{item.nome}</Text>
@@ -170,7 +216,6 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* Botão */}
             <View style={[s.cardBtn, { backgroundColor: item.cor }]}>
               <Text style={s.cardBtnText}>Agendar →</Text>
             </View>
@@ -185,22 +230,19 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' },
   loadingText: { marginTop: 12, color: '#888', fontSize: 13 },
-
-  // Header
   header: { backgroundColor: '#1A1A1A', paddingHorizontal: 20, paddingTop: 52, paddingBottom: 20 },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
   headerSub: { color: '#C9A96E', fontSize: 12, fontWeight: '600', letterSpacing: 0.5, marginBottom: 2 },
   headerTitulo: { color: '#FAF7F4', fontSize: 22, fontWeight: '700' },
   adminBtn: { backgroundColor: '#2A2A2A', borderRadius: 12, width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   adminBtnText: { fontSize: 18 },
-
-  // Busca
+  headerBtns: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+adminBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+adminBtnText: { color: '#777', fontSize: 12, fontWeight: '600' },
   buscaWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2A2A2A', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 4 },
   buscaIcon: { fontSize: 16, marginRight: 8 },
   buscaInput: { flex: 1, color: '#FAF7F4', fontSize: 14, paddingVertical: 10 },
   buscaClear: { color: '#666', fontSize: 16, padding: 4 },
-
-  // Filtros
   filtroWrap: { backgroundColor: '#1A1A1A', paddingBottom: 16 },
   filtroScroll: { paddingHorizontal: 20, gap: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#2A2A2A' },
@@ -208,12 +250,8 @@ const s = StyleSheet.create({
   chipIcon: { fontSize: 13 },
   chipText: { fontSize: 12, color: '#888', fontWeight: '500' },
   chipTextAtivo: { color: '#1A1A1A', fontWeight: '700' },
-
-  // Lista
   lista: { padding: 16, paddingBottom: 32 },
   resultadoText: { color: '#999', fontSize: 12, marginBottom: 12, marginLeft: 2 },
-
-  // Card
   card: { backgroundColor: '#fff', borderRadius: 20, marginBottom: 16, overflow: 'hidden', elevation: 2 },
   cardHeader: { padding: 20, alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between' },
   cardEmoji: { fontSize: 44 },
@@ -229,8 +267,6 @@ const s = StyleSheet.create({
   cardTagText: { fontSize: 11, color: '#666' },
   cardBtn: { margin: 12, marginTop: 4, borderRadius: 12, padding: 12, alignItems: 'center' },
   cardBtnText: { color: '#1A1A1A', fontSize: 13, fontWeight: '700' },
-
-  // Empty
   emptyWrap: { alignItems: 'center', paddingTop: 60 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },

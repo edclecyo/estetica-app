@@ -1,18 +1,18 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
-import { getAdminData } from '../services/authService';
+import firestore from '@react-native-firebase/firestore';
 import type { Admin } from '../types';
 
-interface AuthContextType {
+interface AuthContextData {
   user: FirebaseAuthTypes.User | null;
   admin: Admin | null;
+  cliente: FirebaseAuthTypes.User | null;
   loading: boolean;
   isAdmin: boolean;
+  isCliente: boolean;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null, admin: null, loading: true, isAdmin: false,
-});
+const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
@@ -20,26 +20,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = auth().onAuthStateChanged(async (firebaseUser) => {
+    const unsubscribe = auth().onAuthStateChanged(async firebaseUser => {
       setUser(firebaseUser);
+
       if (firebaseUser) {
-        const data = await getAdminData(firebaseUser.uid);
-        setAdmin(data);
+        // Verifica se é admin
+        try {
+          const snap = await firestore()
+            .collection('admins')
+            .doc(firebaseUser.uid)
+            .get();
+          if (snap.exists && snap.data()?.ativo) {
+            setAdmin({ id: firebaseUser.uid, ...snap.data() } as Admin);
+          } else {
+            setAdmin(null);
+          }
+        } catch {
+          setAdmin(null);
+        }
       } else {
         setAdmin(null);
       }
+
       setLoading(false);
     });
+
     return unsubscribe;
   }, []);
 
   return (
     <AuthContext.Provider value={{
-      user, admin, loading, isAdmin: !!admin
+      user,
+      admin,
+      cliente: admin ? null : user, // se não é admin, é cliente
+      loading,
+      isAdmin: !!admin,
+      isCliente: !!user && !admin,
     }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  return useContext(AuthContext);
+}

@@ -1,7 +1,7 @@
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import type { Admin } from '../types';
-
+import { registrarTokenPush } from './notificacaoService';
 export async function cadastrarAdmin(dados: {
   nome: string;
   email: string;
@@ -35,6 +35,7 @@ export async function loginAdmin(
   senha: string
 ): Promise<void> {
   await auth().signInWithEmailAndPassword(email, senha);
+  await registrarTokenPush(credential.user.uid, 'admin');
 }
 
 export async function logoutAdmin(): Promise<void> {

@@ -8,6 +8,7 @@ import functions from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Estabelecimento } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import auth from '@react-native-firebase/auth';
 const { width } = Dimensions.get('window');
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -42,19 +43,26 @@ export default function DetalheScreen() {
   const [horarioSel, setHorarioSel] = useState<string>('');
   const [nome, setNome] = useState('');
   const [confirmado, setConfirmado] = useState(false);
-
+const [nomeUsuario, setNomeUsuario] = useState('');
   const datas = getDatas();
 
   useEffect(() => {
-    firestore()
-      .collection('estabelecimentos')
-      .doc(estabelecimentoId)
-      .get()
-      .then(snap => {
-        if (snap.exists) setEstab({ id: snap.id, ...snap.data() } as Estabelecimento);
-        setLoading(false);
-      });
-  }, []);
+  firestore()
+    .collection('estabelecimentos')
+    .doc(estabelecimentoId)
+    .get()
+    .then(snap => {
+      if (snap.exists) setEstab({ id: snap.id, ...snap.data() } as Estabelecimento);
+      setLoading(false);
+    });
+
+  // Pega nome do usuário logado
+  const user = auth().currentUser;
+  if (user?.displayName) {
+    setNome(user.displayName);
+    setNomeUsuario(user.displayName);
+  }
+}, []);
 
   const confirmar = async () => {
   if (!servicoSel || !dataSel || !horarioSel || !nome) {
@@ -65,14 +73,15 @@ export default function DetalheScreen() {
     setSalvando(true);
     const servico = estab?.servicos.find(s => s.nome === servicoSel);
     await fn.httpsCallable('criarAgendamento')({
-      estabelecimentoId,
-      estabelecimentoNome: estab?.nome,
-      servicoNome: servicoSel,
-      servicoPreco: servico?.preco || 0,
-      clienteNome: nome,
-      data: dataSel.full,
-      horario: horarioSel,
-    });
+  estabelecimentoId,
+  estabelecimentoNome: estab?.nome,
+  servicoNome: servicoSel,
+  servicoPreco: servico?.preco || 0,
+  clienteNome: nome,
+  clienteUid: auth().currentUser?.uid || '',
+  data: dataSel.full,
+  horario: horarioSel,
+});
     await AsyncStorage.setItem('clienteNome', nome);
     setConfirmado(true);
   } catch (e: any) {
@@ -246,18 +255,28 @@ export default function DetalheScreen() {
 
           {/* STEP 4 — Nome */}
           {step >= 4 && (
-            <View style={s.secao}>
-              <Text style={s.secaoTitulo}>Seu nome</Text>
-              <TextInput
-                style={s.input}
-                placeholder="Nome completo"
-                placeholderTextColor="#aaa"
-                value={nome}
-                onChangeText={setNome}
-                autoFocus
-              />
-            </View>
-          )}
+  <View style={s.secao}>
+    <Text style={s.secaoTitulo}>Seu nome</Text>
+    {nomeUsuario
+      ? (
+        <View style={s.nomeLogadoWrap}>
+          <Text style={s.nomeLogadoIc}>👤</Text>
+          <Text style={s.nomeLogadoTxt}>{nomeUsuario}</Text>
+        </View>
+      )
+      : (
+        <TextInput
+          style={s.input}
+          placeholder="Nome completo"
+          placeholderTextColor="#aaa"
+          value={nome}
+          onChangeText={setNome}
+          autoFocus
+        />
+      )
+    }
+  </View>
+)}
 
           {/* Resumo */}
           {(servicoSel || dataSel || horarioSel) && (
@@ -350,6 +369,11 @@ const s = StyleSheet.create({
   dataDia: { fontSize: 10, color: '#888', fontWeight: '600' },
   dataNum: { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginVertical: 2 },
   dataMes: { fontSize: 10, color: '#aaa' },
+
+//login
+nomeLogadoWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 2, borderColor: '#E0E0E0' },
+nomeLogadoIc: { fontSize: 20 },
+nomeLogadoTxt: { fontSize: 15, fontWeight: '600', color: '#1A1A1A' },
 
   // Horário
   horariosWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

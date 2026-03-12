@@ -12,7 +12,20 @@
           "package_name": "com.esteticaapp"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1043439367326-mbuhjn0et82s9ql37tknhsjriokqt62c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.esteticaapp",
+            "certificate_hash": "238c6dc564a8ce3504c99558b09fd4c081dd695d"
+          }
+        },
+        {
+          "client_id": "1043439367326-jp6d5smhkvjtnpnusj59g7c7hv33v2o7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCSFd6v_uZgd98WKLwZNR-tDtEUNzMg4fU"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1043439367326-jp6d5smhkvjtnpnusj59g7c7hv33v2o7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

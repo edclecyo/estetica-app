@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert,
+  StyleSheet, ActivityIndicator, Alert, SafeAreaView,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
@@ -20,7 +20,6 @@ export default function AdminDashScreen() {
   useEffect(() => {
     if (!admin?.id) return;
 
-    // ← só estabelecimentos do admin logado
     const u1 = firestore()
       .collection('estabelecimentos')
       .where('adminId', '==', admin.id)
@@ -29,7 +28,6 @@ export default function AdminDashScreen() {
         setEstabs(lista);
         setLoading(false);
 
-        // ← só agendamentos dos estabelecimentos deste admin
         if (lista.length > 0) {
           const ids = lista.map(e => e.id);
           firestore()
@@ -37,13 +35,13 @@ export default function AdminDashScreen() {
             .where('estabelecimentoId', 'in', ids)
             .orderBy('criadoEm', 'desc')
             .limit(50)
-.onSnapshot(
-  snapA => {
-    if (!snapA) return;
-    setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
-  },
-  error => console.log('Agendamentos error:', error)
-);
+            .onSnapshot(
+              snapA => {
+                if (!snapA) return;
+                setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
+              },
+              error => console.log('Agendamentos error:', error)
+            );
         } else {
           setAgends([]);
           setLoading(false);
@@ -57,17 +55,26 @@ export default function AdminDashScreen() {
     .filter(a => a.status === 'confirmado' || a.status === 'concluido')
     .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
 
-  const handleLogout = () => {
-    Alert.alert('Sair', 'Deseja sair do painel?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Sair', style: 'destructive', onPress: async () => {
+ const handleLogout = () => {
+  Alert.alert('Sair', 'Deseja sair do painel?', [
+    { text: 'Cancelar', style: 'cancel' },
+    {
+      text: 'Sair',
+      style: 'destructive',
+      onPress: async () => {
+        try {
           await logoutAdmin();
-          navigation.replace('Home');
-        },
+        } catch (e) {
+          console.log('Erro logout:', e);
+        }
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'HomeTabs' }],
+        });
       },
-    ]);
-  };
+    },
+  ]);
+};
 
   if (loading) {
     return (
@@ -79,16 +86,18 @@ export default function AdminDashScreen() {
 
   return (
     <View style={s.container}>
-      {/* Header */}
-      <View style={s.header}>
-        <View>
-          <Text style={s.headerSub}>PAINEL ADMIN</Text>
-          <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]} 👋</Text>
+      {/* SafeAreaView garante que o header não fique atrás da StatusBar */}
+      <SafeAreaView style={s.safeHeader}>
+        <View style={s.header}>
+          <View>
+            <Text style={s.headerSub}>PAINEL ADMIN</Text>
+            <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]} 👋</Text>
+          </View>
+          <TouchableOpacity onPress={handleLogout} style={s.sairBtn}>
+            <Text style={s.sairText}>Sair</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={handleLogout} style={s.sairBtn}>
-          <Text style={s.sairText}>Sair</Text>
-        </TouchableOpacity>
-      </View>
+      </SafeAreaView>
 
       {/* Abas */}
       <View style={s.abas}>
@@ -111,7 +120,6 @@ export default function AdminDashScreen() {
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
             <>
-              {/* Stats */}
               <View style={s.statsRow}>
                 {[
                   { ic: '🏪', v: estabs.length, l: 'Locais' },
@@ -135,79 +143,62 @@ export default function AdminDashScreen() {
               <Text style={s.emptyText}>Nenhum agendamento ainda</Text>
             </View>
           }
-       renderItem={({ item }) => (
-  <View style={[s.agendCard, { borderLeftColor: '#C9A96E' }]}>
-    <View style={s.agendTop}>
-      <View style={{ flex: 1 }}>
-        <Text style={s.agendNome}>{item.clienteNome}</Text>
-        <Text style={s.agendSub}>{item.estabelecimentoNome} · {item.servicoNome}</Text>
-        <Text style={s.agendSub}>{item.data} às {item.horario}</Text>
-      </View>
-      <Text style={s.agendPreco}>R${item.servicoPreco}</Text>
-    </View>
+          renderItem={({ item }) => (
+            <View style={[s.agendCard, { borderLeftColor: '#C9A96E' }]}>
+              <View style={s.agendTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.agendNome}>{item.clienteNome}</Text>
+                  <Text style={s.agendSub}>{item.estabelecimentoNome} · {item.servicoNome}</Text>
+                  <Text style={s.agendSub}>{item.data} às {item.horario}</Text>
+                </View>
+                <Text style={s.agendPreco}>R${item.servicoPreco}</Text>
+              </View>
 
-    {/* Status badge */}
-    <View style={s.agendRodape}>
-      <Text style={[s.status,
-        item.status === 'confirmado' && s.statusConfirmado,
-        item.status === 'cancelado' && s.statusCancelado,
-        item.status === 'concluido' && s.statusConcluido,
-      ]}>
-        {item.status === 'confirmado' ? '✓ Confirmado'
-          : item.status === 'cancelado' ? '✕ Cancelado'
-          : '✓ Concluído'}
-      </Text>
+              <View style={s.agendRodape}>
+                <Text style={[s.status,
+                  item.status === 'confirmado' && s.statusConfirmado,
+                  item.status === 'cancelado' && s.statusCancelado,
+                  item.status === 'concluido' && s.statusConcluido,
+                ]}>
+                  {item.status === 'confirmado' ? '✓ Confirmado'
+                    : item.status === 'cancelado' ? '✕ Cancelado'
+                    : '✓ Concluído'}
+                </Text>
+                {item.avaliacao && (
+                  <View style={s.avaliacaoWrap}>
+                    {[1, 2, 3, 4, 5].map(i => (
+                      <Text key={i} style={[s.estrelinha, i <= item.avaliacao!.estrelas && s.estrelinhaAtiva]}>★</Text>
+                    ))}
+                  </View>
+                )}
+              </View>
 
-      {/* Avaliação recebida */}
-      {item.avaliacao && (
-        <View style={s.avaliacaoWrap}>
-          {[1,2,3,4,5].map(i => (
-            <Text key={i} style={[s.estrelinha, i <= item.avaliacao!.estrelas && s.estrelinhaAtiva]}>★</Text>
-          ))}
-        </View>
-      )}
-    </View>
-
-    {/* Ações */}
-    {item.status === 'confirmado' && (
-      <View style={s.acoesWrap}>
-        <TouchableOpacity
-          style={s.btnConcluir}
-          onPress={() => {
-            Alert.alert('Concluir', 'Marcar este agendamento como concluído?', [
-              { text: 'Cancelar', style: 'cancel' },
-              {
-                text: 'Concluir', onPress: () =>
-                  firestore()
-                    .collection('agendamentos')
-                    .doc(item.id)
-                    .update({ status: 'concluido' })
-              },
-            ]);
-          }}>
-          <Text style={s.btnConcluirText}>✓ Concluído</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={s.btnCancelar}
-          onPress={() => {
-            Alert.alert('Cancelar', 'Deseja cancelar este agendamento?', [
-              { text: 'Não', style: 'cancel' },
-              {
-                text: 'Cancelar', style: 'destructive', onPress: () =>
-                  firestore()
-                    .collection('agendamentos')
-                    .doc(item.id)
-                    .update({ status: 'cancelado' })
-              },
-            ]);
-          }}>
-          <Text style={s.btnCancelarText}>✕ Cancelar</Text>
-        </TouchableOpacity>
-      </View>
-    )}
-  </View>
-)}
+              {item.status === 'confirmado' && (
+                <View style={s.acoesWrap}>
+                  <TouchableOpacity
+                    style={s.btnConcluir}
+                    onPress={() => {
+                      Alert.alert('Concluir', 'Marcar este agendamento como concluído?', [
+                        { text: 'Cancelar', style: 'cancel' },
+                        { text: 'Concluir', onPress: () => firestore().collection('agendamentos').doc(item.id).update({ status: 'concluido' }) },
+                      ]);
+                    }}>
+                    <Text style={s.btnConcluirText}>✓ Concluído</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={s.btnCancelar}
+                    onPress={() => {
+                      Alert.alert('Cancelar', 'Deseja cancelar este agendamento?', [
+                        { text: 'Não', style: 'cancel' },
+                        { text: 'Cancelar', style: 'destructive', onPress: () => firestore().collection('agendamentos').doc(item.id).update({ status: 'cancelado' }) },
+                      ]);
+                    }}>
+                    <Text style={s.btnCancelarText}>✕ Cancelar</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
         />
       )}
 
@@ -232,6 +223,7 @@ export default function AdminDashScreen() {
               <Text style={s.emptySub}>Crie seu primeiro estabelecimento!</Text>
             </View>
           }
+		  
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[s.estabCard, { borderLeftColor: item.cor }]}
@@ -247,18 +239,21 @@ export default function AdminDashScreen() {
                   {agends.filter(a => a.estabelecimentoId === item.id).length} agend.
                 </Text>
               </View>
+			  
               <Text style={s.arrow}>›</Text>
             </TouchableOpacity>
           )}
         />
       )}
     </View>
+	
   );
 }
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' },
+  safeHeader: { backgroundColor: '#1A1A1A' },
   header: { backgroundColor: '#1A1A1A', padding: 20, paddingTop: 52, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerSub: { color: '#C9A96E', fontSize: 10, letterSpacing: 1.5, marginBottom: 2 },
   headerTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
@@ -270,15 +265,6 @@ const s = StyleSheet.create({
   abaText: { color: '#666', fontSize: 13, fontWeight: '500' },
   abaTextAtiva: { color: '#C9A96E', fontWeight: '700' },
   lista: { padding: 16 },
-  agendRodape: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
-acoesWrap: { flexDirection: 'row', gap: 8, marginTop: 4 },
-btnConcluir: { flex: 1, backgroundColor: '#E8F5E9', borderRadius: 8, padding: 8, alignItems: 'center' },
-btnConcluirText: { color: '#4CAF50', fontSize: 12, fontWeight: '700' },
-btnCancelar: { flex: 1, backgroundColor: '#FFEBEE', borderRadius: 8, padding: 8, alignItems: 'center' },
-btnCancelarText: { color: '#F44336', fontSize: 12, fontWeight: '700' },
-avaliacaoWrap: { flexDirection: 'row', gap: 2 },
-estrelinha: { fontSize: 13, color: '#E0E0E0' },
-estrelinhaAtiva: { color: '#F4A261' },
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
   statCard: { flex: 1, backgroundColor: '#fff', borderRadius: 14, padding: 12, alignItems: 'center', elevation: 1 },
   statIc: { fontSize: 18, marginBottom: 4 },
@@ -290,10 +276,19 @@ estrelinhaAtiva: { color: '#F4A261' },
   agendNome: { color: '#1A1A1A', fontSize: 13, fontWeight: '600' },
   agendSub: { color: '#888', fontSize: 11, marginTop: 2 },
   agendPreco: { color: '#1A1A1A', fontSize: 16, fontWeight: '700' },
+  agendRodape: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
   status: { fontSize: 11, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8, fontWeight: '600', alignSelf: 'flex-start', overflow: 'hidden' },
   statusConfirmado: { backgroundColor: '#E8F5E9', color: '#4CAF50' },
   statusCancelado: { backgroundColor: '#FFEBEE', color: '#F44336' },
   statusConcluido: { backgroundColor: '#E3F2FD', color: '#2196F3' },
+  acoesWrap: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  btnConcluir: { flex: 1, backgroundColor: '#E8F5E9', borderRadius: 8, padding: 8, alignItems: 'center' },
+  btnConcluirText: { color: '#4CAF50', fontSize: 12, fontWeight: '700' },
+  btnCancelar: { flex: 1, backgroundColor: '#FFEBEE', borderRadius: 8, padding: 8, alignItems: 'center' },
+  btnCancelarText: { color: '#F44336', fontSize: 12, fontWeight: '700' },
+  avaliacaoWrap: { flexDirection: 'row', gap: 2 },
+  estrelinha: { fontSize: 13, color: '#E0E0E0' },
+  estrelinhaAtiva: { color: '#F4A261' },
   novoBtn: { backgroundColor: '#1A1A1A', borderRadius: 14, padding: 15, alignItems: 'center', marginBottom: 16 },
   novoBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   estabCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10, flexDirection: 'row', alignItems: 'center', borderLeftWidth: 4, elevation: 1 },
@@ -308,5 +303,4 @@ estrelinhaAtiva: { color: '#F4A261' },
   emptyEmoji: { fontSize: 36, marginBottom: 8 },
   emptyText: { color: '#1A1A1A', fontSize: 14, fontWeight: '600' },
   emptySub: { color: '#aaa', fontSize: 12, marginTop: 4 },
-  
 });

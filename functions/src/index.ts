@@ -1,71 +1,121 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
-import * as admin from "firebase-admin";
+import * as functions from 'firebase-functions/v2/https';
+import * as admin from 'firebase-admin';
 
 admin.initializeApp();
 const db = admin.firestore();
+const messaging = admin.messaging();
 
-async function verificarAdmin(uid: string): Promise<boolean> {
-  const snap = await db.doc(`admins/${uid}`).get();
-  return snap.exists && snap.data()?.ativo === true;
-}
+// ─── Criar Agendamento ───────────────────────────────────────────────
+export const criarAgendamento = functions.onCall(async (request) => {
+  const { estabelecimentoId, servicoId, servicoNome, servicoPreco, data, horario, clienteNome, clienteUid } = request.data;
 
-export const criarAgendamento = onCall(async (request) => {
-  const data = request.data;
-  const campos = ["estabelecimentoId","servicoNome","clienteNome","data","horario"];
-  for (const campo of campos) {
-    if (!data[campo]) {
-      throw new HttpsError("invalid-argument", `Campo obrigatório: ${campo}`);
-    }
+  if (!estabelecimentoId || !servicoId || !data || !horario || !clienteNome) {
+    throw new functions.HttpsError('invalid-argument', 'Campos obrigatórios faltando');
   }
-  const conflito = await db.collection("agendamentos")
-    .where("estabelecimentoId", "==", data.estabelecimentoId)
-    .where("data", "==", data.data)
-    .where("horario", "==", data.horario)
-    .where("status", "in", ["confirmado", "pendente"])
+
+  // Checa conflito
+  const conflito = await db.collection('agendamentos')
+    .where('estabelecimentoId', '==', estabelecimentoId)
+    .where('data', '==', data)
+    .where('horario', '==', horario)
+    .where('status', 'in', ['confirmado'])
     .get();
 
   if (!conflito.empty) {
-    throw new HttpsError("already-exists", "Horário já ocupado.");
+    throw new functions.HttpsError('already-exists', 'Horário já ocupado');
   }
-  const ref = await db.collection("agendamentos").add({
-    ...data,
-    status: "confirmado",
+
+  const estabSnap = await db.collection('estabelecimentos').doc(estabelecimentoId).get();
+  const estab = estabSnap.data();
+
+  const agendRef = await db.collection('agendamentos').add({
+    estabelecimentoId,
+    estabelecimentoNome: estab?.nome || '',
+    servicoId,
+    servicoNome,
+    servicoPreco,
+    data,
+    horario,
+    clienteNome,
+    clienteUid: clienteUid || null,
+    status: 'confirmado',
     criadoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
-  return { id: ref.id };
+
+  // Notifica o admin do estabelecimento
+  try {
+    const adminId = estab?.adminId;
+    if (adminId) {
+      const adminSnap = await db.collection('admins').doc(adminId).get();
+      const fcmToken = adminSnap.data()?.fcmToken;
+      if (fcmToken) {
+        await messaging.send({
+          token: fcmToken,
+          notification: {
+            title: '📅 Novo Agendamento!',
+            body: `${clienteNome} agendou ${servicoNome} para ${data} às ${horario}`,
+          },
+        });
+      }
+    }
+  } catch (e) {
+    console.log('Erro ao notificar admin:', e);
+  }
+
+  return { id: agendRef.id };
 });
 
-export const cancelarAgendamento = onCall(async (request) => {
+// ─── Cancelar Agendamento ────────────────────────────────────────────
+export const cancelarAgendamento = functions.onCall(async (request) => {
   if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Não autenticado.");
+    throw new functions.HttpsError('unauthenticated', 'Não autenticado');
   }
-  if (!await verificarAdmin(request.auth.uid)) {
-    throw new HttpsError("permission-denied", "Sem permissão.");
+
+  const { agendamentoId } = request.data;
+  const snap = await db.collection('agendamentos').doc(agendamentoId).get();
+  const agend = snap.data();
+
+  await db.collection('agendamentos').doc(agendamentoId).update({ status: 'cancelado' });
+
+  // Notifica o cliente
+  try {
+    if (agend?.clienteUid) {
+      const clienteSnap = await db.collection('clientes').doc(agend.clienteUid).get();
+      const fcmToken = clienteSnap.data()?.fcmToken;
+      if (fcmToken) {
+        await messaging.send({
+          token: fcmToken,
+          notification: {
+            title: '❌ Agendamento Cancelado',
+            body: `Seu agendamento de ${agend.servicoNome} em ${agend.data} foi cancelado`,
+          },
+        });
+      }
+    }
+  } catch (e) {
+    console.log('Erro ao notificar cliente:', e);
   }
-  await db.doc(`agendamentos/${request.data.agendamentoId}`).update({
-    status: "cancelado",
-  });
-  return { mensagem: "Cancelado com sucesso." };
+
+  return { ok: true };
 });
 
-export const salvarEstabelecimento = onCall(async (request) => {
+// ─── Salvar Estabelecimento ──────────────────────────────────────────
+export const salvarEstabelecimento = functions.onCall(async (request) => {
   if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Não autenticado.");
+    throw new functions.HttpsError('unauthenticated', 'Não autenticado');
   }
-  if (!await verificarAdmin(request.auth.uid)) {
-    throw new HttpsError("permission-denied", "Sem permissão.");
+
+  const { estabelecimentoId, dados } = request.data;
+
+  if (estabelecimentoId === 'novo') {
+    const ref = await db.collection('estabelecimentos').add({
+      ...dados,
+      adminId: request.auth.uid,
+      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { id: ref.id };
+  } else {
+    await db.collection('estabelecimentos').doc(estabelecimentoId).update(dados);
+    return { id: estabelecimentoId };
   }
-  const data = request.data;
-  const payload: any = {
-    ...data,
-    adminId: request.auth.uid,
-    atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-  };
-  if (data.id) {
-    await db.doc(`estabelecimentos/${data.id}`).update(payload);
-    return { id: data.id };
-  }
-  payload.criadoEm = admin.firestore.FieldValue.serverTimestamp();
-  const ref = await db.collection("estabelecimentos").add(payload);
-  return { id: ref.id };
 });

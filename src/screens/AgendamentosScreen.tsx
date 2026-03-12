@@ -1,39 +1,79 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator,
+  StyleSheet, ActivityIndicator, Alert,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useNavigation } from '@react-navigation/native';
 import type { Agendamento } from '../types';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function AgendamentosScreen() {
   const navigation = useNavigation<any>();
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
-  const [clienteNome, setClienteNome] = useState('');
+  const [user, setUser] = useState<FirebaseAuthTypes.User | null>(auth().currentUser);
 
   useEffect(() => {
-    AsyncStorage.getItem('clienteNome').then(nome => {
-      if (nome) {
-        setClienteNome(nome);
-        buscarAgendamentos(nome);
-      } else {
+    // Escuta mudanças de login/logout em tempo real
+    const unsubscribeAuth = auth().onAuthStateChanged(u => {
+      setUser(u);
+      if (!u) {
+        setAgendamentos([]);
         setLoading(false);
       }
     });
+    return unsubscribeAuth;
   }, []);
 
-  const buscarAgendamentos = (nome: string) => {
-    firestore()
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubscribe = firestore()
       .collection('agendamentos')
-      .where('clienteNome', '==', nome)
-      .orderBy('criadoEm', 'desc')
-      .onSnapshot(snap => {
-        setAgendamentos(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
-        setLoading(false);
-      });
+      .where('clienteUid', '==', user.uid)
+      .onSnapshot(
+        snap => {
+          if (!snap) { setLoading(false); return; }
+          const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[];
+          lista.sort((a, b) => {
+            const da = (a.criadoEm as any)?.seconds || 0;
+            const db = (b.criadoEm as any)?.seconds || 0;
+            return db - da;
+          });
+          setAgendamentos(lista);
+          setLoading(false);
+        },
+        error => {
+          console.log('Erro agendamentos:', error);
+          setLoading(false);
+        }
+      );
+
+    return unsubscribe;
+  }, [user?.uid]);
+
+  const handleLogout = () => {
+    Alert.alert('Sair', 'Deseja sair da sua conta?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Sair',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await auth().signOut();
+            try { await GoogleSignin.signOut(); } catch {}
+          } catch (e) {
+            console.log('Erro logout:', e);
+          }
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'HomeTabs' }],
+          });
+        },
+      },
+    ]);
   };
 
   const statusConfig = (status: string) => {
@@ -53,12 +93,12 @@ export default function AgendamentosScreen() {
     );
   }
 
-  if (!clienteNome) {
+  if (!user) {
     return (
       <View style={s.center}>
-        <Text style={s.emptyEmoji}>📅</Text>
-        <Text style={s.emptyTitulo}>Nenhum agendamento</Text>
-        <Text style={s.emptySub}>Faça seu primeiro agendamento!</Text>
+        <Text style={s.emptyEmoji}>🔒</Text>
+        <Text style={s.emptyTitulo}>Faça login para ver seus horários</Text>
+        <Text style={s.emptySub}>Agende um serviço para criar sua conta</Text>
         <TouchableOpacity
           style={s.btnPrimario}
           onPress={() => navigation.navigate('HomeTabs', { screen: 'Home' })}>
@@ -71,8 +111,15 @@ export default function AgendamentosScreen() {
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <Text style={s.headerSub}>SEUS HORÁRIOS</Text>
-        <Text style={s.headerTitulo}>Olá, {clienteNome.split(' ')[0]} 👋</Text>
+        <View>
+          <Text style={s.headerSub}>SEUS HORÁRIOS</Text>
+          <Text style={s.headerTitulo}>
+            Olá, {user.displayName?.split(' ')[0] || user.email?.split('@')[0]} 👋
+          </Text>
+        </View>
+        <TouchableOpacity style={s.sairBtn} onPress={handleLogout}>
+          <Text style={s.sairText}>Sair</Text>
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -84,6 +131,7 @@ export default function AgendamentosScreen() {
           <View style={s.emptyCard}>
             <Text style={s.emptyEmoji}>📭</Text>
             <Text style={s.emptyTitulo}>Nenhum agendamento ainda</Text>
+            <Text style={s.emptySub}>Explore os estabelecimentos e agende!</Text>
             <TouchableOpacity
               style={s.btnPrimario}
               onPress={() => navigation.navigate('HomeTabs', { screen: 'Home' })}>
@@ -97,7 +145,6 @@ export default function AgendamentosScreen() {
 
           return (
             <View style={s.card}>
-              {/* Topo */}
               <View style={s.cardTopo}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardEstab}>{item.estabelecimentoNome}</Text>
@@ -106,7 +153,6 @@ export default function AgendamentosScreen() {
                 <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
               </View>
 
-              {/* Info */}
               <View style={s.cardInfo}>
                 <View style={s.cardInfoItem}>
                   <Text style={s.cardInfoIc}>📅</Text>
@@ -118,22 +164,19 @@ export default function AgendamentosScreen() {
                 </View>
               </View>
 
-              {/* Rodapé */}
               <View style={s.cardRodape}>
                 <View style={[s.statusBadge, { backgroundColor: st.bg }]}>
                   <Text style={[s.statusText, { color: st.cor }]}>{st.label}</Text>
                 </View>
 
-                {/* Avaliação existente */}
                 {item.avaliacao && (
                   <View style={s.avaliacaoWrap}>
-                    {[1,2,3,4,5].map(i => (
+                    {[1, 2, 3, 4, 5].map(i => (
                       <Text key={i} style={[s.estrelinha, i <= item.avaliacao!.estrelas && s.estrelinhaAtiva]}>★</Text>
                     ))}
                   </View>
                 )}
 
-                {/* Botão avaliar */}
                 {podeAvaliar && (
                   <TouchableOpacity
                     style={s.avaliarBtn}
@@ -157,10 +200,12 @@ export default function AgendamentosScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5', padding: 24 },
-  header: { backgroundColor: '#1A1A1A', padding: 20, paddingTop: 52 },
+  header: { backgroundColor: '#1A1A1A', padding: 20, paddingTop: 52, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerSub: { color: '#C9A96E', fontSize: 10, letterSpacing: 1.5, marginBottom: 2 },
   headerTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
-  lista: { padding: 16 },
+  sairBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  sairText: { color: '#C9A96E', fontSize: 12, fontWeight: '600' },
+  lista: { padding: 16, paddingBottom: 32 },
   card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12, elevation: 1 },
   cardTopo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
   cardEstab: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
@@ -178,10 +223,10 @@ const s = StyleSheet.create({
   estrelinhaAtiva: { color: '#F4A261' },
   avaliarBtn: { backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
   avaliarBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  emptyCard: { alignItems: 'center', paddingTop: 40 },
+  emptyCard: { alignItems: 'center', paddingTop: 60 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
-  emptySub: { fontSize: 13, color: '#aaa', marginBottom: 20 },
+  emptyTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 4, textAlign: 'center' },
+  emptySub: { fontSize: 13, color: '#aaa', marginBottom: 4, textAlign: 'center' },
   btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 13, marginTop: 16 },
   btnPrimarioText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

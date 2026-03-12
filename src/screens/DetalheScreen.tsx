@@ -7,7 +7,7 @@ import firestore from '@react-native-firebase/firestore';
 import functions from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Estabelecimento } from '../types';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 const { width } = Dimensions.get('window');
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -57,29 +57,30 @@ export default function DetalheScreen() {
   }, []);
 
   const confirmar = async () => {
-    if (!servicoSel || !dataSel || !horarioSel || !nome) {
-      Alert.alert('Atenção', 'Preencha todos os campos!');
-      return;
-    }
-    try {
-      setSalvando(true);
-      const servico = estab?.servicos.find(s => s.nome === servicoSel);
-      await fn.httpsCallable('criarAgendamento')({
-        estabelecimentoId,
-        estabelecimentoNome: estab?.nome,
-        servicoNome: servicoSel,
-        servicoPreco: servico?.preco || 0,
-        clienteNome: nome,
-        data: dataSel.full,
-        horario: horarioSel,
-      });
-      setConfirmado(true);
-    } catch (e: any) {
-      Alert.alert('Erro', e.message || 'Não foi possível agendar.');
-    } finally {
-      setSalvando(false);
-    }
-  };
+  if (!servicoSel || !dataSel || !horarioSel || !nome) {
+    Alert.alert('Atenção', 'Preencha todos os campos!');
+    return;
+  }
+  try {
+    setSalvando(true);
+    const servico = estab?.servicos.find(s => s.nome === servicoSel);
+    await fn.httpsCallable('criarAgendamento')({
+      estabelecimentoId,
+      estabelecimentoNome: estab?.nome,
+      servicoNome: servicoSel,
+      servicoPreco: servico?.preco || 0,
+      clienteNome: nome,
+      data: dataSel.full,
+      horario: horarioSel,
+    });
+    await AsyncStorage.setItem('clienteNome', nome);
+    setConfirmado(true);
+  } catch (e: any) {
+    Alert.alert('Erro', e.message || 'Não foi possível agendar.');
+  } finally {
+    setSalvando(false);
+  }
+};
 
   if (loading) {
     return (
@@ -108,7 +109,7 @@ export default function DetalheScreen() {
           <Text style={s.confirmTitulo}>Agendado!</Text>
           <Text style={s.confirmSub}>Seu horário está confirmado, {nome.split(' ')[0]}!</Text>
 
-          <View style={s.confirmResumo}>
+     <View style={s.confirmResumo}>
             <Text style={s.confirmEstab}>{estab.nome}</Text>
             {[
               { ic: '💆', txt: servicoSel },
@@ -123,10 +124,15 @@ export default function DetalheScreen() {
             ))}
           </View>
 
-          <TouchableOpacity style={s.btnPrimario} onPress={() => navigation.navigate('Agendamentos')}>
+          <TouchableOpacity
+            style={s.btnPrimario}
+            onPress={() => navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] })}>
             <Text style={s.btnPrimarioText}>Ver meus agendamentos</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.btnSecundario} onPress={() => navigation.navigate('Home')}>
+
+          <TouchableOpacity
+            style={s.btnSecundario}
+            onPress={() => navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] })}>
             <Text style={s.btnSecundarioText}>Voltar ao início</Text>
           </TouchableOpacity>
         </View>

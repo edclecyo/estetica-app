@@ -48,29 +48,41 @@ export default function AdminEstabScreen() {
 
   const [agends, setAgends] = useState<any[]>([]);
 
-  useEffect(() => {
-    if (!isNovo) {
-      firestore().collection('estabelecimentos').doc(estabelecimentoId).get()
-        .then(snap => {
-          if (snap.exists) {
-            const d = snap.data() as Estabelecimento;
-            setNome(d.nome); setTipo(d.tipo); setEndereco(d.endereco);
-            setCidade(d.cidade); setTelefone(d.telefone); setDescricao(d.descricao);
-            setHorarioFunc(d.horarioFuncionamento); setImg(d.img); setCor(d.cor);
-            setServicos(d.servicos || []); setHorarios(d.horarios || []);
-          }
-          setLoading(false);
-        });
+ useEffect(() => {
+  if (!isNovo) {
+    firestore()
+      .collection('estabelecimentos')
+      .doc(estabelecimentoId)
+      .get()
+      .then(snap => {
+        if (snap.exists) {
+          const d = snap.data() as Estabelecimento;
+          setNome(d.nome); setTipo(d.tipo); setEndereco(d.endereco);
+          setCidade(d.cidade); setTelefone(d.telefone); setDescricao(d.descricao);
+          setHorarioFunc(d.horarioFuncionamento); setImg(d.img); setCor(d.cor);
+          setServicos(d.servicos || []); setHorarios(d.horarios || []);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
 
-      const u = firestore().collection('agendamentos')
-        .where('estabelecimentoId', '==', estabelecimentoId)
-        .orderBy('criadoEm', 'desc')
-        .onSnapshot(snap => {
-          setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
-      return u;
-    }
-  }, []);
+    const u = firestore()
+      .collection('agendamentos')
+      .where('estabelecimentoId', '==', estabelecimentoId)
+      .onSnapshot(
+        snap => {
+          if (!snap) return;
+          setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
+        },
+        error => {
+          console.log('Agendamentos error:', error);
+        }
+      );
+    return u;
+  } else {
+    setLoading(false);
+  }
+}, []);
 
   const salvar = async () => {
     if (!nome || !endereco) { Alert.alert('Atenção', 'Nome e endereço são obrigatórios.'); return; }

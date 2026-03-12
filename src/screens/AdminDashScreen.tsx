@@ -37,9 +37,13 @@ export default function AdminDashScreen() {
             .where('estabelecimentoId', 'in', ids)
             .orderBy('criadoEm', 'desc')
             .limit(50)
-            .onSnapshot(snapA => {
-              setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
-            });
+.onSnapshot(
+  snapA => {
+    if (!snapA) return;
+    setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
+  },
+  error => console.log('Agendamentos error:', error)
+);
         } else {
           setAgends([]);
           setLoading(false);
@@ -131,27 +135,79 @@ export default function AdminDashScreen() {
               <Text style={s.emptyText}>Nenhum agendamento ainda</Text>
             </View>
           }
-          renderItem={({ item }) => (
-            <View style={[s.agendCard, { borderLeftColor: '#C9A96E' }]}>
-              <View style={s.agendTop}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.agendNome}>{item.clienteNome}</Text>
-                  <Text style={s.agendSub}>{item.estabelecimentoNome} · {item.servicoNome}</Text>
-                  <Text style={s.agendSub}>{item.data} às {item.horario}</Text>
-                </View>
-                <Text style={s.agendPreco}>R${item.servicoPreco}</Text>
-              </View>
-              <Text style={[s.status,
-                item.status === 'confirmado' && s.statusConfirmado,
-                item.status === 'cancelado' && s.statusCancelado,
-                item.status === 'concluido' && s.statusConcluido,
-              ]}>
-                {item.status === 'confirmado' ? '✓ Confirmado'
-                  : item.status === 'cancelado' ? '✕ Cancelado'
-                  : '✓ Concluído'}
-              </Text>
-            </View>
-          )}
+       renderItem={({ item }) => (
+  <View style={[s.agendCard, { borderLeftColor: '#C9A96E' }]}>
+    <View style={s.agendTop}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.agendNome}>{item.clienteNome}</Text>
+        <Text style={s.agendSub}>{item.estabelecimentoNome} · {item.servicoNome}</Text>
+        <Text style={s.agendSub}>{item.data} às {item.horario}</Text>
+      </View>
+      <Text style={s.agendPreco}>R${item.servicoPreco}</Text>
+    </View>
+
+    {/* Status badge */}
+    <View style={s.agendRodape}>
+      <Text style={[s.status,
+        item.status === 'confirmado' && s.statusConfirmado,
+        item.status === 'cancelado' && s.statusCancelado,
+        item.status === 'concluido' && s.statusConcluido,
+      ]}>
+        {item.status === 'confirmado' ? '✓ Confirmado'
+          : item.status === 'cancelado' ? '✕ Cancelado'
+          : '✓ Concluído'}
+      </Text>
+
+      {/* Avaliação recebida */}
+      {item.avaliacao && (
+        <View style={s.avaliacaoWrap}>
+          {[1,2,3,4,5].map(i => (
+            <Text key={i} style={[s.estrelinha, i <= item.avaliacao!.estrelas && s.estrelinhaAtiva]}>★</Text>
+          ))}
+        </View>
+      )}
+    </View>
+
+    {/* Ações */}
+    {item.status === 'confirmado' && (
+      <View style={s.acoesWrap}>
+        <TouchableOpacity
+          style={s.btnConcluir}
+          onPress={() => {
+            Alert.alert('Concluir', 'Marcar este agendamento como concluído?', [
+              { text: 'Cancelar', style: 'cancel' },
+              {
+                text: 'Concluir', onPress: () =>
+                  firestore()
+                    .collection('agendamentos')
+                    .doc(item.id)
+                    .update({ status: 'concluido' })
+              },
+            ]);
+          }}>
+          <Text style={s.btnConcluirText}>✓ Concluído</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={s.btnCancelar}
+          onPress={() => {
+            Alert.alert('Cancelar', 'Deseja cancelar este agendamento?', [
+              { text: 'Não', style: 'cancel' },
+              {
+                text: 'Cancelar', style: 'destructive', onPress: () =>
+                  firestore()
+                    .collection('agendamentos')
+                    .doc(item.id)
+                    .update({ status: 'cancelado' })
+              },
+            ]);
+          }}>
+          <Text style={s.btnCancelarText}>✕ Cancelar</Text>
+        </TouchableOpacity>
+      </View>
+    )}
+  </View>
+)}
         />
       )}
 
@@ -214,6 +270,15 @@ const s = StyleSheet.create({
   abaText: { color: '#666', fontSize: 13, fontWeight: '500' },
   abaTextAtiva: { color: '#C9A96E', fontWeight: '700' },
   lista: { padding: 16 },
+  agendRodape: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
+acoesWrap: { flexDirection: 'row', gap: 8, marginTop: 4 },
+btnConcluir: { flex: 1, backgroundColor: '#E8F5E9', borderRadius: 8, padding: 8, alignItems: 'center' },
+btnConcluirText: { color: '#4CAF50', fontSize: 12, fontWeight: '700' },
+btnCancelar: { flex: 1, backgroundColor: '#FFEBEE', borderRadius: 8, padding: 8, alignItems: 'center' },
+btnCancelarText: { color: '#F44336', fontSize: 12, fontWeight: '700' },
+avaliacaoWrap: { flexDirection: 'row', gap: 2 },
+estrelinha: { fontSize: 13, color: '#E0E0E0' },
+estrelinhaAtiva: { color: '#F4A261' },
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
   statCard: { flex: 1, backgroundColor: '#fff', borderRadius: 14, padding: 12, alignItems: 'center', elevation: 1 },
   statIc: { fontSize: 18, marginBottom: 4 },
@@ -243,4 +308,5 @@ const s = StyleSheet.create({
   emptyEmoji: { fontSize: 36, marginBottom: 8 },
   emptyText: { color: '#1A1A1A', fontSize: 14, fontWeight: '600' },
   emptySub: { color: '#aaa', fontSize: 12, marginTop: 4 },
+  
 });

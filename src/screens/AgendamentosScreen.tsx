@@ -6,30 +6,64 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import type { Agendamento } from '../types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function AgendamentosScreen() {
   const navigation = useNavigation<any>();
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [clienteNome, setClienteNome] = useState('');
 
   useEffect(() => {
-    const unsubscribe = firestore()
+    AsyncStorage.getItem('clienteNome').then(nome => {
+      if (nome) {
+        setClienteNome(nome);
+        buscarAgendamentos(nome);
+      } else {
+        setLoading(false);
+      }
+    });
+  }, []);
+
+  const buscarAgendamentos = (nome: string) => {
+    firestore()
       .collection('agendamentos')
+      .where('clienteNome', '==', nome)
       .orderBy('criadoEm', 'desc')
       .onSnapshot(snap => {
-        const lista = snap.docs.map(doc => ({
-          id: doc.id, ...doc.data()
-        })) as Agendamento[];
-        setAgendamentos(lista);
+        setAgendamentos(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
         setLoading(false);
       });
-    return unsubscribe;
-  }, []);
+  };
+
+  const statusConfig = (status: string) => {
+    switch (status) {
+      case 'confirmado': return { cor: '#4CAF50', bg: '#E8F5E9', label: '✓ Confirmado' };
+      case 'cancelado': return { cor: '#F44336', bg: '#FFEBEE', label: '✕ Cancelado' };
+      case 'concluido': return { cor: '#2196F3', bg: '#E3F2FD', label: '✓ Concluído' };
+      default: return { cor: '#FF9800', bg: '#FFF3E0', label: '⏳ Pendente' };
+    }
+  };
 
   if (loading) {
     return (
       <View style={s.center}>
-        <ActivityIndicator size="large" color="#C9A96E" />
+        <ActivityIndicator size="large" color="#1A1A1A" />
+      </View>
+    );
+  }
+
+  if (!clienteNome) {
+    return (
+      <View style={s.center}>
+        <Text style={s.emptyEmoji}>📅</Text>
+        <Text style={s.emptyTitulo}>Nenhum agendamento</Text>
+        <Text style={s.emptySub}>Faça seu primeiro agendamento!</Text>
+        <TouchableOpacity
+          style={s.btnPrimario}
+          onPress={() => navigation.navigate('HomeTabs', { screen: 'Home' })}>
+          <Text style={s.btnPrimarioText}>Explorar estabelecimentos</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -37,7 +71,8 @@ export default function AgendamentosScreen() {
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <Text style={s.headerTitle}>Meus Agendamentos</Text>
+        <Text style={s.headerSub}>SEUS HORÁRIOS</Text>
+        <Text style={s.headerTitulo}>Olá, {clienteNome.split(' ')[0]} 👋</Text>
       </View>
 
       <FlatList
@@ -46,67 +81,107 @@ export default function AgendamentosScreen() {
         contentContainerStyle={s.lista}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={s.empty}>
-            <Text style={s.emptyEmoji}>📋</Text>
-            <Text style={s.emptyTitulo}>Nenhum agendamento</Text>
-            <Text style={s.emptySub}>Explore e marque seu horário!</Text>
+          <View style={s.emptyCard}>
+            <Text style={s.emptyEmoji}>📭</Text>
+            <Text style={s.emptyTitulo}>Nenhum agendamento ainda</Text>
             <TouchableOpacity
               style={s.btnPrimario}
-              onPress={() => navigation.navigate('Home')}>
-              <Text style={s.btnPrimarioText}>Explorar</Text>
+              onPress={() => navigation.navigate('HomeTabs', { screen: 'Home' })}>
+              <Text style={s.btnPrimarioText}>Agendar agora</Text>
             </TouchableOpacity>
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={[s.card, { borderLeftColor: '#C9A96E' }]}>
-            <View style={s.cardTop}>
-              <Text style={s.cardNome}>{item.estabelecimentoNome}</Text>
-              <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
+        renderItem={({ item }) => {
+          const st = statusConfig(item.status);
+          const podeAvaliar = item.status === 'concluido' && !item.avaliacao;
+
+          return (
+            <View style={s.card}>
+              {/* Topo */}
+              <View style={s.cardTopo}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardEstab}>{item.estabelecimentoNome}</Text>
+                  <Text style={s.cardServico}>{item.servicoNome}</Text>
+                </View>
+                <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
+              </View>
+
+              {/* Info */}
+              <View style={s.cardInfo}>
+                <View style={s.cardInfoItem}>
+                  <Text style={s.cardInfoIc}>📅</Text>
+                  <Text style={s.cardInfoTxt}>{item.data}</Text>
+                </View>
+                <View style={s.cardInfoItem}>
+                  <Text style={s.cardInfoIc}>⏰</Text>
+                  <Text style={s.cardInfoTxt}>{item.horario}</Text>
+                </View>
+              </View>
+
+              {/* Rodapé */}
+              <View style={s.cardRodape}>
+                <View style={[s.statusBadge, { backgroundColor: st.bg }]}>
+                  <Text style={[s.statusText, { color: st.cor }]}>{st.label}</Text>
+                </View>
+
+                {/* Avaliação existente */}
+                {item.avaliacao && (
+                  <View style={s.avaliacaoWrap}>
+                    {[1,2,3,4,5].map(i => (
+                      <Text key={i} style={[s.estrelinha, i <= item.avaliacao!.estrelas && s.estrelinhaAtiva]}>★</Text>
+                    ))}
+                  </View>
+                )}
+
+                {/* Botão avaliar */}
+                {podeAvaliar && (
+                  <TouchableOpacity
+                    style={s.avaliarBtn}
+                    onPress={() => navigation.navigate('Avaliar', {
+                      agendamentoId: item.id,
+                      estabelecimentoNome: item.estabelecimentoNome,
+                      estabelecimentoId: item.estabelecimentoId,
+                    })}>
+                    <Text style={s.avaliarBtnText}>⭐ Avaliar</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
-            <View style={s.cardBody}>
-              <Text style={s.cardLinha}>💆 {item.servicoNome}</Text>
-              <Text style={s.cardLinha}>📅 {item.data} às {item.horario}</Text>
-              <Text style={s.cardLinha}>👤 {item.clienteNome}</Text>
-            </View>
-            <View style={s.cardFooter}>
-              <Text style={[s.status,
-                item.status === 'confirmado' && s.statusConfirmado,
-                item.status === 'cancelado' && s.statusCancelado,
-                item.status === 'concluido' && s.statusConcluido,
-              ]}>
-                {item.status === 'confirmado' ? '✓ Confirmado'
-                  : item.status === 'cancelado' ? '✕ Cancelado'
-                  : '✓ Concluído'}
-              </Text>
-            </View>
-          </View>
-        )}
+          );
+        }}
       />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAF7F4' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { backgroundColor: '#1A1A1A', padding: 20, paddingTop: 50 },
-  headerTitle: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5', padding: 24 },
+  header: { backgroundColor: '#1A1A1A', padding: 20, paddingTop: 52 },
+  headerSub: { color: '#C9A96E', fontSize: 10, letterSpacing: 1.5, marginBottom: 2 },
+  headerTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
   lista: { padding: 16 },
-  card: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, borderLeftWidth: 4, elevation: 2 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  cardNome: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
-  cardPreco: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
-  cardBody: { backgroundColor: '#FAF7F4', borderRadius: 10, padding: 10, marginBottom: 8 },
-  cardLinha: { fontSize: 12, color: '#555', marginBottom: 2 },
-  cardFooter: { flexDirection: 'row' },
-  status: { fontSize: 11, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8, fontWeight: '600', overflow: 'hidden' },
-  statusConfirmado: { backgroundColor: '#E8F5E9', color: '#4CAF50' },
-  statusCancelado: { backgroundColor: '#FFEBEE', color: '#e55' },
-  statusConcluido: { backgroundColor: '#E3F2FD', color: '#2196F3' },
-  empty: { alignItems: 'center', paddingTop: 60 },
+  card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12, elevation: 1 },
+  cardTopo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  cardEstab: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
+  cardServico: { fontSize: 12, color: '#888' },
+  cardPreco: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
+  cardInfo: { flexDirection: 'row', gap: 16, marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
+  cardInfoItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  cardInfoIc: { fontSize: 13 },
+  cardInfoTxt: { fontSize: 12, color: '#555', fontWeight: '500' },
+  cardRodape: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  statusText: { fontSize: 11, fontWeight: '600' },
+  avaliacaoWrap: { flexDirection: 'row', gap: 2 },
+  estrelinha: { fontSize: 14, color: '#E0E0E0' },
+  estrelinhaAtiva: { color: '#F4A261' },
+  avaliarBtn: { backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  avaliarBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  emptyCard: { alignItems: 'center', paddingTop: 40 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyTitulo: { fontSize: 18, fontWeight: '700', color: '#1A1A1A', marginBottom: 6 },
+  emptyTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
   emptySub: { fontSize: 13, color: '#aaa', marginBottom: 20 },
-  btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 32, paddingVertical: 14 },
-  btnPrimarioText: { color: '#FAF7F4', fontSize: 15, fontWeight: '700' },
+  btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 13, marginTop: 16 },
+  btnPrimarioText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

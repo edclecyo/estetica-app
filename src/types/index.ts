@@ -1,17 +1,12 @@
-// ─── Admin ─────────────────────────────────────────────────────────────────
 export interface Admin {
   id: string;
   nome: string;
   email: string;
   telefone: string;
-  avatar: string;
-  cargo: 'Super Admin' | 'Admin' | 'Gerente';
-  estabelecimentoId?: string;
-  criadoEm: Date;
+  cargo: 'Super Admin' | 'Admin';
   ativo: boolean;
 }
 
-// ─── Serviço ────────────────────────────────────────────────────────────────
 export interface Servico {
   id: string;
   nome: string;
@@ -21,12 +16,12 @@ export interface Servico {
   descricao?: string;
 }
 
-// ─── Estabelecimento ────────────────────────────────────────────────────────
 export interface Estabelecimento {
   id: string;
   nome: string;
   tipo: string;
   avaliacao: number;
+  totalAvaliacoes: number;
   img: string;
   cor: string;
   endereco: string;
@@ -38,11 +33,15 @@ export interface Estabelecimento {
   horarios: string[];
   adminId: string;
   ativo: boolean;
-  criadoEm: Date;
 }
 
-// ─── Agendamento ────────────────────────────────────────────────────────────
 export type StatusAgendamento = 'confirmado' | 'cancelado' | 'concluido' | 'pendente';
+
+export interface Avaliacao {
+  estrelas: number;
+  tags: string[];
+  criadoEm: Date;
+}
 
 export interface Agendamento {
   id: string;
@@ -55,10 +54,10 @@ export interface Agendamento {
   data: string;
   horario: string;
   status: StatusAgendamento;
+  avaliacao?: Avaliacao;
   criadoEm: Date;
 }
 
-// ─── Navegação ──────────────────────────────────────────────────────────────
 export type RootStackParamList = {
   Home: undefined;
   Detalhe: { estabelecimentoId: string };
@@ -66,4 +65,5 @@ export type RootStackParamList = {
   AdminLogin: undefined;
   AdminDash: undefined;
   AdminEstab: { estabelecimentoId: string };
+  Avaliar: { agendamentoId: string; estabelecimentoNome: string; estabelecimentoId: string };
 };

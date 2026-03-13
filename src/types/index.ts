@@ -56,6 +56,9 @@ export interface Agendamento {
   status: StatusAgendamento;
   avaliacao?: Avaliacao;
   criadoEm: Date;
+  notifLida?: boolean;
+notifApagada?: boolean;
+  
 }
 
 export type RootStackParamList = {

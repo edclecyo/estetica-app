@@ -10,6 +10,7 @@ interface AuthContextData {
   loading: boolean;
   isAdmin: boolean;
   isCliente: boolean;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextData>({} as AuthContextData);
@@ -22,9 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(async firebaseUser => {
       setUser(firebaseUser);
-
       if (firebaseUser) {
-        // Verifica se é admin
         try {
           const snap = await firestore()
             .collection('admins')
@@ -41,21 +40,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setAdmin(null);
       }
-
       setLoading(false);
     });
-
     return unsubscribe;
   }, []);
+
+  // Logout centralizado — reseta admin imediatamente
+  const signOut = async () => {
+  setAdmin(null);
+  setUser(null);
+  try {
+    await auth().signOut();
+  } catch (e) {
+    console.log('signOut error:', e);
+  }
+};
 
   return (
     <AuthContext.Provider value={{
       user,
       admin,
-      cliente: admin ? null : user, // se não é admin, é cliente
+      cliente: admin ? null : user,
       loading,
       isAdmin: !!admin,
       isCliente: !!user && !admin,
+      signOut,
     }}>
       {children}
     </AuthContext.Provider>

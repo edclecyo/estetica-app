@@ -1,80 +1,84 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert, SafeAreaView,
+  StyleSheet, ActivityIndicator, Alert,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-import { logoutAdmin } from '../services/authService';
 import type { Estabelecimento, Agendamento } from '../types';
 
 export default function AdminDashScreen() {
   const navigation = useNavigation<any>();
-  const { admin } = useAuth();
+  const { admin, signOut } = useAuth();
   const [aba, setAba] = useState<'dash' | 'estabs'>('dash');
   const [estabs, setEstabs] = useState<Estabelecimento[]>([]);
   const [agends, setAgends] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notifNaoLidas, setNotifNaoLidas] = useState(0);
 
   useEffect(() => {
-    if (!admin?.id) return;
+  if (!admin?.id) return;
 
-    const u1 = firestore()
-      .collection('estabelecimentos')
-      .where('adminId', '==', admin.id)
-      .onSnapshot(snap => {
-        const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
-        setEstabs(lista);
+  const u1 = firestore()
+    .collection('estabelecimentos')
+    .where('adminId', '==', admin.id)
+    .onSnapshot(snap => {
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
+      setEstabs(lista);
+      setLoading(false);
+
+      if (lista.length > 0) {
+        const ids = lista.map(e => e.id);
+        firestore()
+          .collection('agendamentos')
+          .where('estabelecimentoId', 'in', ids)
+          .orderBy('criadoEm', 'desc')
+          .limit(50)
+          .onSnapshot(
+  snapA => {
+    if (!snapA || !snapA.docs) return;
+    const listaA = snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[];
+    setAgends(listaA);
+    const naoLidas = listaA.filter(
+      a => !a.notifLida && !a.notifApagada
+    ).length;
+    setNotifNaoLidas(naoLidas);
+  },
+  error => console.log('Agendamentos error:', error)
+);
+      } else {
+        setAgends([]);
         setLoading(false);
+      }
+    });
 
-        if (lista.length > 0) {
-          const ids = lista.map(e => e.id);
-          firestore()
-            .collection('agendamentos')
-            .where('estabelecimentoId', 'in', ids)
-            .orderBy('criadoEm', 'desc')
-            .limit(50)
-            .onSnapshot(
-              snapA => {
-                if (!snapA) return;
-                setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
-              },
-              error => console.log('Agendamentos error:', error)
-            );
-        } else {
-          setAgends([]);
-          setLoading(false);
-        }
-      });
-
-    return u1;
-  }, [admin?.id]);
-
+  return u1;
+}, [admin?.id]);
+useEffect(() => {
+  if (!admin) {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'HomeTabs' }],
+    });
+  }
+}, [admin]);
   const receita = agends
     .filter(a => a.status === 'confirmado' || a.status === 'concluido')
     .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
 
- const handleLogout = () => {
-  Alert.alert('Sair', 'Deseja sair do painel?', [
-    { text: 'Cancelar', style: 'cancel' },
-    {
-      text: 'Sair',
-      style: 'destructive',
-      onPress: async () => {
-        try {
-          await logoutAdmin();
-        } catch (e) {
-          console.log('Erro logout:', e);
-        }
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'HomeTabs' }],
-        });
+  const handleLogout = () => {
+    Alert.alert('Sair', 'Deseja sair do painel?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Sair',
+        style: 'destructive',
+        onPress: async () => {
+          await signOut();
+        },
       },
-    },
-  ]);
-};
+    ]);
+  };
 
   if (loading) {
     return (
@@ -86,18 +90,29 @@ export default function AdminDashScreen() {
 
   return (
     <View style={s.container}>
-      {/* SafeAreaView garante que o header não fique atrás da StatusBar */}
-      <SafeAreaView style={s.safeHeader}>
-        <View style={s.header}>
-          <View>
-            <Text style={s.headerSub}>PAINEL ADMIN</Text>
-            <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]} 👋</Text>
-          </View>
+
+      {/* Header */}
+      <View style={s.header}>
+        <View>
+          <Text style={s.headerSub}>PAINEL ADMIN</Text>
+          <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]} 👋</Text>
+        </View>
+        <View style={s.headerAcoes}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('AdminNotif')}
+            style={s.sinoBtn}>
+            <Text style={s.sinoIcon}>🔔</Text>
+            {notifNaoLidas > 0 && (
+              <View style={s.badge}>
+                <Text style={s.badgeText}>{notifNaoLidas}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
           <TouchableOpacity onPress={handleLogout} style={s.sairBtn}>
             <Text style={s.sairText}>Sair</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
 
       {/* Abas */}
       <View style={s.abas}>
@@ -153,7 +168,6 @@ export default function AdminDashScreen() {
                 </View>
                 <Text style={s.agendPreco}>R${item.servicoPreco}</Text>
               </View>
-
               <View style={s.agendRodape}>
                 <Text style={[s.status,
                   item.status === 'confirmado' && s.statusConfirmado,
@@ -172,27 +186,22 @@ export default function AdminDashScreen() {
                   </View>
                 )}
               </View>
-
               {item.status === 'confirmado' && (
                 <View style={s.acoesWrap}>
                   <TouchableOpacity
                     style={s.btnConcluir}
-                    onPress={() => {
-                      Alert.alert('Concluir', 'Marcar este agendamento como concluído?', [
-                        { text: 'Cancelar', style: 'cancel' },
-                        { text: 'Concluir', onPress: () => firestore().collection('agendamentos').doc(item.id).update({ status: 'concluido' }) },
-                      ]);
-                    }}>
+                    onPress={() => Alert.alert('Concluir', 'Marcar como concluído?', [
+                      { text: 'Cancelar', style: 'cancel' },
+                      { text: 'Concluir', onPress: () => firestore().collection('agendamentos').doc(item.id).update({ status: 'concluido' }) },
+                    ])}>
                     <Text style={s.btnConcluirText}>✓ Concluído</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={s.btnCancelar}
-                    onPress={() => {
-                      Alert.alert('Cancelar', 'Deseja cancelar este agendamento?', [
-                        { text: 'Não', style: 'cancel' },
-                        { text: 'Cancelar', style: 'destructive', onPress: () => firestore().collection('agendamentos').doc(item.id).update({ status: 'cancelado' }) },
-                      ]);
-                    }}>
+                    onPress={() => Alert.alert('Cancelar', 'Deseja cancelar?', [
+                      { text: 'Não', style: 'cancel' },
+                      { text: 'Cancelar', style: 'destructive', onPress: () => firestore().collection('agendamentos').doc(item.id).update({ status: 'cancelado' }) },
+                    ])}>
                     <Text style={s.btnCancelarText}>✕ Cancelar</Text>
                   </TouchableOpacity>
                 </View>
@@ -223,7 +232,6 @@ export default function AdminDashScreen() {
               <Text style={s.emptySub}>Crie seu primeiro estabelecimento!</Text>
             </View>
           }
-		  
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[s.estabCard, { borderLeftColor: item.cor }]}
@@ -239,26 +247,52 @@ export default function AdminDashScreen() {
                   {agends.filter(a => a.estabelecimentoId === item.id).length} agend.
                 </Text>
               </View>
-			  
               <Text style={s.arrow}>›</Text>
             </TouchableOpacity>
           )}
         />
       )}
     </View>
-	
   );
 }
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' },
-  safeHeader: { backgroundColor: '#1A1A1A' },
-  header: { backgroundColor: '#1A1A1A', padding: 20, paddingTop: 52, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  header: { backgroundColor: '#1A1A1A', paddingHorizontal: 20, paddingTop: 52, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerSub: { color: '#C9A96E', fontSize: 10, letterSpacing: 1.5, marginBottom: 2 },
   headerTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
+  headerAcoes: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sinoBtn: { 
+  backgroundColor: '#2A2A2A', 
+  borderRadius: 10, 
+  width: 38, 
+  height: 38, 
+  justifyContent: 'center', 
+  alignItems: 'center',
+  overflow: 'visible', // ← importante
+},
+badge: { 
+  position: 'absolute', 
+  top: -6, 
+  right: -6, 
+  backgroundColor: '#F44336', 
+  borderRadius: 10, 
+  minWidth: 20, 
+  height: 20, 
+  justifyContent: 'center', 
+  alignItems: 'center', 
+  paddingHorizontal: 4,
+  borderWidth: 2,
+  borderColor: '#1A1A1A', // ← borda para destacar do fundo escuro
+},
+badgeText: { 
+  color: '#fff', 
+  fontSize: 11, 
+  fontWeight: '700' 
+},
   sairBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  sairText: { color: '#777', fontSize: 12, fontWeight: '600' },
+  sairText: { color: '#C9A96E', fontSize: 12, fontWeight: '600' },
   abas: { flexDirection: 'row', backgroundColor: '#1A1A1A', borderBottomWidth: 1, borderBottomColor: '#282828' },
   aba: { flex: 1, padding: 14, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
   abaAtiva: { borderBottomColor: '#C9A96E' },

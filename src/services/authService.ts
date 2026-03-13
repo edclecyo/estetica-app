@@ -34,7 +34,7 @@ export async function loginAdmin(
   email: string,
   senha: string
 ): Promise<void> {
-  await auth().signInWithEmailAndPassword(email, senha);
+  const credential = await auth().signInWithEmailAndPassword(email, senha);
   await registrarTokenPush(credential.user.uid, 'admin');
 }
 

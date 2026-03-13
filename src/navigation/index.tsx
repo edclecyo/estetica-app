@@ -13,13 +13,12 @@ import AdminLoginScreen from '../screens/AdminLoginScreen';
 import AdminDashScreen from '../screens/AdminDashScreen';
 import AdminEstabScreen from '../screens/AdminEstabScreen';
 import AvaliarScreen from '../screens/AvaliarScreen';
-
+import AdminNotifScreen from '../screens/AdminNotifScreen';
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function HomeTabs() {
   const { isCliente, user } = useAuth();
-
   return (
     <Tab.Navigator
       screenOptions={{
@@ -33,7 +32,8 @@ function HomeTabs() {
         },
         tabBarActiveTintColor: '#C9A96E',
         tabBarInactiveTintColor: '#555',
-      }}>
+      }}
+      initialRouteName="Home">
       <Tab.Screen
         name="Home"
         component={HomeScreen}
@@ -69,17 +69,18 @@ export default function Navigation() {
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isAdmin ? (
+       {isAdmin ? (
   <>
-  <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
     <Stack.Screen name="AdminDash" component={AdminDashScreen} />
     <Stack.Screen name="AdminEstab" component={AdminEstabScreen} />
-    
+    <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
+    <Stack.Screen name="AdminNotif" component={AdminNotifScreen} />
   </>
 ) : (
   <>
-  <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
+  
     <Stack.Screen name="HomeTabs" component={HomeTabs} />
+	<Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
     <Stack.Screen name="Detalhe" component={DetalheScreen} />
     <Stack.Screen name="ClienteLogin" component={ClienteLoginScreen} />
     <Stack.Screen name="Avaliar" component={AvaliarScreen} />

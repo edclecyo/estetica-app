@@ -29,18 +29,19 @@ export const criarAgendamento = functions.onCall(async (request) => {
   const estab = estabSnap.data();
 
   const agendRef = await db.collection('agendamentos').add({
-    estabelecimentoId,
-    estabelecimentoNome: estab?.nome || '',
-    servicoId,
-    servicoNome,
-    servicoPreco,
-    data,
-    horario,
-    clienteNome,
-    clienteUid: clienteUid || null,
-    status: 'confirmado',
-    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  estabelecimentoId,
+  estabelecimentoNome: estab?.nome || '',
+  servicoId,
+  servicoNome,
+  servicoPreco,
+  data,
+  horario,
+  clienteNome,
+  clienteUid: clienteUid || null,
+  status: 'confirmado',
+  notifLida: false,  // ← adicione essa linha
+  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+});
 
   // Notifica o admin do estabelecimento
   try {

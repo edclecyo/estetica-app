@@ -33,17 +33,21 @@ export default function AdminLoginScreen() {
   };
 
   const fazerLogin = async () => {
-    if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
-    try {
-      setLoading(true);
-      await loginAdmin(email, senha);
-      navigation.replace('AdminDash');
-    } catch (e: any) {
-      Alert.alert('Erro', 'Email ou senha incorretos.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
+  try {
+    setLoading(true);
+    await loginAdmin(email, senha);
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'AdminDash' }],
+    });
+  } catch (e: any) {
+    console.log('Erro login:', e.code, e.message);
+    Alert.alert('Erro', 'Email ou senha incorretos.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const fazerCadastro = async () => {
     if (!cNome || !cEmail || !cSenha) { Alert.alert('Atenção', 'Preencha todos os campos.'); return; }
@@ -101,9 +105,11 @@ export default function AdminLoginScreen() {
 
         {/* Topo decorativo */}
         <View style={s.topo}>
-          <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
-            <Text style={s.voltarBtnText}>←</Text>
-          </TouchableOpacity>
+          <TouchableOpacity 
+  style={s.voltarBtn} 
+  onPress={() => navigation.navigate('HomeTabs')}>
+  <Text style={s.voltarBtnText}>←</Text>
+</TouchableOpacity>
           <View style={s.logoCircle}>
             <Text style={s.logoEmoji}>✂️</Text>
           </View>

@@ -9,7 +9,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Estabelecimento } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
-const { width } = Dimensions.get('window');
+
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 const getDatas = () => {
@@ -37,59 +37,74 @@ export default function DetalheScreen() {
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [step, setStep] = useState(1);
-
+  const [horariosOcupados, setHorariosOcupados] = useState<string[]>([]);
   const [servicoSel, setServicoSel] = useState<string>('');
   const [dataSel, setDataSel] = useState<any>(null);
   const [horarioSel, setHorarioSel] = useState<string>('');
   const [nome, setNome] = useState('');
   const [confirmado, setConfirmado] = useState(false);
-const [nomeUsuario, setNomeUsuario] = useState('');
+  const [nomeUsuario, setNomeUsuario] = useState('');
   const datas = getDatas();
 
+  // Busca estabelecimento e nome do usuário
   useEffect(() => {
-  firestore()
-    .collection('estabelecimentos')
-    .doc(estabelecimentoId)
-    .get()
-    .then(snap => {
-      if (snap.exists) setEstab({ id: snap.id, ...snap.data() } as Estabelecimento);
-      setLoading(false);
-    });
+    firestore()
+      .collection('estabelecimentos')
+      .doc(estabelecimentoId)
+      .get()
+      .then(snap => {
+        if (snap.exists) setEstab({ id: snap.id, ...snap.data() } as Estabelecimento);
+        setLoading(false);
+      });
 
-  // Pega nome do usuário logado
-  const user = auth().currentUser;
-  if (user?.displayName) {
-    setNome(user.displayName);
-    setNomeUsuario(user.displayName);
-  }
-}, []);
+    const user = auth().currentUser;
+    if (user?.displayName) {
+      setNome(user.displayName);
+      setNomeUsuario(user.displayName);
+    }
+  }, []);
+
+  // Busca horários ocupados quando data muda
+  useEffect(() => {
+    if (!dataSel || !estabelecimentoId) return;
+    firestore()
+      .collection('agendamentos')
+      .where('estabelecimentoId', '==', estabelecimentoId)
+      .where('data', '==', dataSel.full)
+      .where('status', '==', 'confirmado')
+      .get()
+      .then(snap => {
+        setHorariosOcupados(snap.docs.map(d => d.data().horario));
+      });
+  }, [dataSel]);
 
   const confirmar = async () => {
-  if (!servicoSel || !dataSel || !horarioSel || !nome) {
-    Alert.alert('Atenção', 'Preencha todos os campos!');
-    return;
-  }
-  try {
-    setSalvando(true);
-    const servico = estab?.servicos.find(s => s.nome === servicoSel);
-    await fn.httpsCallable('criarAgendamento')({
-  estabelecimentoId,
-  estabelecimentoNome: estab?.nome,
-  servicoNome: servicoSel,
-  servicoPreco: servico?.preco || 0,
-  clienteNome: nome,
-  clienteUid: auth().currentUser?.uid || '',
-  data: dataSel.full,
-  horario: horarioSel,
-});
-    await AsyncStorage.setItem('clienteNome', nome);
-    setConfirmado(true);
-  } catch (e: any) {
-    Alert.alert('Erro', e.message || 'Não foi possível agendar.');
-  } finally {
-    setSalvando(false);
-  }
-};
+    if (!servicoSel || !dataSel || !horarioSel || !nome) {
+      Alert.alert('Atenção', 'Preencha todos os campos!');
+      return;
+    }
+    try {
+      setSalvando(true);
+      const servico = estab?.servicos.find(s => s.nome === servicoSel);
+      await fn.httpsCallable('criarAgendamento')({
+        estabelecimentoId,
+        estabelecimentoNome: estab?.nome,
+        servicoId: servico?.id || servicoSel,
+        servicoNome: servicoSel,
+        servicoPreco: servico?.preco || 0,
+        clienteNome: nome,
+        clienteUid: auth().currentUser?.uid || '',
+        data: dataSel.full,
+        horario: horarioSel,
+      });
+      await AsyncStorage.setItem('clienteNome', nome);
+      setConfirmado(true);
+    } catch (e: any) {
+      Alert.alert('Erro', e.message || 'Não foi possível agendar.');
+    } finally {
+      setSalvando(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -107,7 +122,6 @@ const [nomeUsuario, setNomeUsuario] = useState('');
     );
   }
 
-  // ── TELA DE CONFIRMAÇÃO ──
   if (confirmado) {
     return (
       <View style={s.confirmWrap}>
@@ -117,8 +131,7 @@ const [nomeUsuario, setNomeUsuario] = useState('');
           </View>
           <Text style={s.confirmTitulo}>Agendado!</Text>
           <Text style={s.confirmSub}>Seu horário está confirmado, {nome.split(' ')[0]}!</Text>
-
-     <View style={s.confirmResumo}>
+          <View style={s.confirmResumo}>
             <Text style={s.confirmEstab}>{estab.nome}</Text>
             {[
               { ic: '💆', txt: servicoSel },
@@ -132,13 +145,11 @@ const [nomeUsuario, setNomeUsuario] = useState('');
               </View>
             ))}
           </View>
-
           <TouchableOpacity
             style={s.btnPrimario}
             onPress={() => navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] })}>
             <Text style={s.btnPrimarioText}>Ver meus agendamentos</Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={s.btnSecundario}
             onPress={() => navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] })}>
@@ -183,7 +194,7 @@ const [nomeUsuario, setNomeUsuario] = useState('');
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={s.body}>
 
-          {/* Steps indicator */}
+          {/* Steps */}
           <View style={s.stepsWrap}>
             {[1, 2, 3, 4].map(i => (
               <View key={i} style={s.stepItem}>
@@ -225,7 +236,7 @@ const [nomeUsuario, setNomeUsuario] = useState('');
                 {datas.map((d, i) => (
                   <TouchableOpacity
                     key={i}
-                    onPress={() => { setDataSel(d); setStep(Math.max(step, 3)); }}
+                    onPress={() => { setDataSel(d); setHorarioSel(''); setStep(Math.max(step, 3)); }}
                     style={[s.dataCard, dataSel?.full === d.full && s.dataCardAtivo]}>
                     <Text style={[s.dataDia, dataSel?.full === d.full && { color: '#C9A96E' }]}>{d.dia}</Text>
                     <Text style={[s.dataNum, dataSel?.full === d.full && { color: '#fff' }]}>{d.numero}</Text>
@@ -241,42 +252,56 @@ const [nomeUsuario, setNomeUsuario] = useState('');
             <View style={s.secao}>
               <Text style={s.secaoTitulo}>Horário</Text>
               <View style={s.horariosWrap}>
-                {estab.horarios?.map(h => (
-                  <TouchableOpacity
-                    key={h}
-                    onPress={() => { setHorarioSel(h); setStep(Math.max(step, 4)); }}
-                    style={[s.horarioChip, horarioSel === h && s.horarioChipAtivo]}>
-                    <Text style={[s.horarioText, horarioSel === h && { color: '#fff' }]}>{h}</Text>
-                  </TouchableOpacity>
-                ))}
+                {estab.horarios?.map(h => {
+                  const ocupado = horariosOcupados.includes(h);
+                  return (
+                    <TouchableOpacity
+                      key={h}
+                      disabled={ocupado}
+                      onPress={() => { setHorarioSel(h); setStep(Math.max(step, 4)); }}
+                      style={[
+                        s.horarioChip,
+                        horarioSel === h && s.horarioChipAtivo,
+                        ocupado && s.horarioChipOcupado,
+                      ]}>
+                      <Text style={[
+                        s.horarioText,
+                        horarioSel === h && { color: '#fff' },
+                        ocupado && { color: '#ccc' },
+                      ]}>
+                        {h}{ocupado ? ' ✕' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           )}
 
           {/* STEP 4 — Nome */}
           {step >= 4 && (
-  <View style={s.secao}>
-    <Text style={s.secaoTitulo}>Seu nome</Text>
-    {nomeUsuario
-      ? (
-        <View style={s.nomeLogadoWrap}>
-          <Text style={s.nomeLogadoIc}>👤</Text>
-          <Text style={s.nomeLogadoTxt}>{nomeUsuario}</Text>
-        </View>
-      )
-      : (
-        <TextInput
-          style={s.input}
-          placeholder="Nome completo"
-          placeholderTextColor="#aaa"
-          value={nome}
-          onChangeText={setNome}
-          autoFocus
-        />
-      )
-    }
-  </View>
-)}
+            <View style={s.secao}>
+              <Text style={s.secaoTitulo}>Seu nome</Text>
+              {nomeUsuario
+                ? (
+                  <View style={s.nomeLogadoWrap}>
+                    <Text style={s.nomeLogadoIc}>👤</Text>
+                    <Text style={s.nomeLogadoTxt}>{nomeUsuario}</Text>
+                  </View>
+                )
+                : (
+                  <TextInput
+                    style={s.input}
+                    placeholder="Nome completo"
+                    placeholderTextColor="#aaa"
+                    value={nome}
+                    onChangeText={setNome}
+                    autoFocus
+                  />
+                )
+              }
+            </View>
+          )}
 
           {/* Resumo */}
           {(servicoSel || dataSel || horarioSel) && (
@@ -323,8 +348,6 @@ const [nomeUsuario, setNomeUsuario] = useState('');
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' },
-
-  // Banner
   banner: { padding: 24, paddingTop: 52, flexDirection: 'row', alignItems: 'center', gap: 16 },
   voltarBtn: { position: 'absolute', top: 52, left: 16, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.8)', borderRadius: 10, width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
   voltarBtnText: { fontSize: 20, color: '#1A1A1A' },
@@ -335,10 +358,7 @@ const s = StyleSheet.create({
   bannerTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   bannerTag: { backgroundColor: 'rgba(255,255,255,0.8)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   bannerTagText: { fontSize: 11, color: '#444' },
-
   body: { padding: 16 },
-
-  // Steps
   stepsWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 16 },
   stepItem: { flexDirection: 'row', alignItems: 'center' },
   stepCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' },
@@ -347,13 +367,9 @@ const s = StyleSheet.create({
   stepNumAtivo: { color: '#fff' },
   stepLine: { width: 40, height: 2, backgroundColor: '#E0E0E0', marginHorizontal: 4 },
   stepLineAtiva: { backgroundColor: '#1A1A1A' },
-
-  // Secao
   secao: { marginBottom: 20 },
   secaoTitulo: { fontSize: 13, fontWeight: '700', color: '#999', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 },
   emptyText: { color: '#aaa', fontSize: 13 },
-
-  // Serviço
   servicoCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, borderWidth: 2, borderColor: 'transparent' },
   servicoCardAtivo: { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
   servicoLeft: { flex: 1 },
@@ -361,44 +377,31 @@ const s = StyleSheet.create({
   servicoDur: { fontSize: 11, color: '#888', marginTop: 2 },
   servicoPrecoBox: { backgroundColor: '#F5F5F5', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   servicoPreco: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
-
-  // Data
   datasScroll: { marginBottom: 4 },
   dataCard: { width: 56, alignItems: 'center', padding: 10, borderRadius: 14, backgroundColor: '#fff', marginRight: 8, borderWidth: 2, borderColor: 'transparent' },
   dataCardAtivo: { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
   dataDia: { fontSize: 10, color: '#888', fontWeight: '600' },
   dataNum: { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginVertical: 2 },
   dataMes: { fontSize: 10, color: '#aaa' },
-
-//login
-nomeLogadoWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 2, borderColor: '#E0E0E0' },
-nomeLogadoIc: { fontSize: 20 },
-nomeLogadoTxt: { fontSize: 15, fontWeight: '600', color: '#1A1A1A' },
-
-  // Horário
   horariosWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   horarioChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: '#fff', borderWidth: 2, borderColor: 'transparent' },
   horarioChipAtivo: { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
+  horarioChipOcupado: { backgroundColor: '#F5F5F5', borderColor: '#E0E0E0', opacity: 0.5 },
   horarioText: { fontSize: 13, color: '#555', fontWeight: '600' },
-
-  // Input
+  nomeLogadoWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 2, borderColor: '#E0E0E0' },
+  nomeLogadoIc: { fontSize: 20 },
+  nomeLogadoTxt: { fontSize: 15, fontWeight: '600', color: '#1A1A1A' },
   input: { backgroundColor: '#fff', borderRadius: 14, padding: 14, fontSize: 14, color: '#1A1A1A', borderWidth: 2, borderColor: '#E0E0E0' },
-
-  // Resumo
   resumo: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16 },
   resumoTitulo: { fontSize: 12, fontWeight: '700', color: '#999', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 },
   resumoLinha: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   resumoIc: { fontSize: 14 },
   resumoTxt: { fontSize: 13, color: '#333', fontWeight: '500' },
-
-  // Botões
   btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 16, padding: 16, alignItems: 'center', marginBottom: 12 },
   btnPrimarioText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   btnSecundario: { borderWidth: 2, borderColor: '#E0E0E0', borderRadius: 16, padding: 14, alignItems: 'center', marginBottom: 12 },
   btnSecundarioText: { color: '#666', fontSize: 14, fontWeight: '600' },
   btnDisabled: { backgroundColor: '#ccc' },
-
-  // Confirmação
   confirmWrap: { flex: 1, backgroundColor: '#F5F5F5', justifyContent: 'center', padding: 24 },
   confirmCard: { backgroundColor: '#fff', borderRadius: 24, padding: 24, alignItems: 'center' },
   confirmCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },

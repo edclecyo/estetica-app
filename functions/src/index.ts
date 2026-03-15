@@ -13,7 +13,6 @@ export const criarAgendamento = functions.onCall(async (request) => {
     throw new functions.HttpsError('invalid-argument', 'Campos obrigatórios faltando');
   }
 
-  // Checa conflito
   const conflito = await db.collection('agendamentos')
     .where('estabelecimentoId', '==', estabelecimentoId)
     .where('data', '==', data)
@@ -29,24 +28,37 @@ export const criarAgendamento = functions.onCall(async (request) => {
   const estab = estabSnap.data();
 
   const agendRef = await db.collection('agendamentos').add({
-  estabelecimentoId,
-  estabelecimentoNome: estab?.nome || '',
-  servicoId,
-  servicoNome,
-  servicoPreco,
-  data,
-  horario,
-  clienteNome,
-  clienteUid: clienteUid || null,
-  status: 'confirmado',
-  notifLida: false,  // ← adicione essa linha
-  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-});
+    estabelecimentoId,
+    estabelecimentoNome: estab?.nome || '',
+    servicoId,
+    servicoNome,
+    servicoPreco,
+    data,
+    horario,
+    clienteNome,
+    clienteUid: clienteUid || null,
+    status: 'confirmado',
+    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
 
-  // Notifica o admin do estabelecimento
+  // Cria notificação separada para o admin
   try {
     const adminId = estab?.adminId;
     if (adminId) {
+      await db.collection('notificacoes').add({
+        adminId,
+        agendamentoId: agendRef.id,
+        clienteNome,
+        servicoNome,
+        data,
+        horario,
+        status: 'confirmado',
+        lida: false,
+        apagada: false,
+        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Envia push notification
       const adminSnap = await db.collection('admins').doc(adminId).get();
       const fcmToken = adminSnap.data()?.fcmToken;
       if (fcmToken) {
@@ -78,7 +90,7 @@ export const cancelarAgendamento = functions.onCall(async (request) => {
 
   await db.collection('agendamentos').doc(agendamentoId).update({ status: 'cancelado' });
 
-  // Notifica o cliente
+  // Cria notificação de cancelamento para o cliente
   try {
     if (agend?.clienteUid) {
       const clienteSnap = await db.collection('clientes').doc(agend.clienteUid).get();

@@ -14,8 +14,8 @@ interface Notif {
   data: string;
   horario: string;
   status: string;
-  notifLida: boolean;
-  notifApagada?: boolean;
+  lida: boolean;
+  apagada?: boolean;
   criadoEm: any;
 }
 
@@ -31,7 +31,8 @@ export default function AdminNotifScreen() {
     if (!admin?.id) return;
 
     const unsub = firestore()
-      .collection('agendamentos')
+      .collection('notificacoes')
+      .where('adminId', '==', admin.id)
       .orderBy('criadoEm', 'desc')
       .limit(30)
       .onSnapshot(
@@ -39,7 +40,7 @@ export default function AdminNotifScreen() {
           if (!snap || !snap.docs) return;
           const lista = snap.docs
             .map(d => ({ id: d.id, ...d.data() }))
-            .filter((a: any) => !a.notifApagada) as Notif[];
+            .filter((a: any) => !a.apagada) as Notif[];
           setNotifs(lista);
           setLoading(false);
         },
@@ -49,11 +50,14 @@ export default function AdminNotifScreen() {
     return unsub;
   }, [admin?.id]);
 
-  const naoLidas = notifs.filter(n => !n.notifLida).length;
+  const naoLidas = notifs.filter(n => !n.lida).length;
 
   const marcarLida = (id: string) => {
-    firestore().collection('agendamentos').doc(id).update({ notifLida: true });
-  };
+  // Atualiza local imediatamente
+  setNotifs(prev => prev.map(n => n.id === id ? { ...n, lida: true } : n));
+  // Depois sincroniza com Firestore
+  firestore().collection('notificacoes').doc(id).update({ lida: true });
+};
 
   const toggleSelecao = (id: string) => {
     setSelecionados(prev =>
@@ -76,7 +80,7 @@ export default function AdminNotifScreen() {
         text: 'Apagar', style: 'destructive',
         onPress: () => {
           selecionados.forEach(id =>
-            firestore().collection('agendamentos').doc(id).update({ notifApagada: true })
+            firestore().collection('notificacoes').doc(id).update({ apagada: true })
           );
           setSelecionados([]);
           setModoSelecao(false);
@@ -90,7 +94,7 @@ export default function AdminNotifScreen() {
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Apagar', style: 'destructive',
-        onPress: () => firestore().collection('agendamentos').doc(id).update({ notifApagada: true }),
+        onPress: () => firestore().collection('notificacoes').doc(id).update({ apagada: true }),
       },
     ]);
   };
@@ -111,7 +115,6 @@ export default function AdminNotifScreen() {
 
   return (
     <View style={s.container}>
-      {/* Header */}
       <View style={s.header}>
         <TouchableOpacity
           onPress={modoSelecao ? cancelarSelecao : () => navigation.goBack()}
@@ -172,7 +175,7 @@ export default function AdminNotifScreen() {
               onPress={() => {
                 if (modoSelecao) {
                   toggleSelecao(item.id);
-                } else if (!item.notifLida) {
+                } else if (!item.lida) {
                   marcarLida(item.id);
                 }
               }}
@@ -184,7 +187,7 @@ export default function AdminNotifScreen() {
               }}
               style={[
                 s.notifCard,
-                !item.notifLida && s.notifNaoLida,
+                !item.lida && s.notifNaoLida,
                 selecionado && s.notifSelecionada,
               ]}>
 
@@ -200,7 +203,7 @@ export default function AdminNotifScreen() {
                     <Text style={s.statusEmoji}>{info.emoji}</Text>
                     <Text style={[s.statusLabel, { color: info.cor }]}>{info.label}</Text>
                   </View>
-                  {!item.notifLida && <View style={s.ponto} />}
+                  {!item.lida && <View style={s.ponto} />}
                 </View>
 
                 <Text style={s.clienteNome}>{item.clienteNome}</Text>

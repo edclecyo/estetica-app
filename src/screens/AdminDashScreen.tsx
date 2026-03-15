@@ -17,52 +17,73 @@ export default function AdminDashScreen() {
   const [loading, setLoading] = useState(true);
   const [notifNaoLidas, setNotifNaoLidas] = useState(0);
 
+  // Listener de estabelecimentos e agendamentos
+  useEffect(() => {
+    if (!admin?.id) return;
+
+    const u1 = firestore()
+      .collection('estabelecimentos')
+      .where('adminId', '==', admin.id)
+      .onSnapshot(snap => {
+        const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
+        setEstabs(lista);
+        setLoading(false);
+
+        if (lista.length > 0) {
+          const ids = lista.map(e => e.id);
+          firestore()
+            .collection('agendamentos')
+            .where('estabelecimentoId', 'in', ids)
+            .orderBy('criadoEm', 'desc')
+            .limit(50)
+            .onSnapshot(
+              snapA => {
+                if (!snapA || !snapA.docs) return;
+                const listaA = snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[];
+                setAgends(listaA);
+              },
+              error => console.log('Agendamentos error:', error)
+            );
+        } else {
+          setAgends([]);
+          setLoading(false);
+        }
+      });
+
+    return u1;
+  }, [admin?.id]);
+
+  // Listener de notificações não lidas — badge do sino
   useEffect(() => {
   if (!admin?.id) return;
 
-  const u1 = firestore()
-    .collection('estabelecimentos')
+  const unsub = firestore()
+    .collection('notificacoes')
     .where('adminId', '==', admin.id)
-    .onSnapshot(snap => {
-      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
-      setEstabs(lista);
-      setLoading(false);
+    .where('lida', '==', false)
+    .where('apagada', '==', false)
+    .onSnapshot(
+      snap => {
+        console.log('Badge notifs:', snap?.docs?.length);
+        if (!snap) return;
+        setNotifNaoLidas(snap.docs.length);
+      },
+      error => console.log('Badge error:', error.message)
+    );
 
-      if (lista.length > 0) {
-        const ids = lista.map(e => e.id);
-        firestore()
-          .collection('agendamentos')
-          .where('estabelecimentoId', 'in', ids)
-          .orderBy('criadoEm', 'desc')
-          .limit(50)
-          .onSnapshot(
-  snapA => {
-    if (!snapA || !snapA.docs) return;
-    const listaA = snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[];
-    setAgends(listaA);
-    const naoLidas = listaA.filter(
-      a => !a.notifLida && !a.notifApagada
-    ).length;
-    setNotifNaoLidas(naoLidas);
-  },
-  error => console.log('Agendamentos error:', error)
-);
-      } else {
-        setAgends([]);
-        setLoading(false);
-      }
-    });
-
-  return u1;
+  return unsub;
 }, [admin?.id]);
-useEffect(() => {
-  if (!admin) {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'HomeTabs' }],
-    });
-  }
-}, [admin]);
+
+  // Redireciona para HomeTabs quando admin faz logout
+  useEffect(() => {
+    if (!admin) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'HomeTabs' }],
+      });
+    }
+  }, [admin]);
+
   const receita = agends
     .filter(a => a.status === 'confirmado' || a.status === 'concluido')
     .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
@@ -263,34 +284,10 @@ const s = StyleSheet.create({
   headerSub: { color: '#C9A96E', fontSize: 10, letterSpacing: 1.5, marginBottom: 2 },
   headerTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
   headerAcoes: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  sinoBtn: { 
-  backgroundColor: '#2A2A2A', 
-  borderRadius: 10, 
-  width: 38, 
-  height: 38, 
-  justifyContent: 'center', 
-  alignItems: 'center',
-  overflow: 'visible', // ← importante
-},
-badge: { 
-  position: 'absolute', 
-  top: -6, 
-  right: -6, 
-  backgroundColor: '#F44336', 
-  borderRadius: 10, 
-  minWidth: 20, 
-  height: 20, 
-  justifyContent: 'center', 
-  alignItems: 'center', 
-  paddingHorizontal: 4,
-  borderWidth: 2,
-  borderColor: '#1A1A1A', // ← borda para destacar do fundo escuro
-},
-badgeText: { 
-  color: '#fff', 
-  fontSize: 11, 
-  fontWeight: '700' 
-},
+  sinoBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, width: 38, height: 38, justifyContent: 'center', alignItems: 'center', overflow: 'visible' },
+  sinoIcon: { fontSize: 18 },
+  badge: { position: 'absolute', top: -6, right: -6, backgroundColor: '#F44336', borderRadius: 10, minWidth: 20, height: 20, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: '#1A1A1A' },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   sairBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   sairText: { color: '#C9A96E', fontSize: 12, fontWeight: '600' },
   abas: { flexDirection: 'row', backgroundColor: '#1A1A1A', borderBottomWidth: 1, borderBottomColor: '#282828' },

@@ -160,18 +160,24 @@ export default function HomeScreen() {
       return mb && mt;
     })
     .sort((a, b) => {
-      const abertoA = estaAberto(a.horarioFuncionamento);
-      const abertoB = estaAberto(b.horarioFuncionamento);
-      if (abertoA && !abertoB) return -1;
-      if (!abertoA && abertoB) return 1;
+  const abertoA = estaAberto(a.horarioFuncionamento);
+  const abertoB = estaAberto(b.horarioFuncionamento);
+  if (abertoA && !abertoB) return -1;
+  if (!abertoA && abertoB) return 1;
 
-      if (localizacao && a.lat && b.lat) {
-        const distA = calcularDistancia(localizacao.lat, localizacao.lng, a.lat, a.lng);
-        const distB = calcularDistancia(localizacao.lat, localizacao.lng, b.lat, b.lng);
-        return distA - distB;
-      }
-      return 0;
-    });
+  // Ajustado para ler de e.coords ou e.lat (compatibilidade)
+  const latA = a.coords?.lat || a.lat;
+  const lngA = a.coords?.lng || a.lng;
+  const latB = b.coords?.lat || b.lat;
+  const lngB = b.coords?.lng || b.lng;
+
+  if (localizacao && latA && latB) {
+    const distA = calcularDistancia(localizacao.lat, localizacao.lng, latA, lngA);
+    const distB = calcularDistancia(localizacao.lat, localizacao.lng, latB, lngB);
+    return distA - distB;
+  }
+  return 0;
+});
 
   if (loading) {
     return (

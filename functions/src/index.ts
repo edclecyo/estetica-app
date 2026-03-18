@@ -1,31 +1,24 @@
 import * as functions from 'firebase-functions/v2/https';
-import { onSchedule } from 'firebase-functions/v2/scheduler'; // Para o lembrete
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-// ─── 1. LEMBRETE AUTOMÁTICO (Roda a cada 30 min) ─────────
-// Envia notificação para usuários que têm agendamento na próxima hora
+// ─── 1. LEMBRETE AUTOMÁTICO (Mantido) ─────────
 export const lembreteAgendamento = onSchedule("every 30 minutes", async (event) => {
   const agora = new Date();
-  const proximaHora = new Date(agora.getTime() + 60 * 60 * 1000);
-
-  // Formata a data atual para comparar (Ex: "18/03/2026")
   const dataHoje = agora.toLocaleDateString('pt-BR');
 
   const agendamentosSnap = await db.collection('agendamentos')
     .where('data', '==', dataHoje)
     .where('status', '==', 'confirmado')
-    .where('notificado', '==', false) // Evita enviar duas vezes
+    .where('notificado', '==', false)
     .get();
 
   const promessas = agendamentosSnap.docs.map(async (doc) => {
     const agend = doc.data();
-    // Aqui você validaria se o 'agend.horario' está dentro da próxima hora
-    // Se sim, busca o token do usuário e envia:
-    
     const userSnap = await db.collection('usuarios').doc(agend.clienteUid).get();
     const token = userSnap.data()?.fcmToken;
 
@@ -45,13 +38,11 @@ export const lembreteAgendamento = onSchedule("every 30 minutes", async (event) 
   await Promise.all(promessas);
 });
 
-// ─── 2. LIMPAR AGENDAMENTOS CONCLUÍDOS ─────────
-// Remove da visão do admin (marcando como 'arquivado'), mas mantém os dados para estatísticas
+// ─── 2. LIMPAR AGENDAMENTOS (Mantido) ─────────
 export const limparAgendamentosConcluidos = functions.onCall(async (request) => {
   if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
   
   const { estabelecimentoId } = request.data;
-  
   const docsConcluidos = await db.collection('agendamentos')
     .where('estabelecimentoId', '==', estabelecimentoId)
     .where('status', '==', 'concluido')
@@ -59,8 +50,6 @@ export const limparAgendamentosConcluidos = functions.onCall(async (request) => 
 
   const batch = db.batch();
   docsConcluidos.forEach(doc => {
-    // Em vez de deletar, marcamos como oculto para o admin
-    // assim você não perde os dados do seu Gráfico de Receita!
     batch.update(doc.ref, { visivelAdmin: false });
   });
 
@@ -68,32 +57,44 @@ export const limparAgendamentosConcluidos = functions.onCall(async (request) => 
   return { ok: true, removidos: docsConcluidos.size };
 });
 
-// ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────
+// ─── 3. SALVAR/EDITAR ESTABELECIMENTO (AJUSTADO) ─────────
 export const salvarEstabelecimento = functions.onCall(async (request) => {
   if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
 
   const data = request.data;
   const adminId = request.auth.uid;
+  
+  // Define o ID do documento ou gera um novo
   const docId = data.estabelecimentoId || db.collection('estabelecimentos').doc().id;
   const estRef = db.collection('estabelecimentos').doc(docId);
 
-  const payload = {
+  // Prepara o payload aceitando os novos campos de endereço
+  const payload: any = {
     ...data,
     adminId,
-    lat: data.lat ? Number(data.lat) : null, // Importante para a HomeScreen
-    lng: data.lng ? Number(data.lng) : null,
+    // Garante que as coordenadas sejam salvas como números, caso existam
+    coords: data.coords ? {
+      lat: Number(data.coords.lat),
+      lng: Number(data.coords.lng)
+    } : null,
     atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
   };
 
+  // Remove o ID do corpo do objeto para não duplicar dentro do documento
   delete payload.estabelecimentoId;
+
+  // Salva no Firestore usando merge: true para não apagar campos não enviados
   await estRef.set(payload, { merge: true });
 
   return { id: docId, ok: true };
 });
 
-// ─── 4. CRIAR AGENDAMENTO ─────────
+// ─── 4. CRIAR AGENDAMENTO (Mantido) ─────────
 export const criarAgendamento = functions.onCall(async (request) => {
-  const { estabelecimentoId, servicoId, servicoNome, servicoPreco, data, horario, clienteNome, clienteUid } = request.data;
+  const { 
+    estabelecimentoId, servicoId, servicoNome, servicoPreco, 
+    data, horario, clienteNome, clienteUid 
+  } = request.data;
 
   if (!estabelecimentoId || !servicoId || !data || !horario || !clienteNome) {
     throw new functions.HttpsError('invalid-argument', 'Campos faltando');
@@ -104,17 +105,19 @@ export const criarAgendamento = functions.onCall(async (request) => {
     servicoId, servicoNome, servicoPreco,
     data, horario, clienteNome, clienteUid,
     status: 'confirmado',
-    notificado: false, // Para o sistema de lembrete
-    visivelAdmin: true, // Para o filtro de limpeza
+    notificado: false,
+    visivelAdmin: true,
     criadoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
 
   return { id: agendRef.id };
 });
 
-// ─── 5. CONCLUIR AGENDAMENTO ─────────
+// ─── 5. CONCLUIR AGENDAMENTO (Mantido) ─────────
 export const concluirAgendamento = functions.onCall(async (request) => {
   const { agendamentoId } = request.data;
+  if (!agendamentoId) throw new functions.HttpsError('invalid-argument', 'ID faltando');
+
   await db.collection('agendamentos').doc(agendamentoId).update({ 
     status: 'concluido' 
   });

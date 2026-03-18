@@ -33,7 +33,11 @@ export default function ClienteLoginScreen() {
     try {
       setLoading(true);
       await loginClienteEmail(email, senha);
-      navigation.replace('Detalhe', { estabelecimentoId });
+      if (estabelecimentoId) {
+        navigation.replace('Detalhe', { estabelecimentoId });
+      } else {
+        navigation.replace('HomeTabs');
+      }
     } catch (e: any) {
       Alert.alert('Erro', 'Email ou senha incorretos.');
     } finally {
@@ -48,7 +52,11 @@ export default function ClienteLoginScreen() {
     try {
       setLoading(true);
       await cadastrarClienteEmail(nome, cEmail, cSenha);
-      navigation.replace('Detalhe', { estabelecimentoId });
+      if (estabelecimentoId) {
+        navigation.replace('Detalhe', { estabelecimentoId });
+      } else {
+        navigation.replace('HomeTabs');
+      }
     } catch (e: any) {
       const msg =
         e.code === 'auth/email-already-in-use' ? 'Este email já está cadastrado.' :
@@ -64,7 +72,11 @@ export default function ClienteLoginScreen() {
     try {
       setLoadingGoogle(true);
       await loginClienteGoogle();
-      navigation.replace('Detalhe', { estabelecimentoId });
+      if (estabelecimentoId) {
+        navigation.replace('Detalhe', { estabelecimentoId });
+      } else {
+        navigation.replace('HomeTabs');
+      }
     } catch (e: any) {
       Alert.alert('Erro', 'Não foi possível entrar com Google.');
     } finally {
@@ -204,6 +216,15 @@ export default function ClienteLoginScreen() {
         <Text style={s.termos}>
           Ao continuar você concorda com nossos Termos de Uso e Política de Privacidade.
         </Text>
+
+        {/* Botão Sou Admin */}
+        <TouchableOpacity
+          onPress={() => navigation.navigate('AdminLogin')}
+          style={s.adminBtn}>
+          <Text style={s.adminBtnText}>🔧 Sou Admin</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 30 }} />
       </View>
     </ScrollView>
   );
@@ -235,4 +256,6 @@ const s = StyleSheet.create({
   btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 14, padding: 15, alignItems: 'center', marginTop: 12 },
   btnPrimarioText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   termos: { color: '#bbb', fontSize: 11, textAlign: 'center', marginTop: 20, lineHeight: 16 },
+  adminBtn: { alignItems: 'center', marginTop: 16, padding: 12, borderRadius: 12, borderWidth: 1.5, borderColor: '#E0E0E0' },
+  adminBtnText: { color: '#999', fontSize: 13, fontWeight: '600' },
 });

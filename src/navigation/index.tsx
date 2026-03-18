@@ -14,6 +14,9 @@ import AdminDashScreen from '../screens/AdminDashScreen';
 import AdminEstabScreen from '../screens/AdminEstabScreen';
 import AvaliarScreen from '../screens/AvaliarScreen';
 import AdminNotifScreen from '../screens/AdminNotifScreen';
+import StoryView from '../screens/StoryView';
+import PostarStory from '../screens/PostarStory';
+
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
@@ -86,6 +89,15 @@ export default function Navigation() {
     <Stack.Screen name="Avaliar" component={AvaliarScreen} />
     <Stack.Screen name="AdminDash" component={AdminDashScreen} />
     <Stack.Screen name="AdminEstab" component={AdminEstabScreen} />
+	<Stack.Screen
+name="StoryView"
+component={StoryView}
+options={{ headerShown:false }}
+/>
+<Stack.Screen
+name="PostarStory"
+component={PostarStory}
+/>
   </>
 )}
       </Stack.Navigator>

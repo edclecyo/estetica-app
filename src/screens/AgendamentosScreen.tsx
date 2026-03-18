@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert,
+  StyleSheet, ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
@@ -9,14 +9,16 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useNavigation } from '@react-navigation/native';
 import type { Agendamento } from '../types';
 
+const FILTROS = ['Todos', 'Confirmado', 'Concluído', 'Cancelado'];
+
 export default function AgendamentosScreen() {
   const navigation = useNavigation<any>();
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(auth().currentUser);
+  const [filtro, setFiltro] = useState('Todos');
 
   useEffect(() => {
-    // Escuta mudanças de login/logout em tempo real
     const unsubscribeAuth = auth().onAuthStateChanged(u => {
       setUser(u);
       if (!u) {
@@ -67,10 +69,7 @@ export default function AgendamentosScreen() {
           } catch (e) {
             console.log('Erro logout:', e);
           }
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'HomeTabs' }],
-          });
+          navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] });
         },
       },
     ]);
@@ -84,6 +83,19 @@ export default function AgendamentosScreen() {
       default: return { cor: '#FF9800', bg: '#FFF3E0', label: '⏳ Pendente' };
     }
   };
+
+  const filtrados = agendamentos.filter(a => {
+    if (filtro === 'Todos') return true;
+    if (filtro === 'Confirmado') return a.status === 'confirmado';
+    if (filtro === 'Concluído') return a.status === 'concluido';
+    if (filtro === 'Cancelado') return a.status === 'cancelado';
+    return true;
+  });
+
+  const total = agendamentos.length;
+  const confirmados = agendamentos.filter(a => a.status === 'confirmado').length;
+  const concluidos = agendamentos.filter(a => a.status === 'concluido').length;
+  const cancelados = agendamentos.filter(a => a.status === 'cancelado').length;
 
   if (loading) {
     return (
@@ -101,8 +113,8 @@ export default function AgendamentosScreen() {
         <Text style={s.emptySub}>Agende um serviço para criar sua conta</Text>
         <TouchableOpacity
           style={s.btnPrimario}
-          onPress={() => navigation.navigate('HomeTabs', { screen: 'Home' })}>
-          <Text style={s.btnPrimarioText}>Explorar estabelecimentos</Text>
+          onPress={() => navigation.navigate('ClienteLogin', {})}>
+          <Text style={s.btnPrimarioText}>Entrar / Criar conta</Text>
         </TouchableOpacity>
       </View>
     );
@@ -110,6 +122,7 @@ export default function AgendamentosScreen() {
 
   return (
     <View style={s.container}>
+      {/* Header */}
       <View style={s.header}>
         <View>
           <Text style={s.headerSub}>SEUS HORÁRIOS</Text>
@@ -122,21 +135,55 @@ export default function AgendamentosScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Resumo */}
+      <View style={s.resumoWrap}>
+        {[
+          { ic: '📅', v: total, l: 'Total' },
+          { ic: '✓', v: confirmados, l: 'Confirmados', cor: '#4CAF50' },
+          { ic: '★', v: concluidos, l: 'Concluídos', cor: '#2196F3' },
+          { ic: '✕', v: cancelados, l: 'Cancelados', cor: '#F44336' },
+        ].map(({ ic, v, l, cor }) => (
+          <View key={l} style={s.resumoCard}>
+            <Text style={[s.resumoIc, cor ? { color: cor } : {}]}>{ic}</Text>
+            <Text style={s.resumoV}>{v}</Text>
+            <Text style={s.resumoL}>{l}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Filtros */}
+      <View style={s.filtroWrap}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
+          {FILTROS.map(f => (
+            <TouchableOpacity
+              key={f}
+              onPress={() => setFiltro(f)}
+              style={[s.chip, filtro === f && s.chipAtivo]}>
+              <Text style={[s.chipText, filtro === f && s.chipTextAtivo]}>{f}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
       <FlatList
-        data={agendamentos}
+        data={filtrados}
         keyExtractor={a => a.id}
         contentContainerStyle={s.lista}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={s.emptyCard}>
             <Text style={s.emptyEmoji}>📭</Text>
-            <Text style={s.emptyTitulo}>Nenhum agendamento ainda</Text>
-            <Text style={s.emptySub}>Explore os estabelecimentos e agende!</Text>
-            <TouchableOpacity
-              style={s.btnPrimario}
-              onPress={() => navigation.navigate('HomeTabs', { screen: 'Home' })}>
-              <Text style={s.btnPrimarioText}>Agendar agora</Text>
-            </TouchableOpacity>
+            <Text style={s.emptyTitulo}>Nenhum agendamento{filtro !== 'Todos' ? ` ${filtro.toLowerCase()}` : ''}</Text>
+            <Text style={s.emptySub}>
+              {filtro === 'Todos' ? 'Explore os estabelecimentos e agende!' : `Você não tem agendamentos ${filtro.toLowerCase()}s`}
+            </Text>
+            {filtro === 'Todos' && (
+              <TouchableOpacity
+                style={s.btnPrimario}
+                onPress={() => navigation.navigate('HomeTabs', { screen: 'Home' })}>
+                <Text style={s.btnPrimarioText}>Agendar agora</Text>
+              </TouchableOpacity>
+            )}
           </View>
         }
         renderItem={({ item }) => {
@@ -144,7 +191,7 @@ export default function AgendamentosScreen() {
           const podeAvaliar = item.status === 'concluido' && !item.avaliacao;
 
           return (
-            <View style={s.card}>
+            <View style={[s.card, { borderLeftWidth: 3, borderLeftColor: st.cor }]}>
               <View style={s.cardTopo}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardEstab}>{item.estabelecimentoNome}</Text>
@@ -205,6 +252,17 @@ const s = StyleSheet.create({
   headerTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
   sairBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   sairText: { color: '#C9A96E', fontSize: 12, fontWeight: '600' },
+  resumoWrap: { flexDirection: 'row', backgroundColor: '#1A1A1A', paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
+  resumoCard: { flex: 1, backgroundColor: '#2A2A2A', borderRadius: 12, padding: 10, alignItems: 'center' },
+  resumoIc: { fontSize: 14, color: '#C9A96E', marginBottom: 2 },
+  resumoV: { fontSize: 18, fontWeight: '700', color: '#FAF7F4' },
+  resumoL: { fontSize: 9, color: '#666', marginTop: 2 },
+  filtroWrap: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  filtroScroll: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  chip: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20, backgroundColor: '#F5F5F5', borderWidth: 1.5, borderColor: 'transparent' },
+  chipAtivo: { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
+  chipText: { fontSize: 12, color: '#888', fontWeight: '500' },
+  chipTextAtivo: { color: '#fff', fontWeight: '700' },
   lista: { padding: 16, paddingBottom: 32 },
   card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12, elevation: 1 },
   cardTopo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },

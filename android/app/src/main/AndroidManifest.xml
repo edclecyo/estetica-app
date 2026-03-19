@@ -4,7 +4,11 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-	<uses-permission name="android.permission.ACCESS_FINE_LOCATION" />
+	<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 	<application
       android:name=".MainApplication"
       android:label="@string/app_name"
@@ -12,8 +16,19 @@
       android:roundIcon="@mipmap/ic_launcher_round"
       android:allowBackup="false"
       android:theme="@style/AppTheme"
-      android:usesCleartextTraffic="${usesCleartextTraffic}"
+      android:usesCleartextTraffic="true"
       android:supportsRtl="true">
+
+      <meta-data
+        android:name="com.google.android.geo.API_KEY"
+        android:value="AIzaSyCSFd6v_uZgd98WKLwZNR-tDtEUNzMg4fU"/>
+		<!-- ADICIONE ISSO: força idioma pt-BR no Maps -->
+<meta-data
+  android:name="com.google.android.gms.maps.defaultLanguage"
+  android:value="pt"/>
+<meta-data
+  android:name="com.google.android.gms.maps.defaultCountry"
+  android:value="BR"/>
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

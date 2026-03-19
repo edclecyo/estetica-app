@@ -1,21 +1,20 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  TextInput, StyleSheet, ActivityIndicator, Alert, Switch, Image, Dimensions
+  TextInput, StyleSheet, ActivityIndicator, Alert, Switch, Image, Dimensions, Platform, PermissionsAndroid
 } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import Slider from '@react-native-community/slider';
 import firestore from '@react-native-firebase/firestore';
 import functions from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-import type { Estabelecimento, Servico, Agendamento } from '../types';
+import type { Servico, Agendamento } from '../types';
 import { launchImageLibrary } from "react-native-image-picker";
 import storage from "@react-native-firebase/storage";
-import GetLocation from 'react-native-get-location'; // Certifique-se de instalar: npm install react-native-get-location
 
 const { width } = Dimensions.get('window');
 
-// --- CONSTANTES ---
 const EMOJIS = [
   '✂️', '💇', '💇‍♂️', '💇‍♀️', '💈', '🪮', '🧔🏻‍♂️', '🧴', '🚿',
   '💅', '💅🏾', '💅🏼', '🎨', '🖌️', '🧤',
@@ -33,11 +32,9 @@ const TIPOS = [
 ];
 
 const PRESETS_CORES = [
-  '#C9A96E', '#D4A5A5', '#A5BDD4', '#A5D4B5', '#C4A5D4', 
+  '#C9A96E', '#D4A5A5', '#A5BDD4', '#A5D4B5', '#C4A5D4',
   '#1A1A1A', '#FF5F5F', '#4CAF50', '#2196F3', '#FFFFFF'
 ];
-
-const fn = functions();
 
 export default function AdminEstabScreen() {
   const navigation = useNavigation<any>();
@@ -46,15 +43,19 @@ export default function AdminEstabScreen() {
   const { estabelecimentoId } = route.params;
   const isNovo = estabelecimentoId === 'novo';
 
+  const fn = useMemo(() => functions(), []);
+  const mapRef = useRef<MapView>(null);
+
   const [aba, setAba] = useState<'info' | 'servicos' | 'horarios' | 'agenda'>('info');
   const [loading, setLoading] = useState(!isNovo);
   const [salvando, setSalvando] = useState(false);
+  const [buscandoCep, setBuscandoCep] = useState(false);
+  const [buscandoEnd, setBuscandoEnd] = useState(false);
 
-  // Estados dos Campos
   const [nome, setNome] = useState('');
   const [tipo, setTipo] = useState(TIPOS[0]);
-  const [endereco, setEndereco] = useState('');
   const [cep, setCep] = useState('');
+  const [endereco, setEndereco] = useState('');
   const [bairro, setBairro] = useState('');
   const [numero, setNumero] = useState('');
   const [cidade, setCidade] = useState('');
@@ -62,9 +63,6 @@ export default function AdminEstabScreen() {
   const [descricao, setDescricao] = useState('');
   const [horarioFunc, setHorarioFunc] = useState('08:00 - 20:00');
   const [img, setImg] = useState('✨');
-  
-  // Localização Real
-  const [coords, setCoords] = useState<{lat: number, lng: number} | null>(null);
 
   const [r, setR] = useState(212);
   const [g, setG] = useState(165);
@@ -77,10 +75,16 @@ export default function AdminEstabScreen() {
   const [fotoPerfil, setFotoPerfil] = useState('');
   const [fotoCapa, setFotoCapa] = useState('');
 
+  // Coords do estabelecimento (pino arrastável)
+  const [coords, setCoords] = useState({ lat: -8.0, lng: -35.0 });
+  const [coordsOk, setCoordsOk] = useState(false);
+
+  // Localização real do usuário
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+
   const [gInicio, setGInicio] = useState('08:00');
   const [gFim, setGFim] = useState('18:00');
   const [gIntervalo, setGIntervalo] = useState('60');
-
   const [nsNome, setNsNome] = useState('');
   const [nsPreco, setNsPreco] = useState('');
   const [nsDuracao, setNsDuracao] = useState('');
@@ -91,41 +95,101 @@ export default function AdminEstabScreen() {
     return { concluido, pendente, total: concluido + pendente };
   }, [agends]);
 
-  const updateHex = (red: number, green: number, blue: number) => {
-    const toHex = (c: number) => Math.round(c).toString(16).padStart(2, '0');
-    const hex = `#${toHex(red)}${toHex(green)}${toHex(blue)}`.toUpperCase();
-    setCor(hex);
+  // Pede permissão e obtém localização do usuário
+  useEffect(() => {
+    const obter = async () => {
+      if (Platform.OS === 'android') {
+        try {
+          const ok = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+          if (ok !== PermissionsAndroid.RESULTS.GRANTED) return;
+        } catch { return; }
+      }
+      try {
+        navigator.geolocation?.getCurrentPosition(
+          (pos) => {
+            const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setUserLocation(loc);
+            // Se for novo estabelecimento e ainda sem coords definidas, centraliza aqui
+            if (isNovo && !coordsOk) {
+              setCoords(loc);
+              setCoordsOk(true);
+            }
+          },
+          (err) => console.log('GPS erro', err),
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+        );
+      } catch { }
+    };
+    obter();
+  }, []);
+
+  // ✅ Geocoding pelo endereço completo — chamado sempre que endereço/bairro/cidade mudam
+const geocodificarEndereco = async (rua: string, cid: string, n: string, bairo: string) => {
+  if (!rua || !cid) return; // número não é obrigatório
+    try {
+      const query = encodeURIComponent(`${rua}, ${n}, ${bairo}, ${cid}, Brasil`);
+      // Nominatim com accept-language pt-BR para retornar nomes em português
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1&accept-language=pt-BR&countrycodes=br`,
+        { headers: { 'User-Agent': 'EsteticaApp/1.0' } }
+      );
+      const data = await res.json();
+      if (data?.length > 0) {
+        const novaCoord = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        setCoords(novaCoord);
+        setCoordsOk(true);
+        // Anima o mapa para o novo ponto
+        mapRef.current?.animateToRegion({
+          latitude: novaCoord.lat,
+          longitude: novaCoord.lng,
+          latitudeDelta: 0.003,
+          longitudeDelta: 0.003,
+        }, 800);
+      }
+    } catch { }
+    finally { setBuscandoEnd(false); }
   };
 
-  const buscarLocalizacaoReal = async () => {
-    try {
-      const location = await GetLocation.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 15000,
-      });
-      setCoords({ lat: location.latitude, lng: location.longitude });
-      Alert.alert("Localização obtida!", "Sua latitude e longitude foram capturadas com sucesso.");
-    } catch (error: any) {
-      Alert.alert("Erro de Localização", "Não foi possível obter sua posição atual.");
+  const handleCepChange = async (text: string) => {
+    const cleanCep = text.replace(/\D/g, '');
+    setCep(cleanCep);
+    if (cleanCep.length === 8) {
+      try {
+        setBuscandoCep(true);
+        const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+        const data = await res.json();
+        if (!data.erro) {
+          setEndereco(data.logradouro);
+          setBairro(data.bairro);
+          setCidade(data.localidade);
+          // ✅ Já geocodifica automaticamente ao preencher o CEP
+         await geocodificarEndereco(data.logradouro, data.localidade, numero, data.bairro);
+        } else {
+          Alert.alert("Erro", "CEP não encontrado.");
+        }
+      } catch {
+        Alert.alert("Erro", "Falha ao consultar o CEP.");
+      } finally {
+        setBuscandoCep(false);
+      }
     }
+  };
+
+  const updateHex = (red: number, green: number, blue: number) => {
+    const toHex = (c: number) => Math.round(c).toString(16).padStart(2, '0');
+    setCor(`#${toHex(red)}${toHex(green)}${toHex(blue)}`.toUpperCase());
   };
 
   const gerarGradeHorarios = () => {
     const lista: string[] = [];
     let atual = new Date(`2026-01-01T${gInicio}:00`);
     const fim = new Date(`2026-01-01T${gFim}:00`);
-    if (isNaN(atual.getTime()) || isNaN(fim.getTime())) {
-        Alert.alert('Erro', 'Formato de hora inválido. Use HH:MM');
-        return;
-    }
+    if (isNaN(atual.getTime()) || isNaN(fim.getTime())) { Alert.alert('Erro', 'Use HH:MM'); return; }
     while (atual <= fim) {
-      const h = atual.getHours().toString().padStart(2, '0');
-      const m = atual.getMinutes().toString().padStart(2, '0');
-      lista.push(`${h}:${m}`);
+      lista.push(`${atual.getHours().toString().padStart(2,'0')}:${atual.getMinutes().toString().padStart(2,'0')}`);
       atual.setMinutes(atual.getMinutes() + Number(gIntervalo));
     }
-    const novosHorarios = Array.from(new Set([...horarios, ...lista])).sort();
-    setHorarios(novosHorarios);
+    setHorarios(Array.from(new Set([...horarios, ...lista])).sort());
     Alert.alert('Sucesso ✅', `${lista.length} horários adicionados!`);
   };
 
@@ -140,7 +204,10 @@ export default function AdminEstabScreen() {
           setHorarioFunc(d.horarioFuncionamento); setImg(d.img); setCor(d.cor);
           setServicos(d.servicos || []); setHorarios(d.horarios || []);
           setFotoPerfil(d.fotoPerfil || ''); setFotoCapa(d.fotoCapa || '');
-          if(d.coords) setCoords(d.coords);
+          if (d.lat && d.lng) {
+            setCoords({ lat: d.lat, lng: d.lng });
+            setCoordsOk(true);
+          }
           if (d.cor?.startsWith('#')) {
             setR(parseInt(d.cor.slice(1, 3), 16));
             setG(parseInt(d.cor.slice(3, 5), 16));
@@ -150,18 +217,32 @@ export default function AdminEstabScreen() {
         setLoading(false);
       }).catch(() => setLoading(false));
 
-      const unsub = firestore().collection('agendamentos').where('estabelecimentoId', '==', estabelecimentoId).onSnapshot(snap => {
-          setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
-        }, error => console.log('Agendamentos error:', error));
+      const unsub = firestore().collection('agendamentos')
+        .where('estabelecimentoId', '==', estabelecimentoId)
+        .onSnapshot(
+          snap => setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]),
+          err => console.log('Agendamentos error:', err)
+        );
       return unsub;
     } else {
       setLoading(false);
-      buscarLocalizacaoReal(); // Tenta pegar a localização ao criar um novo
     }
   }, []);
-
+// ✅ NOVO: quando coords carregam do Firestore, anima o mapa para o local salvo
+useEffect(() => {
+  if (coordsOk) {
+    setTimeout(() => {
+      mapRef.current?.animateToRegion({
+        latitude: coords.lat,
+        longitude: coords.lng,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      }, 800);
+    }, 500); // pequeno delay para garantir que o mapa já está montado
+  }
+}, [coordsOk]);
   const salvar = async () => {
-    if (!nome || !endereco) { Alert.alert('Atenção', 'Nome e endereço são obrigatórios.'); return; }
+    if (!nome || !endereco || !cidade) { Alert.alert('Atenção', 'Nome, endereço e cidade são obrigatórios.'); return; }
     try {
       setSalvando(true);
       await fn.httpsCallable('salvarEstabelecimento')({
@@ -169,28 +250,22 @@ export default function AdminEstabScreen() {
         nome, tipo, endereco, cep, bairro, numero, cidade, telefone, descricao,
         horarioFuncionamento: horarioFunc, img, cor, servicos, horarios,
         fotoPerfil, fotoCapa, avaliacao: 5.0, ativo: true,
-        coords: coords // Salvando a latitude e longitude real
+        lat: coords.lat, lng: coords.lng
       });
-      Alert.alert('Sucesso! ✅', isNovo ? 'Criado!' : 'Atualizado!', [
-        { text: 'OK', onPress: () => isNovo && navigation.goBack() },
-      ]);
+      Alert.alert('Sucesso! ✅', isNovo ? 'Criado!' : 'Atualizado!', [{ text: 'OK', onPress: () => isNovo && navigation.goBack() }]);
     } catch (e: any) {
       Alert.alert('Erro', e.message || 'Erro ao salvar.');
-    } finally {
-      setSalvando(false);
-    }
+    } finally { setSalvando(false); }
   };
 
   const escolherImagem = async (tipoImg: 'perfil' | 'capa') => {
     if (isNovo) { Alert.alert("Aviso", "Salve o local antes de adicionar fotos."); return; }
     const res = await launchImageLibrary({ mediaType: "photo", quality: 0.5 });
     if (!res.assets || !res.assets[0]) return;
-    
     const uri = res.assets[0].uri;
     const extension = uri?.split('.').pop();
     const path = `estabelecimentos/${estabelecimentoId}/${tipoImg}.${extension}`;
     const reference = storage().ref(path);
-
     try {
       setSalvando(true);
       await reference.putFile(uri!);
@@ -201,7 +276,7 @@ export default function AdminEstabScreen() {
         img: tipoImg === 'perfil' ? url : img
       });
       Alert.alert("Sucesso! ✅", "Foto atualizada.");
-    } catch (e) { Alert.alert("Erro", "Falha no upload."); } finally { setSalvando(false); }
+    } catch { Alert.alert("Erro", "Falha no upload."); } finally { setSalvando(false); }
   };
 
   if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#C9A96E" /></View>;
@@ -210,9 +285,7 @@ export default function AdminEstabScreen() {
     <View style={s.container}>
       {/* HEADER */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
-          <Text style={s.backIcon}>✕</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}><Text style={s.backIcon}>✕</Text></TouchableOpacity>
         <View style={s.headerTitleContainer}>
           <Text style={[s.headerLabel, { color: cor }]}>{isNovo ? 'NOVO LOCAL' : tipo.toUpperCase()}</Text>
           <Text style={s.headerTitle} numberOfLines={1}>{isNovo ? 'Criar Cadastro' : nome}</Text>
@@ -222,76 +295,306 @@ export default function AdminEstabScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* TABS E DASHBOARD OMITIDOS PARA BREVIDADE, MAS MANTIDOS NO SEU CÓDIGO --- */}
-      
+      {!isNovo && (
+        <View style={s.statsContainer}>
+          <View style={s.statsInner}>
+            <View style={{ flex: 1 }}>
+              <View style={s.rowBetween}>
+                <Text style={s.statLabel}>Financeiro (Concluído / Previsto)</Text>
+                <Text style={[s.statValue, { color: cor }]}>R$ {stats.total}</Text>
+              </View>
+              <View style={s.barContainer}>
+                <View style={[s.bar, { flex: stats.concluido || 0.1, backgroundColor: '#4CAF50' }]} />
+                <View style={[s.bar, { flex: stats.pendente || 0.1, backgroundColor: cor + '66' }]} />
+              </View>
+              <View style={s.rowBetween}>
+                <Text style={s.miniLabel}>R$ {stats.concluido} em caixa</Text>
+                <Text style={s.miniLabel}>{agends.length} agendamentos</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* TABS */}
+      <View style={s.tabsWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsContent}>
+          {([['info','Informações'],['servicos','Serviços'],['horarios','Horários'],['agenda','Agenda']] as const)
+            .filter(([k]) => !isNovo || k !== 'agenda')
+            .map(([k, l]) => (
+              <TouchableOpacity key={k} onPress={() => setAba(k)} style={[s.tabItem, aba === k && { backgroundColor: cor, borderColor: cor }]}>
+                <Text style={[s.tabText, aba === k && { color: '#111' }]}>{l}</Text>
+              </TouchableOpacity>
+            ))}
+        </ScrollView>
+      </View>
+
       <ScrollView style={s.body} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        
         {aba === 'info' && (
           <View>
             <Text style={s.sectionTitle}>Aparência & Identidade</Text>
             <View style={s.card}>
-               <View style={s.rowBetween}>
-                 <View style={s.emojiContainer}>
-                    <Text style={s.inputLabel}>ÍCONE PRINCIPAL</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.emojiList}>
-                      {EMOJIS.map((e, i) => (
-                        <TouchableOpacity 
-                          key={`${e}-${i}`} 
-                          onPress={()=>setImg(e)}
-                          style={[s.emojiBtn, img === e && { borderColor: cor, backgroundColor: cor + '44', borderWidth: 2 }]}
-                        >
-                          <Text style={s.emojiTxt}>{e}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                 </View>
-                 <View style={[s.colorPreview, { backgroundColor: cor }]} />
-               </View>
+              <View style={s.rowBetween}>
+                <View style={s.emojiContainer}>
+                  <Text style={s.inputLabel}>ÍCONE PRINCIPAL</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.emojiList}>
+                    {EMOJIS.map((e, i) => (
+                      <TouchableOpacity key={`${e}-${i}`} onPress={() => setImg(e)} style={[s.emojiBtn, img === e && { borderColor: cor, backgroundColor: cor + '44', borderWidth: 2 }]}>
+                        <Text style={s.emojiTxt}>{e}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+                <View style={[s.colorPreview, { backgroundColor: cor }]} />
+              </View>
 
-               <Text style={[s.inputLabel, { marginTop: 25 }]}>MIXER DE CORES</Text>
-               <View style={s.mixerContainer}>
-                  {[['R', r, setR, '#FF4444'], ['G', g, setG, '#4CAF50'], ['B', b, setB, '#2196F3']].map(([l, val, setVal, color]: any) => (
-                    <View key={l} style={s.mixerRow}>
-                      <Text style={[s.mixerLabel, { color }]}>{l}</Text>
-                      <Slider
-                        style={{flex: 1, height: 40}}
-                        minimumValue={0} maximumValue={255} value={val}
-                        minimumTrackTintColor={color}
-                        onValueChange={(v) => { setVal(v); updateHex(l==='R'?v:r, l==='G'?v:g, l==='B'?v:b); }}
-                      />
-                      <Text style={s.mixerValue}>{Math.round(val)}</Text>
-                    </View>
-                  ))}
-               </View>
+              <Text style={[s.inputLabel, { marginTop: 25 }]}>MIXER DE CORES</Text>
+              <View style={s.mixerContainer}>
+                {[['R', r, setR, '#FF4444'], ['G', g, setG, '#4CAF50'], ['B', b, setB, '#2196F3']].map(([l, val, setVal, color]: any) => (
+                  <View key={l} style={s.mixerRow}>
+                    <Text style={[s.mixerLabel, { color }]}>{l}</Text>
+                    <Slider style={{ flex: 1, height: 40 }} minimumValue={0} maximumValue={255} value={val} minimumTrackTintColor={color}
+                      onValueChange={(v) => { setVal(v); updateHex(l === 'R' ? v : r, l === 'G' ? v : g, l === 'B' ? v : b); }} />
+                    <Text style={s.mixerValue}>{Math.round(val)}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={s.colorGrid}>
+                {PRESETS_CORES.map(c => (
+                  <TouchableOpacity key={c} onPress={() => { setCor(c); setR(parseInt(c.slice(1,3),16)); setG(parseInt(c.slice(3,5),16)); setB(parseInt(c.slice(5,7),16)); }}
+                    style={[s.colorCircle, { backgroundColor: c }, cor === c && s.colorActive]} />
+                ))}
+              </View>
             </View>
 
-            <Text style={s.sectionTitle}>Endereço Detalhado</Text>
-            <View style={s.card}>
-              <TouchableOpacity onPress={buscarLocalizacaoReal} style={[s.locBtn, { borderColor: cor }]}>
-                <Text style={{color: cor, fontWeight: '800', fontSize: 11}}>📍 {coords ? 'LOCALIZAÇÃO CAPTURADA' : 'CAPTURAR MINHA POSIÇÃO ATUAL'}</Text>
+            <Text style={s.sectionTitle}>Logomarca</Text>
+            <View style={s.photoRow}>
+              <TouchableOpacity onPress={() => escolherImagem('perfil')} style={s.photoBox}>
+                {fotoPerfil ? <Image source={{ uri: fotoPerfil }} style={s.imgFill} /> : <Text style={s.photoAdd}>＋ Logomarca</Text>}
               </TouchableOpacity>
+            </View>
 
-              <View style={s.inputBox}><Text style={s.inputLabel}>NOME DO ESTABELECIMENTO</Text><TextInput style={s.input} value={nome} onChangeText={setNome} placeholderTextColor="#444" /></View>
-              
+            <Text style={s.sectionTitle}>Dados Gerais</Text>
+            <View style={s.card}>
+              <View style={s.inputBox}>
+                <Text style={s.inputLabel}>NOME DO ESTABELECIMENTO</Text>
+                <TextInput style={s.input} value={nome} onChangeText={setNome} placeholderTextColor="#444" />
+              </View>
+
+              <Text style={s.inputLabel}>TIPO</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.typeList}>
+                {TIPOS.map(t => (
+                  <TouchableOpacity key={t} onPress={() => setTipo(t)} style={[s.typeChip, tipo === t && { borderColor: cor, backgroundColor: cor + '22' }]}>
+                    <Text style={[s.typeChipTxt, tipo === t && { color: cor, fontWeight: '900' }]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
               <View style={s.row}>
-                <View style={[s.inputBox, { flex: 2, marginRight: 10 }]}><Text style={s.inputLabel}>RUA / LOGRADOURO</Text><TextInput style={s.input} value={endereco} onChangeText={setEndereco} placeholderTextColor="#444" /></View>
-                <View style={[s.inputBox, { flex: 1 }]}><Text style={s.inputLabel}>Nº</Text><TextInput style={s.input} value={numero} onChangeText={setNumero} placeholderTextColor="#444" /></View>
+                <View style={[s.inputBox, { flex: 2, marginRight: 10 }]}>
+                  <Text style={s.inputLabel}>
+                    CEP {(buscandoCep || buscandoEnd) && <ActivityIndicator size="small" color={cor} />}
+                  </Text>
+                  <TextInput style={s.input} value={cep} onChangeText={handleCepChange} maxLength={8} keyboardType="numeric" placeholderTextColor="#444" />
+                </View>
+                <View style={[s.inputBox, { flex: 1 }]}>
+                  <Text style={s.inputLabel}>Nº</Text>
+                  <TextInput style={s.input} value={numero} onChangeText={setNumero} keyboardType="numeric" placeholderTextColor="#444"
+                    onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
+                </View>
+              </View>
+
+              <View style={s.inputBox}>
+                <Text style={s.inputLabel}>ENDEREÇO (RUA)</Text>
+                <TextInput style={s.input} value={endereco} onChangeText={setEndereco} placeholderTextColor="#444"
+                  // ✅ Geocodifica ao terminar de digitar a rua
+                  onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
               </View>
 
               <View style={s.row}>
-                <View style={[s.inputBox, { flex: 1, marginRight: 10 }]}><Text style={s.inputLabel}>BAIRRO</Text><TextInput style={s.input} value={bairro} onChangeText={setBairro} placeholderTextColor="#444" /></View>
-                <View style={[s.inputBox, { flex: 1 }]}><Text style={s.inputLabel}>CEP</Text><TextInput style={s.input} value={cep} onChangeText={setCep} keyboardType="numeric" placeholderTextColor="#444" /></View>
+                <View style={[s.inputBox, { flex: 1, marginRight: 10 }]}>
+                  <Text style={s.inputLabel}>BAIRRO</Text>
+                  <TextInput style={s.input} value={bairro} onChangeText={setBairro} placeholderTextColor="#444"
+                    onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
+                </View>
+                <View style={[s.inputBox, { flex: 1 }]}>
+                  <Text style={s.inputLabel}>CIDADE</Text>
+                  <TextInput style={s.input} value={cidade} onChangeText={setCidade} placeholderTextColor="#444"
+                    onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
+                </View>
               </View>
 
-              <View style={s.row}>
-                <View style={[s.inputBox, { flex: 1, marginRight: 10 }]}><Text style={s.inputLabel}>CIDADE</Text><TextInput style={s.input} value={cidade} onChangeText={setCidade} placeholderTextColor="#444" /></View>
-                <View style={[s.inputBox, { flex: 1 }]}><Text style={s.inputLabel}>CONTATO (WHATSAPP)</Text><TextInput style={s.input} value={telefone} onChangeText={setTelefone} keyboardType="phone-pad" placeholderTextColor="#444" /></View>
+              <View style={s.inputBox}>
+                <Text style={s.inputLabel}>TEL</Text>
+                <TextInput style={s.input} value={telefone} onChangeText={setTelefone} keyboardType="phone-pad" placeholderTextColor="#444" />
               </View>
+
+              <Text style={[s.inputLabel, { marginTop: 10 }]}>
+                LOCALIZAÇÃO NO MAPA {buscandoEnd && <ActivityIndicator size="small" color={cor} />}
+              </Text>
+              <Text style={s.mapHint}>Arraste o pino para ajustar a posição exata</Text>
+
+              <View style={s.mapCard}>
+                {coordsOk ? (
+                  <MapView
+                    ref={mapRef}
+                    style={s.map}
+                    provider={PROVIDER_GOOGLE}
+                    showsUserLocation={false}
+                    showsMyLocationButton={false}
+                    // ✅ Força português via customMapStyle
+                    customMapStyle={[{ elementType: 'labels', stylers: [{ languageOverride: 'pt-BR' }] }]}
+                    region={{
+                      latitude: coords.lat,
+                      longitude: coords.lng,
+                      latitudeDelta: 0.005,
+                      longitudeDelta: 0.005,
+                    }}
+                  >
+                    {/* Pino azul: localização do usuário */}
+                    {userLocation && (
+                      <Marker
+                        coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
+                        title="Você está aqui"
+                        pinColor="#2196F3"
+                      />
+                    )}
+                    {/* Pino colorido: localização do estabelecimento (arrastável) */}
+                    <Marker
+                      coordinate={{ latitude: coords.lat, longitude: coords.lng }}
+                      draggable
+                      onDragEnd={(e) => setCoords({
+                        lat: e.nativeEvent.coordinate.latitude,
+                        lng: e.nativeEvent.coordinate.longitude,
+                      })}
+                      pinColor={cor}
+                      title={nome || "Estabelecimento"}
+                    />
+                  </MapView>
+                ) : (
+                  <View style={s.mapPlaceholder}>
+                    <Text style={s.mapPlaceholderText}>
+                      {buscandoEnd ? '🔍 Buscando localização...' : '📍 Digite o endereço para ver no mapa'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Botão para usar localização atual */}
+              {userLocation && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setCoords(userLocation);
+                    setCoordsOk(true);
+                    mapRef.current?.animateToRegion({
+                      latitude: userLocation.lat,
+                      longitude: userLocation.lng,
+                      latitudeDelta: 0.003,
+                      longitudeDelta: 0.003,
+                    }, 600);
+                  }}
+                  style={[s.btnMinhaLoc, { borderColor: cor }]}
+                >
+                  <Text style={[s.btnMinhaLocText, { color: cor }]}>📍 Usar minha localização atual</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
 
-        {/* RESTANTE DAS ABAS IGUAIS AO SEU CÓDIGO ORIGINAL --- */}
+        {aba === 'servicos' && (
+          <View>
+            <Text style={s.sectionTitle}>Novo Serviço</Text>
+            <View style={s.card}>
+              <TextInput style={s.input} value={nsNome} onChangeText={setNsNome} placeholder="Nome" placeholderTextColor="#444" />
+              <View style={s.row}>
+                <TextInput style={[s.input, { flex: 1, marginTop: 10, marginRight: 10 }]} value={nsPreco} onChangeText={setNsPreco} placeholder="Preço" keyboardType="numeric" placeholderTextColor="#444" />
+                <TextInput style={[s.input, { flex: 1, marginTop: 10 }]} value={nsDuracao} onChangeText={setNsDuracao} placeholder="Minutos" keyboardType="numeric" placeholderTextColor="#444" />
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!nsNome || !nsPreco) return;
+                  setServicos([...servicos, { id: Date.now().toString(), nome: nsNome, preco: Number(nsPreco), duracao: Number(nsDuracao) || 30, ativo: true }]);
+                  setNsNome(''); setNsPreco(''); setNsDuracao('');
+                }}
+                style={[s.btnAdd, { borderColor: cor }]}
+              >
+                <Text style={[s.btnAddText, { color: cor }]}>Adicionar</Text>
+              </TouchableOpacity>
+            </View>
+            {servicos.map(item => (
+              <View key={item.id} style={s.itemCard}>
+                <View style={s.itemInfo}>
+                  <Text style={s.itemTitle}>{item.nome}</Text>
+                  <Text style={s.itemSub}>R$ {item.preco} • {item.duracao} min</Text>
+                </View>
+                <Switch value={item.ativo} onValueChange={() => setServicos(servicos.map(x => x.id === item.id ? { ...x, ativo: !x.ativo } : x))} thumbColor={cor} />
+                <TouchableOpacity onPress={() => setServicos(servicos.filter(x => x.id !== item.id))} style={s.itemRemove}>
+                  <Text style={{ color: '#FF4444' }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {aba === 'horarios' && (
+          <View>
+            <Text style={s.sectionTitle}>Grade Automática</Text>
+            <View style={s.card}>
+              <View style={s.row}>
+                <View style={{ flex: 1, marginRight: 8 }}><Text style={s.miniLabel}>INÍCIO</Text><TextInput style={s.input} value={gInicio} onChangeText={setGInicio} placeholderTextColor="#444" /></View>
+                <View style={{ flex: 1, marginRight: 8 }}><Text style={s.miniLabel}>FIM</Text><TextInput style={s.input} value={gFim} onChangeText={setGFim} placeholderTextColor="#444" /></View>
+                <View style={{ flex: 1 }}><Text style={s.miniLabel}>MINS</Text><TextInput style={s.input} value={gIntervalo} onChangeText={setGIntervalo} keyboardType="numeric" placeholderTextColor="#444" /></View>
+              </View>
+              <TouchableOpacity onPress={gerarGradeHorarios} style={[s.btnAdd, { backgroundColor: cor, marginTop: 15 }]}>
+                <Text style={[s.btnAddText, { color: '#111' }]}>Gerar Horários</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={s.horariosGrid}>
+              {horarios.map(h => {
+                const ocupado = agends.some(a => a.horario === h && a.status === 'confirmado');
+                return (
+                  <TouchableOpacity key={h} onPress={() => ocupado ? Alert.alert("Ocupado") : setHorarios(horarios.filter(x => x !== h))}
+                    style={[s.timeChip, { borderColor: ocupado ? '#FF4444' : cor + '44', backgroundColor: ocupado ? '#FF444422' : 'transparent' }]}>
+                    <Text style={[s.timeText, ocupado && { color: '#FF4444' }]}>{h}</Text>
+                    {!ocupado && <Text style={s.timeRemove}>✕</Text>}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {aba === 'agenda' && (
+          <View>
+            {agends.length === 0 ? <Text style={s.emptyText}>Nenhum agendamento.</Text> : agends.map(ag => (
+              <View key={ag.id} style={s.agendCard}>
+                <View style={s.agendHeader}>
+                  <Text style={s.agendClient}>{ag.clienteNome}</Text>
+                  <Text style={[s.agendPrice, { color: cor }]}>R$ {ag.servicoPreco}</Text>
+                </View>
+                <Text style={s.agendServ}>{ag.servicoNome}</Text>
+                <View style={s.agendMeta}>
+                  <Text style={s.agendDate}>📅 {ag.data} - {ag.horario}</Text>
+                  <View style={[s.statusBadge, { backgroundColor: ag.status === 'concluido' ? '#4CAF50' : '#222' }]}>
+                    <Text style={s.statusTxt}>{ag.status?.toUpperCase()}</Text>
+                  </View>
+                </View>
+                {ag.status === 'confirmado' && (
+                  <View style={[s.row, { gap: 10, marginTop: 15 }]}>
+                    <TouchableOpacity onPress={() => fn.httpsCallable('concluirAgendamento')({ agendamentoId: ag.id })} style={[s.actionBtn, { borderColor: '#4CAF50' }]}>
+                      <Text style={{ color: '#4CAF50', fontWeight: '900' }}>CONCLUIR</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => fn.httpsCallable('cancelarAgendamento')({ agendamentoId: ag.id })} style={[s.actionBtn, { borderColor: '#FF4444' }]}>
+                      <Text style={{ color: '#FF4444', fontWeight: '900' }}>CANCELAR</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -308,6 +611,16 @@ const s = StyleSheet.create({
   headerTitle: { color: '#FFF', fontSize: 18, fontWeight: '800' },
   saveBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12 },
   saveBtnText: { color: '#111', fontWeight: '800' },
+  statsContainer: { paddingHorizontal: 20, marginTop: -20 },
+  statsInner: { backgroundColor: '#1A1A1A', borderRadius: 20, padding: 15, elevation: 10 },
+  statLabel: { color: '#666', fontSize: 10, fontWeight: '800' },
+  statValue: { fontSize: 16, fontWeight: '800' },
+  barContainer: { height: 6, flexDirection: 'row', backgroundColor: '#000', borderRadius: 3, marginVertical: 8, overflow: 'hidden' },
+  bar: { height: '100%' },
+  tabsWrapper: { paddingVertical: 20 },
+  tabsContent: { paddingHorizontal: 20, gap: 10 },
+  tabItem: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#222' },
+  tabText: { color: '#888', fontWeight: '700' },
   body: { flex: 1, paddingHorizontal: 20 },
   sectionTitle: { color: '#FFF', fontSize: 16, fontWeight: '800', marginBottom: 15, marginTop: 10 },
   card: { backgroundColor: '#121212', borderRadius: 24, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: '#222' },
@@ -316,15 +629,53 @@ const s = StyleSheet.create({
   input: { backgroundColor: '#000', borderRadius: 15, padding: 15, color: '#FFF', fontSize: 15, borderWidth: 1, borderColor: '#1A1A1A' },
   row: { flexDirection: 'row', alignItems: 'center' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  locBtn: { padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 20, alignItems: 'center', borderStyle: 'dashed' },
   emojiContainer: { flex: 1 },
   emojiList: { marginTop: 10 },
   emojiBtn: { width: 50, height: 50, borderRadius: 15, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
   emojiTxt: { fontSize: 24 },
   colorPreview: { width: 45, height: 45, borderRadius: 22.5, borderWidth: 3, borderColor: '#FFF' },
+  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 15 },
+  colorCircle: { width: 35, height: 35, borderRadius: 10 },
+  colorActive: { borderWidth: 3, borderColor: '#FFF' },
   mixerContainer: { backgroundColor: '#000', padding: 15, borderRadius: 15 },
   mixerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
   mixerLabel: { width: 20, fontWeight: '900', fontSize: 12 },
   mixerValue: { width: 30, color: '#FFF', fontSize: 10, textAlign: 'right' },
-  // ... Outros estilos omitidos para economizar espaço
+  photoRow: { flexDirection: 'row', marginBottom: 20 },
+  photoBox: { width: 100, height: 100, borderRadius: 20, backgroundColor: '#121212', borderWidth: 1, borderColor: '#222', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  photoAdd: { color: '#555', fontSize: 12, fontWeight: '700' },
+  imgFill: { width: '100%', height: '100%' },
+  typeList: { marginBottom: 20 },
+  typeChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 12, backgroundColor: '#121212', marginRight: 8, borderWidth: 1, borderColor: '#222' },
+  typeChipTxt: { color: '#666', fontSize: 12 },
+  btnAdd: { padding: 15, borderRadius: 15, alignItems: 'center', borderWidth: 1 },
+  btnAddText: { fontWeight: '800' },
+  btnMinhaLoc: { marginTop: 10, padding: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1 },
+  btnMinhaLocText: { fontWeight: '700', fontSize: 13 },
+  mapHint: { color: '#444', fontSize: 10, marginBottom: 8 },
+  mapCard: { height: 220, borderRadius: 15, overflow: 'hidden', borderWidth: 1, borderColor: '#222' },
+  map: { flex: 1 },
+  mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0D0D0D' },
+  mapPlaceholderText: { color: '#555', fontSize: 13, textAlign: 'center', paddingHorizontal: 20 },
+  itemCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#121212', padding: 15, borderRadius: 20, marginBottom: 10, borderWidth: 1, borderColor: '#222' },
+  itemInfo: { flex: 1 },
+  itemTitle: { color: '#FFF', fontWeight: '700' },
+  itemSub: { color: '#666', fontSize: 12 },
+  itemRemove: { marginLeft: 15 },
+  horariosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
+  timeText: { color: '#FFF', fontWeight: '700', fontSize: 12, marginRight: 5 },
+  timeRemove: { color: '#FF4444', fontSize: 10 },
+  agendCard: { backgroundColor: '#121212', borderRadius: 20, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: '#222' },
+  agendHeader: { flexDirection: 'row', justifyContent: 'space-between' },
+  agendClient: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+  agendPrice: { fontWeight: '800' },
+  agendServ: { color: '#888', fontSize: 13, marginTop: 4 },
+  agendMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#222' },
+  agendDate: { color: '#666', fontSize: 11 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusTxt: { color: '#FFF', fontSize: 9, fontWeight: '900' },
+  actionBtn: { flex: 1, padding: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
+  emptyText: { color: '#444', textAlign: 'center', marginTop: 50 },
+  miniLabel: { color: '#444', fontSize: 9, fontWeight: 'bold' },
 });

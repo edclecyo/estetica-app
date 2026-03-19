@@ -64,26 +64,25 @@ export const salvarEstabelecimento = functions.onCall(async (request) => {
   const data = request.data;
   const adminId = request.auth.uid;
   
-  // Define o ID do documento ou gera um novo
+  // Define o ID do documento ou gera um novo caso seja um cadastro novo
   const docId = data.estabelecimentoId || db.collection('estabelecimentos').doc().id;
   const estRef = db.collection('estabelecimentos').doc(docId);
 
-  // Prepara o payload aceitando os novos campos de endereço
+  // Prepara o payload aceitando os novos campos de endereço e localização
   const payload: any = {
     ...data,
     adminId,
-    // Garante que as coordenadas sejam salvas como números, caso existam
-    coords: data.coords ? {
-      lat: Number(data.coords.lat),
-      lng: Number(data.coords.lng)
-    } : null,
+    // Trata latitude e longitude caso venham do front como lat/lng ou dentro de coords
+    lat: data.lat ? Number(data.lat) : (data.coords?.lat ? Number(data.coords.lat) : null),
+    lng: data.lng ? Number(data.lng) : (data.coords?.lng ? Number(data.coords.lng) : null),
     atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  // Remove o ID do corpo do objeto para não duplicar dentro do documento
+  // Remove campos de controle para não sujar o documento
   delete payload.estabelecimentoId;
+  if (payload.coords) delete payload.coords; 
 
-  // Salva no Firestore usando merge: true para não apagar campos não enviados
+  // Salva no Firestore usando merge: true para preservar campos como 'avaliacao'
   await estRef.set(payload, { merge: true });
 
   return { id: docId, ok: true };
@@ -120,6 +119,16 @@ export const concluirAgendamento = functions.onCall(async (request) => {
 
   await db.collection('agendamentos').doc(agendamentoId).update({ 
     status: 'concluido' 
+  });
+  return { ok: true };
+});
+// ─── 6. CANCELAR AGENDAMENTO ─────────
+export const cancelarAgendamento = functions.onCall(async (request) => {
+  const { agendamentoId } = request.data;
+  if (!agendamentoId) throw new functions.HttpsError('invalid-argument', 'ID faltando');
+
+  await db.collection('agendamentos').doc(agendamentoId).update({ 
+    status: 'cancelado' 
   });
   return { ok: true };
 });

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert, ScrollView,
+  StyleSheet, ActivityIndicator, Alert, ScrollView, Image,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
@@ -191,23 +191,33 @@ export default function AgendamentosScreen() {
           const podeAvaliar = item.status === 'concluido' && !item.avaliacao;
 
           return (
-            <View style={[s.card, { borderLeftWidth: 3, borderLeftColor: st.cor }]}>
-              <View style={s.cardTopo}>
-                <View style={{ flex: 1 }}>
+            <View style={[s.card, { borderLeftColor: st.cor }]}>
+              <View style={s.cardConteudo}>
+                {/* Foto/Ícone à esquerda */}
+                <View style={s.cardImagemLateral}>
+                   <Text style={s.emojiLateral}>🏢</Text>
+                </View>
+
+                {/* Info Central */}
+                <View style={s.cardCorpo}>
                   <Text style={s.cardEstab}>{item.estabelecimentoNome}</Text>
                   <Text style={s.cardServico}>{item.servicoNome}</Text>
+                  
+                  <View style={s.cardInfo}>
+                    <View style={s.cardInfoItem}>
+                      <Text style={s.cardInfoIc}>📅</Text>
+                      <Text style={s.cardInfoTxt}>{item.data}</Text>
+                    </View>
+                    <View style={s.cardInfoItem}>
+                      <Text style={s.cardInfoIc}>⏰</Text>
+                      <Text style={s.cardInfoTxt}>{item.horario}</Text>
+                    </View>
+                  </View>
                 </View>
-                <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
-              </View>
 
-              <View style={s.cardInfo}>
-                <View style={s.cardInfoItem}>
-                  <Text style={s.cardInfoIc}>📅</Text>
-                  <Text style={s.cardInfoTxt}>{item.data}</Text>
-                </View>
-                <View style={s.cardInfoItem}>
-                  <Text style={s.cardInfoIc}>⏰</Text>
-                  <Text style={s.cardInfoTxt}>{item.horario}</Text>
+                {/* Preço à direita */}
+                <View style={s.cardDireita}>
+                   <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
                 </View>
               </View>
 
@@ -245,8 +255,8 @@ export default function AgendamentosScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5', padding: 24 },
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 24 },
   header: { backgroundColor: '#1A1A1A', padding: 20, paddingTop: 52, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerSub: { color: '#C9A96E', fontSize: 10, letterSpacing: 1.5, marginBottom: 2 },
   headerTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
@@ -264,23 +274,28 @@ const s = StyleSheet.create({
   chipText: { fontSize: 12, color: '#888', fontWeight: '500' },
   chipTextAtivo: { color: '#fff', fontWeight: '700' },
   lista: { padding: 16, paddingBottom: 32 },
-  card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12, elevation: 1 },
-  cardTopo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
-  cardEstab: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
-  cardServico: { fontSize: 12, color: '#888' },
-  cardPreco: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
-  cardInfo: { flexDirection: 'row', gap: 16, marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
+  // Estilo do Card Melhorado
+  card: { backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 16, elevation: 2, borderLeftWidth: 5 },
+  cardConteudo: { flexDirection: 'row', alignItems: 'center' },
+  cardImagemLateral: { width: 50, height: 50, borderRadius: 12, backgroundColor: '#F8F9FA', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  emojiLateral: { fontSize: 24 },
+  cardCorpo: { flex: 1 },
+  cardDireita: { alignItems: 'flex-end', justifyContent: 'center' },
+  cardEstab: { fontSize: 12, color: '#999', fontWeight: '600', textTransform: 'uppercase', marginBottom: 2 },
+  cardServico: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginBottom: 6 },
+  cardPreco: { fontSize: 15, fontWeight: '700', color: '#1A1A1A', backgroundColor: '#F5F5F5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  cardInfo: { flexDirection: 'row', gap: 12 },
   cardInfoItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  cardInfoIc: { fontSize: 13 },
-  cardInfoTxt: { fontSize: 12, color: '#555', fontWeight: '500' },
-  cardRodape: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  statusText: { fontSize: 11, fontWeight: '600' },
+  cardInfoIc: { fontSize: 12 },
+  cardInfoTxt: { fontSize: 12, color: '#666', fontWeight: '600' },
+  cardRodape: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F5F5F5' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+  statusText: { fontSize: 11, fontWeight: '700' },
   avaliacaoWrap: { flexDirection: 'row', gap: 2 },
-  estrelinha: { fontSize: 14, color: '#E0E0E0' },
+  estrelinha: { fontSize: 16, color: '#E0E0E0' },
   estrelinhaAtiva: { color: '#F4A261' },
-  avaliarBtn: { backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  avaliarBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  avaliarBtn: { backgroundColor: '#1A1A1A', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  avaliarBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   emptyCard: { alignItems: 'center', paddingTop: 60 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 4, textAlign: 'center' },

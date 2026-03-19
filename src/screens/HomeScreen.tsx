@@ -99,8 +99,25 @@ export default function HomeScreen() {
   const [user, setUser] = useState(auth().currentUser);
   const [localizacao, setLocalizacao] = useState<{ lat: number; lng: number } | null>(null);
   const [stories, setStories] = useState<any[]>([]);
+  const [notificacoesNaoLidas, setNotificacoesNaoLidas] = useState(0);
 
-  // Pede permissão e obtém localização com retry
+  // Monitorar Notificações do Cliente
+  useEffect(() => {
+    if (!user) {
+        setNotificacoesNaoLidas(0);
+        return;
+    }
+    const unsub = firestore()
+      .collection('notificacoes')
+      .where('clienteId', '==', user.uid)
+      .where('lida', '==', false)
+      .onSnapshot(snap => {
+        setNotificacoesNaoLidas(snap?.size || 0);
+      });
+    return unsub;
+  }, [user]);
+
+  // Pede permissão e obtém localização
   useEffect(() => {
     const obter = async () => {
       if (Platform.OS === 'android') {
@@ -116,7 +133,6 @@ export default function HomeScreen() {
           },
           (err) => {
             console.log('GPS erro:', err);
-            // Tenta novamente com menor precisão se falhar
             navigator.geolocation?.getCurrentPosition(
               (pos) => setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
               () => {},
@@ -159,7 +175,6 @@ export default function HomeScreen() {
     return unsub;
   }, []);
 
-  // ✅ Ordenação: 1º abertos, 2º por distância (dentro de cada grupo)
   const filtrados = estabelecimentos
     .filter((e) => {
       const mb = e.nome?.toLowerCase().includes(busca.toLowerCase());
@@ -175,12 +190,22 @@ export default function HomeScreen() {
       return { ...e, _dist: dist, _aberto: estaAberto(e.horarioFuncionamento) };
     })
     .sort((a, b) => {
-      // Prioridade 1: abertos antes de fechados
       if (a._aberto && !b._aberto) return -1;
       if (!a._aberto && b._aberto) return 1;
-      // Prioridade 2: mais próximo primeiro (dentro do mesmo grupo aberto/fechado)
       return a._dist - b._dist;
     });
+
+  const renderStars = (rating: number) => {
+    return (
+      <View style={s.starsRow}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Text key={star} style={[s.starIcon, { color: star <= Math.round(rating || 5) ? '#C9A96E' : '#444' }]}>
+            ★
+          </Text>
+        ))}
+      </View>
+    );
+  };
 
   if (loading) {
     return (
@@ -196,7 +221,7 @@ export default function HomeScreen() {
 
       <View style={s.header}>
         <View style={s.headerTop}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={s.headerSub}>
               {user
                 ? `Olá, ${user.displayName?.split(' ')[0] || user.email?.split('@')[0]} 👋`
@@ -205,30 +230,46 @@ export default function HomeScreen() {
             <Text style={s.headerTitulo}>Encontre seu espaço</Text>
           </View>
 
-          {user ? (
-            <TouchableOpacity
-              style={s.sairBtn}
-              onPress={() => {
-                Alert.alert('Sair', 'Deseja sair da sua conta?', [
-                  { text: 'Cancelar', style: 'cancel' },
-                  {
-                    text: 'Sair',
-                    style: 'destructive',
-                    onPress: async () => {
-                      await auth().signOut();
-                      try { await GoogleSignin.signOut(); } catch {}
+          <View style={s.headerAcoes}>
+            {user && (
+              <TouchableOpacity 
+                style={s.notifBtn} 
+                onPress={() => navigation.navigate('NotificacoesCliente')}
+              >
+                <Text style={s.notifIcon}>🔔</Text>
+                {notificacoesNaoLidas > 0 && (
+                  <View style={s.notifBadge}>
+                    <Text style={s.notifBadgeText}>{notificacoesNaoLidas}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {user ? (
+              <TouchableOpacity
+                style={s.sairBtn}
+                onPress={() => {
+                  Alert.alert('Sair', 'Deseja sair da sua conta?', [
+                    { text: 'Cancelar', style: 'cancel' },
+                    {
+                      text: 'Sair',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await auth().signOut();
+                        try { await GoogleSignin.signOut(); } catch {}
+                      },
                     },
-                  },
-                ]);
-              }}
-            >
-              <Text style={s.sairBtnText}>Sair</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={s.loginBtn} onPress={() => navigation.navigate('ClienteLogin')}>
-              <Text style={s.loginBtnText}>👤 Entrar</Text>
-            </TouchableOpacity>
-          )}
+                  ]);
+                }}
+              >
+                <Text style={s.sairBtnText}>Sair</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={s.loginBtn} onPress={() => navigation.navigate('ClienteLogin')}>
+                <Text style={s.loginBtnText}>👤 Entrar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         <View style={s.buscaWrap}>
@@ -302,7 +343,6 @@ export default function HomeScreen() {
                 navigation.navigate(user ? 'Detalhe' : 'ClienteLogin', { estabelecimentoId: item.id })
               }
             >
-              {/* ✅ Badge de distância no canto superior direito do card */}
               {dist !== null && (
                 <View style={s.distBadge}>
                   <Text style={s.distBadgeText}>📍 {formatarDistancia(dist)}</Text>
@@ -337,14 +377,13 @@ export default function HomeScreen() {
                   )}
                 </View>
 
-                {/* ✅ Linha de distância abaixo do status */}
                 {dist !== null && (
                   <Text style={s.distanciaInfoSub}>A {formatarDistancia(dist)} de você</Text>
                 )}
 
-                <View style={s.starsRow}>
-                  <Text style={s.starsText}>⭐⭐⭐⭐⭐</Text>
-                  <Text style={s.avaliacaoNumero}>({item.avaliacao || '5.0'})</Text>
+                <View style={s.ratingRow}>
+                  {renderStars(item.avaliacao || 5)}
+                  <Text style={s.avaliacaoNumero}>({item.avaliacao ? item.avaliacao.toFixed(1) : '5.0'})</Text>
                 </View>
               </View>
 
@@ -363,9 +402,14 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { backgroundColor: '#000', paddingHorizontal: 20, paddingTop: 52, paddingBottom: 20 },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   headerSub: { color: '#C9A96E', fontSize: 12 },
   headerTitulo: { color: '#FFF', fontSize: 22, fontWeight: '700' },
+  headerAcoes: { flexDirection: 'row', alignItems: 'center' },
+  notifBtn: { marginRight: 15, position: 'relative', padding: 5 },
+  notifIcon: { fontSize: 22 },
+  notifBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#F44336', borderRadius: 10, width: 18, height: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#000' },
+  notifBadgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
   loginBtn: { backgroundColor: '#C9A96E', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   loginBtnText: { color: '#000', fontWeight: '700' },
   sairBtn: { backgroundColor: '#1A1A1A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
@@ -381,40 +425,11 @@ const s = StyleSheet.create({
   chipText: { color: '#888' },
   chipTextAtivo: { color: '#000', fontWeight: '700' },
   lista: { padding: 16 },
-
-  // ✅ Card com position relative para o badge absoluto funcionar
-  card: {
-    backgroundColor: '#111',
-    borderRadius: 28,
-    marginBottom: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#222',
-    paddingBottom: 8,
-    position: 'relative',
-  },
-
-  // ✅ Badge de distância no canto superior direito
-  distBadge: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    zIndex: 10,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(201,169,110,0.4)',
-  },
-  distBadgeText: {
-    color: '#C9A96E',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-
+  card: { backgroundColor: '#111', borderRadius: 28, marginBottom: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#222', paddingBottom: 8, position: 'relative' },
+  distBadge: { position: 'absolute', top: 14, right: 14, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(201,169,110,0.4)' },
+  distBadgeText: { color: '#C9A96E', fontSize: 11, fontWeight: '800' },
   cardHeaderCircular: { alignItems: 'center', paddingTop: 24, paddingBottom: 8 },
-  imageContainer: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', borderWidth: 2, overflow: 'hidden', elevation: 5, shadowColor: '#C9A96E', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5 },
+  imageContainer: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', borderWidth: 2, overflow: 'hidden' },
   circleImage: { width: '100%', height: '100%' },
   cardEmojiLarge: { fontSize: 45 },
   cardBodyCentral: { padding: 16, alignItems: 'center' },
@@ -427,10 +442,11 @@ const s = StyleSheet.create({
   statusText: { fontSize: 13, fontWeight: '600' },
   horarioTexto: { fontSize: 13, color: '#666' },
   distanciaInfoSub: { fontSize: 12, color: '#888', marginTop: 6, fontWeight: '500' },
-  starsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
-  starsText: { fontSize: 15, letterSpacing: 3 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
+  starsRow: { flexDirection: 'row' },
+  starIcon: { fontSize: 16, marginHorizontal: 1 },
   avaliacaoNumero: { color: '#888', fontSize: 13, marginLeft: 8, fontWeight: '700' },
-  cardBtn: { marginHorizontal: 24, marginBottom: 20, marginTop: 12, borderRadius: 16, padding: 16, alignItems: 'center', shadowColor: '#C9A96E', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3 },
+  cardBtn: { marginHorizontal: 24, marginBottom: 20, marginTop: 12, borderRadius: 16, padding: 16, alignItems: 'center' },
   cardBtnText: { fontWeight: '800', fontSize: 15, textTransform: 'uppercase', letterSpacing: 0.5 },
   storiesArea: { paddingVertical: 12, paddingLeft: 12, backgroundColor: '#000' },
   story: { alignItems: 'center', marginRight: 14, width: 72 },

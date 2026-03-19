@@ -75,19 +75,20 @@ export default function AdminEstabScreen() {
   const [fotoPerfil, setFotoPerfil] = useState('');
   const [fotoCapa, setFotoCapa] = useState('');
 
-  // Coords do estabelecimento (pino arrastável)
   const [coords, setCoords] = useState({ lat: -8.0, lng: -35.0 });
   const [coordsOk, setCoordsOk] = useState(false);
-
-  // Localização real do usuário
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   const [gInicio, setGInicio] = useState('08:00');
   const [gFim, setGFim] = useState('18:00');
   const [gIntervalo, setGIntervalo] = useState('60');
+  
+  // States para Novo Serviço
   const [nsNome, setNsNome] = useState('');
   const [nsPreco, setNsPreco] = useState('');
   const [nsDuracao, setNsDuracao] = useState('');
+  const [nsFoto, setNsFoto] = useState('');
+  const [subindoFotoServico, setSubindoFotoServico] = useState(false);
 
   const stats = useMemo(() => {
     const concluido = agends.filter(a => a.status === 'concluido').reduce((acc, curr) => acc + (curr.servicoPreco || 0), 0);
@@ -95,7 +96,6 @@ export default function AdminEstabScreen() {
     return { concluido, pendente, total: concluido + pendente };
   }, [agends]);
 
-  // Pede permissão e obtém localização do usuário
   useEffect(() => {
     const obter = async () => {
       if (Platform.OS === 'android') {
@@ -109,7 +109,6 @@ export default function AdminEstabScreen() {
           (pos) => {
             const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
             setUserLocation(loc);
-            // Se for novo estabelecimento e ainda sem coords definidas, centraliza aqui
             if (isNovo && !coordsOk) {
               setCoords(loc);
               setCoordsOk(true);
@@ -123,12 +122,10 @@ export default function AdminEstabScreen() {
     obter();
   }, []);
 
-  // ✅ Geocoding pelo endereço completo — chamado sempre que endereço/bairro/cidade mudam
-const geocodificarEndereco = async (rua: string, cid: string, n: string, bairo: string) => {
-  if (!rua || !cid) return; // número não é obrigatório
+  const geocodificarEndereco = async (rua: string, cid: string, n: string, bairo: string) => {
+    if (!rua || !cid) return;
     try {
       const query = encodeURIComponent(`${rua}, ${n}, ${bairo}, ${cid}, Brasil`);
-      // Nominatim com accept-language pt-BR para retornar nomes em português
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1&accept-language=pt-BR&countrycodes=br`,
         { headers: { 'User-Agent': 'EsteticaApp/1.0' } }
@@ -138,7 +135,6 @@ const geocodificarEndereco = async (rua: string, cid: string, n: string, bairo: 
         const novaCoord = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
         setCoords(novaCoord);
         setCoordsOk(true);
-        // Anima o mapa para o novo ponto
         mapRef.current?.animateToRegion({
           latitude: novaCoord.lat,
           longitude: novaCoord.lng,
@@ -162,8 +158,7 @@ const geocodificarEndereco = async (rua: string, cid: string, n: string, bairo: 
           setEndereco(data.logradouro);
           setBairro(data.bairro);
           setCidade(data.localidade);
-          // ✅ Já geocodifica automaticamente ao preencher o CEP
-         await geocodificarEndereco(data.logradouro, data.localidade, numero, data.bairro);
+          await geocodificarEndereco(data.logradouro, data.localidade, numero, data.bairro);
         } else {
           Alert.alert("Erro", "CEP não encontrado.");
         }
@@ -228,19 +223,20 @@ const geocodificarEndereco = async (rua: string, cid: string, n: string, bairo: 
       setLoading(false);
     }
   }, []);
-// ✅ NOVO: quando coords carregam do Firestore, anima o mapa para o local salvo
-useEffect(() => {
-  if (coordsOk) {
-    setTimeout(() => {
-      mapRef.current?.animateToRegion({
-        latitude: coords.lat,
-        longitude: coords.lng,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      }, 800);
-    }, 500); // pequeno delay para garantir que o mapa já está montado
-  }
-}, [coordsOk]);
+
+  useEffect(() => {
+    if (coordsOk) {
+      setTimeout(() => {
+        mapRef.current?.animateToRegion({
+          latitude: coords.lat,
+          longitude: coords.lng,
+          latitudeDelta: 0.005,
+          longitudeDelta: 0.005,
+        }, 800);
+      }, 500);
+    }
+  }, [coordsOk]);
+
   const salvar = async () => {
     if (!nome || !endereco || !cidade) { Alert.alert('Atenção', 'Nome, endereço e cidade são obrigatórios.'); return; }
     try {
@@ -279,11 +275,36 @@ useEffect(() => {
     } catch { Alert.alert("Erro", "Falha no upload."); } finally { setSalvando(false); }
   };
 
+  // Função para escolher foto do serviço
+  const escolherFotoServico = async () => {
+    const res = await launchImageLibrary({ mediaType: "photo", quality: 0.4 });
+    if (!res.assets || !res.assets[0]) return;
+    
+    if (isNovo) {
+      setNsFoto(res.assets[0].uri!);
+      return;
+    }
+
+    const uri = res.assets[0].uri;
+    const path = `estabelecimentos/${estabelecimentoId}/servicos/${Date.now()}.jpg`;
+    const reference = storage().ref(path);
+    
+    try {
+      setSubindoFotoServico(true);
+      await reference.putFile(uri!);
+      const url = await reference.getDownloadURL();
+      setNsFoto(url);
+    } catch {
+      Alert.alert("Erro", "Upload da foto do serviço falhou.");
+    } finally {
+      setSubindoFotoServico(false);
+    }
+  };
+
   if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#C9A96E" /></View>;
 
   return (
     <View style={s.container}>
-      {/* HEADER */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}><Text style={s.backIcon}>✕</Text></TouchableOpacity>
         <View style={s.headerTitleContainer}>
@@ -316,7 +337,6 @@ useEffect(() => {
         </View>
       )}
 
-      {/* TABS */}
       <View style={s.tabsWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsContent}>
           {([['info','Informações'],['servicos','Serviços'],['horarios','Horários'],['agenda','Agenda']] as const)
@@ -408,7 +428,6 @@ useEffect(() => {
               <View style={s.inputBox}>
                 <Text style={s.inputLabel}>ENDEREÇO (RUA)</Text>
                 <TextInput style={s.input} value={endereco} onChangeText={setEndereco} placeholderTextColor="#444"
-                  // ✅ Geocodifica ao terminar de digitar a rua
                   onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
               </View>
 
@@ -443,7 +462,6 @@ useEffect(() => {
                     provider={PROVIDER_GOOGLE}
                     showsUserLocation={false}
                     showsMyLocationButton={false}
-                    // ✅ Força português via customMapStyle
                     customMapStyle={[{ elementType: 'labels', stylers: [{ languageOverride: 'pt-BR' }] }]}
                     region={{
                       latitude: coords.lat,
@@ -452,7 +470,6 @@ useEffect(() => {
                       longitudeDelta: 0.005,
                     }}
                   >
-                    {/* Pino azul: localização do usuário */}
                     {userLocation && (
                       <Marker
                         coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
@@ -460,7 +477,6 @@ useEffect(() => {
                         pinColor="#2196F3"
                       />
                     )}
-                    {/* Pino colorido: localização do estabelecimento (arrastável) */}
                     <Marker
                       coordinate={{ latitude: coords.lat, longitude: coords.lng }}
                       draggable
@@ -481,7 +497,6 @@ useEffect(() => {
                 )}
               </View>
 
-              {/* Botão para usar localização atual */}
               {userLocation && (
                 <TouchableOpacity
                   onPress={() => {
@@ -507,31 +522,79 @@ useEffect(() => {
           <View>
             <Text style={s.sectionTitle}>Novo Serviço</Text>
             <View style={s.card}>
-              <TextInput style={s.input} value={nsNome} onChangeText={setNsNome} placeholder="Nome" placeholderTextColor="#444" />
               <View style={s.row}>
-                <TextInput style={[s.input, { flex: 1, marginTop: 10, marginRight: 10 }]} value={nsPreco} onChangeText={setNsPreco} placeholder="Preço" keyboardType="numeric" placeholderTextColor="#444" />
-                <TextInput style={[s.input, { flex: 1, marginTop: 10 }]} value={nsDuracao} onChangeText={setNsDuracao} placeholder="Minutos" keyboardType="numeric" placeholderTextColor="#444" />
+                {/* Seleção de Foto do Serviço */}
+                <TouchableOpacity 
+                  onPress={escolherFotoServico} 
+                  style={[s.nsFotoBox, { borderColor: cor + '44' }]}
+                >
+                  {subindoFotoServico ? (
+                    <ActivityIndicator size="small" color={cor} />
+                  ) : nsFoto ? (
+                    <Image source={{ uri: nsFoto }} style={s.imgFill} />
+                  ) : (
+                    <Text style={s.nsFotoAdd}>📸</Text>
+                  )}
+                </TouchableOpacity>
+
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <TextInput 
+                    style={s.input} 
+                    value={nsNome} 
+                    onChangeText={setNsNome} 
+                    placeholder="Nome do serviço" 
+                    placeholderTextColor="#444" 
+                  />
+                  <View style={[s.row, { marginTop: 10 }]}>
+                    <TextInput style={[s.input, { flex: 1, marginRight: 8 }]} value={nsPreco} onChangeText={setNsPreco} placeholder="R$" keyboardType="numeric" placeholderTextColor="#444" />
+                    <TextInput style={[s.input, { flex: 1 }]} value={nsDuracao} onChangeText={setNsDuracao} placeholder="Min" keyboardType="numeric" placeholderTextColor="#444" />
+                  </View>
+                </View>
               </View>
+
               <TouchableOpacity
                 onPress={() => {
                   if (!nsNome || !nsPreco) return;
-                  setServicos([...servicos, { id: Date.now().toString(), nome: nsNome, preco: Number(nsPreco), duracao: Number(nsDuracao) || 30, ativo: true }]);
-                  setNsNome(''); setNsPreco(''); setNsDuracao('');
+                  setServicos([...servicos, { 
+                    id: Date.now().toString(), 
+                    nome: nsNome, 
+                    preco: Number(nsPreco), 
+                    duracao: Number(nsDuracao) || 30, 
+                    ativo: true,
+                    foto: nsFoto // Adiciona a foto ao objeto do serviço
+                  }]);
+                  setNsNome(''); setNsPreco(''); setNsDuracao(''); setNsFoto('');
                 }}
-                style={[s.btnAdd, { borderColor: cor }]}
+                style={[s.btnAdd, { borderColor: cor, marginTop: 15 }]}
               >
-                <Text style={[s.btnAddText, { color: cor }]}>Adicionar</Text>
+                <Text style={[s.btnAddText, { color: cor }]}>Adicionar à Lista</Text>
               </TouchableOpacity>
             </View>
+
             {servicos.map(item => (
               <View key={item.id} style={s.itemCard}>
+                {item.foto ? (
+                  <Image source={{ uri: item.foto }} style={s.itemThumb} />
+                ) : (
+                  <View style={[s.itemThumb, { backgroundColor: '#222', justifyContent: 'center', alignItems: 'center' }]}>
+                    <Text style={{ fontSize: 18 }}>{img.length < 3 ? img : '✨'}</Text>
+                  </View>
+                )}
+                
                 <View style={s.itemInfo}>
                   <Text style={s.itemTitle}>{item.nome}</Text>
                   <Text style={s.itemSub}>R$ {item.preco} • {item.duracao} min</Text>
                 </View>
-                <Switch value={item.ativo} onValueChange={() => setServicos(servicos.map(x => x.id === item.id ? { ...x, ativo: !x.ativo } : x))} thumbColor={cor} />
+
+                <Switch 
+                  value={item.ativo} 
+                  onValueChange={() => setServicos(servicos.map(x => x.id === item.id ? { ...x, ativo: !x.ativo } : x))} 
+                  trackColor={{ false: '#333', true: cor + '66' }}
+                  thumbColor={item.ativo ? cor : '#666'} 
+                />
+                
                 <TouchableOpacity onPress={() => setServicos(servicos.filter(x => x.id !== item.id))} style={s.itemRemove}>
-                  <Text style={{ color: '#FF4444' }}>✕</Text>
+                  <Text style={{ color: '#FF4444', fontSize: 18 }}>✕</Text>
                 </TouchableOpacity>
               </View>
             ))}
@@ -577,9 +640,9 @@ useEffect(() => {
                 <Text style={s.agendServ}>{ag.servicoNome}</Text>
                 <View style={s.agendMeta}>
                   <Text style={s.agendDate}>📅 {ag.data} - {ag.horario}</Text>
-                  <View style={[s.statusBadge, { backgroundColor: ag.status === 'concluido' ? '#4CAF50' : '#222' }]}>
+                  <div style={[s.statusBadge, { backgroundColor: ag.status === 'concluido' ? '#4CAF50' : '#222' }]}>
                     <Text style={s.statusTxt}>{ag.status?.toUpperCase()}</Text>
-                  </View>
+                  </div>
                 </View>
                 {ag.status === 'confirmado' && (
                   <View style={[s.row, { gap: 10, marginTop: 15 }]}>
@@ -639,43 +702,46 @@ const s = StyleSheet.create({
   colorActive: { borderWidth: 3, borderColor: '#FFF' },
   mixerContainer: { backgroundColor: '#000', padding: 15, borderRadius: 15 },
   mixerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
-  mixerLabel: { width: 20, fontWeight: '900', fontSize: 12 },
-  mixerValue: { width: 30, color: '#FFF', fontSize: 10, textAlign: 'right' },
+  mixerLabel: { width: 20, fontWeight: 'bold' },
+  mixerValue: { width: 30, color: '#FFF', textAlign: 'right', fontSize: 12 },
   photoRow: { flexDirection: 'row', marginBottom: 20 },
-  photoBox: { width: 100, height: 100, borderRadius: 20, backgroundColor: '#121212', borderWidth: 1, borderColor: '#222', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  photoAdd: { color: '#555', fontSize: 12, fontWeight: '700' },
+  photoBox: { width: 100, height: 100, borderRadius: 20, backgroundColor: '#121212', borderWidth: 1, borderColor: '#222', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   imgFill: { width: '100%', height: '100%' },
+  photoAdd: { color: '#666', fontSize: 12, fontWeight: '700' },
   typeList: { marginBottom: 20 },
-  typeChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 12, backgroundColor: '#121212', marginRight: 8, borderWidth: 1, borderColor: '#222' },
+  typeChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#222', marginRight: 8 },
   typeChipTxt: { color: '#666', fontSize: 12 },
-  btnAdd: { padding: 15, borderRadius: 15, alignItems: 'center', borderWidth: 1 },
-  btnAddText: { fontWeight: '800' },
-  btnMinhaLoc: { marginTop: 10, padding: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1 },
-  btnMinhaLocText: { fontWeight: '700', fontSize: 13 },
-  mapHint: { color: '#444', fontSize: 10, marginBottom: 8 },
-  mapCard: { height: 220, borderRadius: 15, overflow: 'hidden', borderWidth: 1, borderColor: '#222' },
+  mapHint: { color: '#444', fontSize: 11, marginBottom: 10 },
+  mapCard: { height: 200, borderRadius: 20, overflow: 'hidden', backgroundColor: '#111', borderWidth: 1, borderColor: '#222' },
   map: { flex: 1 },
-  mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0D0D0D' },
-  mapPlaceholderText: { color: '#555', fontSize: 13, textAlign: 'center', paddingHorizontal: 20 },
-  itemCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#121212', padding: 15, borderRadius: 20, marginBottom: 10, borderWidth: 1, borderColor: '#222' },
+  mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapPlaceholderText: { color: '#444', fontSize: 12 },
+  btnMinhaLoc: { marginTop: 10, padding: 12, borderRadius: 15, borderWidth: 1, alignItems: 'center' },
+  btnMinhaLocText: { fontWeight: '700', fontSize: 12 },
+  btnAdd: { padding: 15, borderRadius: 15, borderWidth: 1, alignItems: 'center' },
+  btnAddText: { fontWeight: '800' },
+  itemCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#121212', borderRadius: 20, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#1A1A1A' },
+  itemThumb: { width: 50, height: 50, borderRadius: 12, marginRight: 12, overflow: 'hidden' },
   itemInfo: { flex: 1 },
-  itemTitle: { color: '#FFF', fontWeight: '700' },
-  itemSub: { color: '#666', fontSize: 12 },
-  itemRemove: { marginLeft: 15 },
+  itemTitle: { color: '#FFF', fontWeight: '700', fontSize: 15 },
+  itemSub: { color: '#666', fontSize: 12, marginTop: 2 },
+  itemRemove: { padding: 10, marginLeft: 5 },
   horariosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
-  timeText: { color: '#FFF', fontWeight: '700', fontSize: 12, marginRight: 5 },
-  timeRemove: { color: '#FF4444', fontSize: 10 },
+  timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
+  timeText: { color: '#FFF', fontWeight: '700', fontSize: 13 },
+  timeRemove: { color: '#666', marginLeft: 8, fontSize: 10 },
+  miniLabel: { color: '#444', fontSize: 9, fontWeight: '800', marginBottom: 4 },
+  emptyText: { color: '#444', textAlign: 'center', marginTop: 40 },
   agendCard: { backgroundColor: '#121212', borderRadius: 20, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: '#222' },
-  agendHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  agendClient: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+  agendHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+  agendClient: { color: '#FFF', fontWeight: '800', fontSize: 16 },
   agendPrice: { fontWeight: '800' },
-  agendServ: { color: '#888', fontSize: 13, marginTop: 4 },
-  agendMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#222' },
-  agendDate: { color: '#666', fontSize: 11 },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  agendServ: { color: '#888', fontSize: 14, marginBottom: 12 },
+  agendMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  agendDate: { color: '#666', fontSize: 12, fontWeight: '600' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   statusTxt: { color: '#FFF', fontSize: 9, fontWeight: '900' },
-  actionBtn: { flex: 1, padding: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
-  emptyText: { color: '#444', textAlign: 'center', marginTop: 50 },
-  miniLabel: { color: '#444', fontSize: 9, fontWeight: 'bold' },
+  actionBtn: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
+  nsFotoBox: { width: 80, height: 80, borderRadius: 15, backgroundColor: '#000', borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  nsFotoAdd: { fontSize: 24 }
 });

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import messaging from '@react-native-firebase/messaging';
-import { Alert, Platform } from 'react-native';
+import { Alert } from 'react-native';
 import type { Admin } from '../types';
 
 interface AuthContextData {
@@ -12,6 +12,7 @@ interface AuthContextData {
   loading: boolean;
   isAdmin: boolean;
   isCliente: boolean;
+  isResolvingAdmin: boolean; // ✅ Adicionado
   signOut: () => Promise<void>;
 }
 
@@ -21,6 +22,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isResolvingAdmin, setIsResolvingAdmin] = useState(true); // ✅ Começa true
 
   // --- LÓGICA DE NOTIFICAÇÕES ---
   useEffect(() => {
@@ -39,10 +41,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const token = await messaging().getToken();
           
           if (token) {
-            // 3. Salvar o token no documento do usuário (Coleção 'usuarios')
-            // Isso permite que as Cloud Functions enviem pushes individuais
+            // 3. Salvar o token no documento do usuário
+            const colecao = admin ? 'admins' : 'clientes';
             await firestore()
-              .collection('usuarios')
+              .collection(colecao)
               .doc(user.uid)
               .set({ fcmToken: token, ultimoAcesso: new Date() }, { merge: true });
 
@@ -74,32 +76,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(async firebaseUser => {
       setUser(firebaseUser);
+      setIsResolvingAdmin(true); // ✅ Inicia resolução
+
       if (firebaseUser) {
         try {
           const snap = await firestore()
             .collection('admins')
             .doc(firebaseUser.uid)
             .get();
-          
+
           if (snap.exists && snap.data()?.ativo) {
             setAdmin({ id: firebaseUser.uid, ...snap.data() } as Admin);
           } else {
             setAdmin(null);
           }
-        } catch {
+        } catch (e) {
+          console.log("Erro ao buscar admin:", e);
           setAdmin(null);
         }
       } else {
         setAdmin(null);
       }
+
       setLoading(false);
+      setIsResolvingAdmin(false); // ✅ Resolvido
     });
+
     return unsubscribe;
   }, []);
 
   // Logout centralizado — reseta admin imediatamente
   const signOut = async () => {
-    // Se for admin, limpa o tópico antes de sair
     if (user && admin) {
       try {
         await messaging().unsubscribeFromTopic(`admin_${user.uid}`);
@@ -119,12 +126,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user,
-      admin,
+      user, 
+      admin, 
       cliente: admin ? null : user,
       loading,
       isAdmin: !!admin,
       isCliente: !!user && !admin,
+      isResolvingAdmin, // ✅ Novo campo exportado
       signOut,
     }}>
       {children}

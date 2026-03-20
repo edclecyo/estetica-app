@@ -34,8 +34,8 @@ export async function loginAdmin(
   email: string,
   senha: string
 ): Promise<void> {
-  const credential = await auth().signInWithEmailAndPassword(email, senha);
-  await registrarTokenPush(credential.user.uid, 'admin');
+  const { user } = await auth().signInWithEmailAndPassword(email, senha); // ✅ desestrutura user
+  await registrarTokenPush(user.uid, 'admin'); // ✅ usa user.uid em vez de credential.user.uid
 }
 
 export async function logoutAdmin(): Promise<void> {

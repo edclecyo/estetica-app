@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, ScrollView, 
-  KeyboardAvoidingView, Platform, StatusBar
+  KeyboardAvoidingView, Platform, StatusBar, Image
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
@@ -35,20 +35,18 @@ export default function AdminLoginScreen() {
   };
 
   const fazerLogin = async () => {
-    if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
-    try {
-      setLoading(true);
-      await loginAdmin(email, senha);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'AdminDash' }],
-      });
-    } catch (e: any) {
-      Alert.alert('Erro', 'Acesso negado ou dados incorretos.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
+  try {
+    setLoading(true);
+    await loginAdmin(email, senha);
+    // ✅ AuthContext vai redirecionar automaticamente
+    // Timeout de segurança — se não redirecionar em 5s, para o loading
+    setTimeout(() => setLoading(false), 5000);
+  } catch (e: any) {
+    setLoading(false);
+    Alert.alert('Erro', 'Acesso negado ou dados incorretos.');
+  }
+};
 
   const fazerCadastro = async () => {
     if (!cNome || !cEmail || !cSenha) { Alert.alert('Atenção', 'Preencha todos os campos.'); return; }
@@ -106,8 +104,12 @@ export default function AdminLoginScreen() {
             <Text style={s.voltarBtnText}>←</Text>
           </TouchableOpacity>
           
-          <View style={s.logoCircle}>
-            <Text style={s.logoEmoji}>💼</Text>
+          <View style={s.logoContainer}>
+            <Image 
+              source={require('../assets/logo.png')}
+              style={s.logoImage}
+              resizeMode="contain"
+            />
           </View>
           
           <Text style={s.topoTitulo}>
@@ -168,7 +170,7 @@ export default function AdminLoginScreen() {
           )}
 
           {/* CADASTRO */}
-         {tela === 'cadastro' && (
+          {tela === 'cadastro' && (
             <View style={s.form}>
               <View style={s.inputGroup}>
                 <Text style={s.label}>NOME DO ESTABELECIMENTO / PROFISSIONAL</Text>
@@ -259,9 +261,9 @@ const s = StyleSheet.create({
   topo: { backgroundColor: '#000', padding: 24, paddingTop: 60, alignItems: 'center' },
   voltarBtn: { position: 'absolute', top: 52, left: 20, backgroundColor: '#111', borderRadius: 12, width: 44, height: 44, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#222' },
   voltarBtnText: { color: '#C9A96E', fontSize: 22 },
-  logoCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: '#C9A96E' },
-  logoEmoji: { fontSize: 32 },
-  topoTitulo: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8 },
+  logoContainer: { width: 150, height: 150, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+  logoImage: { width: '100%', height: '100%' },
+  topoTitulo: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8, marginTop: 10 },
   topoSub: { color: '#666', fontSize: 14, textAlign: 'center' },
   body: { padding: 24 },
   form: { gap: 20 },

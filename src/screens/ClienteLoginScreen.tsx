@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, ScrollView,
-  StatusBar, KeyboardAvoidingView, Platform
+  StatusBar, KeyboardAvoidingView, Platform, Image
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
@@ -44,7 +44,6 @@ export default function ClienteLoginScreen() {
       await loginClienteEmail(email, senha);
       sucessoAuth();
     } catch (e: any) {
-      // Tratamento seguro de erro
       const msg = e?.code === 'auth/user-not-found' || e?.code === 'auth/wrong-password' || e?.code === 'auth/invalid-credential'
         ? 'Email ou senha incorretos.' 
         : 'Não foi possível realizar o login no momento.';
@@ -64,14 +63,11 @@ export default function ClienteLoginScreen() {
       await cadastrarClienteEmail(nome, cEmail, cSenha);
       sucessoAuth();
     } catch (e: any) {
-      // Tratamento de erro melhorado para evitar "property credential doesn't exist"
       let msg = 'Não foi possível criar a conta.';
-      
       if (e?.code === 'auth/email-already-in-use') msg = 'Este email já está cadastrado.';
       else if (e?.code === 'auth/invalid-email') msg = 'Email inválido.';
       else if (e?.code === 'auth/weak-password') msg = 'A senha é muito fraca.';
       else if (e?.message) msg = e.message;
-
       Alert.alert('Erro', msg);
     } finally {
       setLoading(false);
@@ -84,7 +80,6 @@ export default function ClienteLoginScreen() {
       await loginClienteGoogle();
       sucessoAuth();
     } catch (e: any) {
-      // Evita o erro de propriedade inexistente aqui também
       console.log("Erro Google:", e);
       Alert.alert('Erro', 'Não foi possível entrar com Google. Tente novamente.');
     } finally {
@@ -95,7 +90,7 @@ export default function ClienteLoginScreen() {
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: '#000' }}
     >
       <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
@@ -106,8 +101,13 @@ export default function ClienteLoginScreen() {
             <Text style={s.voltarBtnText}>←</Text>
           </TouchableOpacity>
           
-          <View style={s.iconCircle}>
-            <Text style={s.topoEmoji}>✨</Text>
+          {/* Logo BeautyHub Substituindo o Círculo com Emoji */}
+          <View style={s.logoContainer}>
+            <Image 
+              source={require('../assets/logo.png')} 
+              style={s.logoImage}
+              resizeMode="contain"
+            />
           </View>
           
           <Text style={s.topoTitulo}>
@@ -283,19 +283,18 @@ const s = StyleSheet.create({
     borderColor: '#222'
   },
   voltarBtnText: { color: '#C9A96E', fontSize: 22 },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#111',
+  logoContainer: {
+    width: 140,
+    height: 140,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#C9A96E'
+    marginBottom: 5,
   },
-  topoEmoji: { fontSize: 32 },
-  topoTitulo: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8 },
+  logoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  topoTitulo: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8, marginTop: 10 },
   topoSub: { color: '#666', fontSize: 14, textAlign: 'center', paddingHorizontal: 20 },
   body: { padding: 24 },
   abas: { 

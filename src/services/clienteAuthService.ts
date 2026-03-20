@@ -2,26 +2,24 @@ import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { registrarTokenPush } from './notificacaoService';
+
 GoogleSignin.configure({
   webClientId: '1043439367326-jp6d5smhkvjtnpnusj59g7c7hv33v2o7.apps.googleusercontent.com',
 });
 
 export async function loginClienteEmail(email: string, senha: string) {
   const { user } = await auth().signInWithEmailAndPassword(email, senha);
+  await registrarTokenPush(user.uid, 'cliente'); // ✅ era credential.user.uid (e estava após o return)
   return user;
-  await registrarTokenPush(credential.user.uid, 'cliente');
 }
 
 export async function cadastrarClienteEmail(nome: string, email: string, senha: string) {
-  
   try {
-    // 1 — Cria no Auth
     const { user } = await auth().createUserWithEmailAndPassword(email, senha);
-    await registrarTokenPush(credential.user.uid, 'cliente');
-    // 2 — Atualiza nome
+    await registrarTokenPush(user.uid, 'cliente'); // ✅ era credential.user.uid
+
     await user.updateProfile({ displayName: nome });
 
-    // 3 — Tenta salvar no Firestore (não bloqueia se falhar)
     try {
       await firestore().collection('clientes').doc(user.uid).set({
         nome,
@@ -40,18 +38,18 @@ export async function cadastrarClienteEmail(nome: string, email: string, senha: 
 
 export async function loginClienteGoogle() {
   try {
-	  await registrarTokenPush(credential.user.uid, 'cliente');
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    await GoogleSignin.signOut(); // limpa sessão anterior
+    await GoogleSignin.signOut();
+
     const signInResult = await GoogleSignin.signIn();
     const idToken = signInResult.data?.idToken;
-    
     if (!idToken) throw new Error('Token não encontrado.');
-    
-    const credential = auth.GoogleAuthProvider.credential(idToken);
-    const { user } = await auth().signInWithCredential(credential);
 
-    // Salva no Firestore sem bloquear
+    const googleCredential = auth.GoogleAuthProvider.credential(idToken); // ✅ renomeado para evitar conflito
+    const { user } = await auth().signInWithCredential(googleCredential);
+
+    await registrarTokenPush(user.uid, 'cliente'); // ✅ movido para após ter o user
+
     try {
       const doc = await firestore().collection('clientes').doc(user.uid).get();
       if (!doc.exists) {
@@ -76,9 +74,7 @@ export async function loginClienteGoogle() {
 export async function logoutCliente() {
   try {
     const user = auth().currentUser;
-    if (user) {
-      await auth().signOut();
-    }
+    if (user) await auth().signOut();
   } catch (e) {
     console.log('Logout erro:', e);
   }

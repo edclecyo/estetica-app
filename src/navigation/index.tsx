@@ -1,9 +1,10 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useEffect, useRef } from 'react';
+import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, ActivityIndicator } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { configurarAberturaPorNotificacao } from '../services/notificacaoService';
 
 // Telas Cliente
 import HomeScreen from '../screens/HomeScreen';
@@ -13,7 +14,6 @@ import ClienteLoginScreen from '../screens/ClienteLoginScreen';
 import AvaliarScreen from '../screens/AvaliarScreen';
 import NotificacoesCliente from '../screens/NotificacoesCliente';
 import StoryView from '../screens/StoryView';
-
 // Telas Admin
 import AdminLoginScreen from '../screens/AdminLoginScreen';
 import AdminDashScreen from '../screens/AdminDashScreen';
@@ -23,7 +23,7 @@ import PostarStory from '../screens/PostarStory';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
-
+const { loading, isAdmin, isResolvingAdmin } = useAuth();
 function HomeTabs() {
   return (
     <Tab.Navigator
@@ -63,22 +63,54 @@ function HomeTabs() {
 export default function Navigation() {
   const { loading, isAdmin } = useAuth();
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
-        <ActivityIndicator size="large" color="#C9A96E" />
-      </View>
-    );
-  }
+  // ✅ Ref para navegar de fora do contexto de navegação (ex: notificação)
+  const navigationRef = useRef<NavigationContainerRef<any>>(null);
+
+  // ✅ Configura navegação ao tocar em notificação push
+  useEffect(() => {
+    configurarAberturaPorNotificacao((data) => {
+      if (!navigationRef.current) return;
+
+      // Navega com base nos dados enviados no payload da notificação
+      switch (data.tela) {
+        case 'agendamento':
+          navigationRef.current.navigate('Agendamentos');
+          break;
+        case 'detalhe':
+          navigationRef.current.navigate('Detalhe', {
+            estabelecimentoId: data.estabelecimentoId,
+          });
+          break;
+        case 'notificacoes':
+          navigationRef.current.navigate(
+            isAdmin ? 'AdminNotif' : 'NotificacoesCliente'
+          );
+          break;
+        case 'dash':
+          if (isAdmin) navigationRef.current.navigate('AdminDash');
+          break;
+        default:
+          // Sem tela definida no payload — não navega
+          break;
+      }
+    });
+  }, [isAdmin]);
+
+  if (loading || isResolvingAdmin) {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+      <ActivityIndicator size="large" color="#C9A96E" />
+    </View>
+  );
+}
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {isAdmin ? (
-          /* ROTAS DO ADMINISTRADOR (Agora incluindo a Home para ele visualizar) */
           <>
             <Stack.Screen name="AdminDash" component={AdminDashScreen} />
-            <Stack.Screen name="HomeTabs" component={HomeTabs} /> 
+            <Stack.Screen name="HomeTabs" component={HomeTabs} />
             <Stack.Screen name="AdminEstab" component={AdminEstabScreen} />
             <Stack.Screen name="AdminNotif" component={AdminNotifScreen} />
             <Stack.Screen name="PostarStory" component={PostarStory} />
@@ -86,7 +118,6 @@ export default function Navigation() {
             <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
           </>
         ) : (
-          /* ROTAS DO CLIENTE / PÚBLICAS */
           <>
             <Stack.Screen name="HomeTabs" component={HomeTabs} />
             <Stack.Screen name="Detalhe" component={DetalheScreen} />

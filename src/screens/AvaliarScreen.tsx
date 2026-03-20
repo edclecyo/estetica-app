@@ -20,7 +20,6 @@ const TAGS = [
 export default function AvaliarScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  // Garantindo que os params existam para não quebrar a tela
   const { agendamentoId, estabelecimentoNome, estabelecimentoId } = route.params || {};
 
   const [estrelas, setEstrelas] = useState(0);
@@ -38,10 +37,6 @@ export default function AvaliarScreen() {
       Alert.alert('Atenção', 'Selecione pelo menos uma estrela!');
       return;
     }
-    if (!agendamentoId || !estabelecimentoId) {
-      Alert.alert('Erro', 'Dados do agendamento não encontrados.');
-      return;
-    }
 
     try {
       setSalvando(true);
@@ -53,24 +48,46 @@ export default function AvaliarScreen() {
           tags: tagsSel,
           criadoEm: firestore.FieldValue.serverTimestamp(),
         },
+        status: 'concluido'
       });
 
-      // 2 — Atualiza média do estabelecimento usando Transação (mais seguro)
+      // 2 — Atualiza média e lógica de penalidade por avaliação negativa
       const estabRef = firestore().collection('estabelecimentos').doc(estabelecimentoId);
+      
       await firestore().runTransaction(async tx => {
         const estabSnap = await tx.get(estabRef);
         if (!estabSnap.exists) return;
 
         const data = estabSnap.data()!;
+        
+        // Contadores básicos
         const totalAtual = data.totalAvaliacoes || 0;
-        const mediaAtual = data.avaliacao || 0;
+        const somaNotasAtual = (data.avaliacao || 5) * totalAtual; 
         const novoTotal = totalAtual + 1;
-        // Cálculo de média ponderada
-        const novaMedia = ((mediaAtual * totalAtual) + estrelas) / novoTotal;
+        
+        // Lógica de Negativas (1 ou 2 estrelas contam como negativo)
+        let novasNegativas = data.avaliacoesNegativas || 0;
+        if (estrelas <= 2) {
+          novasNegativas += 1;
+        }
+
+        // Cálculo da média aritmética simples
+        let novaMedia = (somaNotasAtual + estrelas) / novoTotal;
+
+        // --- LÓGICA DE PENALIDADE ---
+        // Se tiver 10, 20, 30... negativas, subtraímos 0.5 da média por cada "dezena"
+        // Isso força a perda de estrelas visualmente
+        const penalidade = Math.floor(novasNegativas / 10) * 0.5;
+        novaMedia = novaMedia - penalidade;
+
+        // Garante que a nota não seja menor que 1 nem maior que 5
+        if (novaMedia < 1) novaMedia = 1;
 
         tx.update(estabRef, {
           avaliacao: Math.round(novaMedia * 10) / 10,
           totalAvaliacoes: novoTotal,
+          avaliacoesNegativas: novasNegativas,
+          ultimaAvaliacaoEm: firestore.FieldValue.serverTimestamp()
         });
       });
 
@@ -87,7 +104,6 @@ export default function AvaliarScreen() {
 
   return (
     <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
-      {/* Header - Combinando com o estilo Dark do App */}
       <View style={s.header}>
         <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
           <Text style={s.voltarBtnText}>←</Text>
@@ -97,7 +113,6 @@ export default function AvaliarScreen() {
       </View>
 
       <View style={s.body}>
-        {/* Card de Estrelas */}
         <View style={s.card}>
           <Text style={s.cardTitulo}>Como foi sua experiência?</Text>
           <View style={s.estrelasWrap}>
@@ -111,21 +126,20 @@ export default function AvaliarScreen() {
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={[s.estrelasLabel, estrelas > 0 && { color: '#1A1A1A' }]}>
+          <Text style={[s.estrelasLabel, estrelas > 0 && { color: estrelas <= 2 ? '#E76F51' : '#1A1A1A' }]}>
             {estrelas === 0 ? 'Toque para avaliar'
-              : estrelas === 1 ? 'Ruim 😞'
-              : estrelas === 2 ? 'Regular 😐'
+              : estrelas === 1 ? 'Muito Ruim 😞'
+              : estrelas === 2 ? 'Ruim 😐'
               : estrelas === 3 ? 'Bom 🙂'
               : estrelas === 4 ? 'Muito bom 😊'
               : 'Excelente! 🤩'}
           </Text>
         </View>
 
-        {/* Card de Tags (Destaques) */}
         <View style={s.card}>
           <Text style={s.cardTitulo}>
             O que você mais gostou? {'\n'}
-            <Text style={s.cardSub}>(Selecione as opções abaixo)</Text>
+            <Text style={s.cardSub}>(Opcional)</Text>
           </Text>
           <View style={s.tagsWrap}>
             {TAGS.map(tag => (
@@ -141,7 +155,6 @@ export default function AvaliarScreen() {
           </View>
         </View>
 
-        {/* Botões de Ação */}
         <View style={s.footer}>
           <TouchableOpacity
             style={[s.btnPrimario, (estrelas === 0 || salvando) && s.btnDisabled]}
@@ -155,7 +168,7 @@ export default function AvaliarScreen() {
 
           <TouchableOpacity 
             style={s.btnSecundario} 
-            onPress={() => navigation.navigate('HomeTabs', { screen: 'Agendamentos' })}
+            onPress={() => navigation.goBack()}
           >
             <Text style={s.btnSecundarioText}>Agora não, voltar</Text>
           </TouchableOpacity>
@@ -174,11 +187,11 @@ const s = StyleSheet.create({
   headerTitulo: { color: '#FAF7F4', fontSize: 22, fontWeight: '800' },
   body: { padding: 16 },
   card: { backgroundColor: '#fff', borderRadius: 24, padding: 24, marginBottom: 16, elevation: 2 },
-  cardTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 20, textAlign: 'center', lineHeight: 22 },
+  cardTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 20, textAlign: 'center' },
   cardSub: { fontSize: 12, color: '#999', fontWeight: '400' },
   estrelasWrap: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginBottom: 12 },
   estrela: { fontSize: 46, color: '#E9ECEF' },
-  estrelaAtiva: { color: '#F4A261' }, // Tom laranja suave para as estrelas
+  estrelaAtiva: { color: '#F4A261' },
   estrelasLabel: { textAlign: 'center', fontSize: 14, color: '#ADB5BD', fontWeight: '600' },
   tagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center' },
   tag: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF' },
@@ -186,9 +199,9 @@ const s = StyleSheet.create({
   tagText: { fontSize: 13, color: '#495057', fontWeight: '500' },
   tagTextAtiva: { color: '#fff', fontWeight: '700' },
   footer: { marginTop: 8 },
-  btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 18, padding: 20, alignItems: 'center', marginBottom: 12, elevation: 4 },
+  btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 18, padding: 20, alignItems: 'center', marginBottom: 12 },
   btnPrimarioText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   btnSecundario: { borderRadius: 18, padding: 16, alignItems: 'center', marginBottom: 40 },
   btnSecundarioText: { color: '#ADB5BD', fontSize: 14, fontWeight: '600' },
-  btnDisabled: { backgroundColor: '#DEE2E6', elevation: 0 },
+  btnDisabled: { backgroundColor: '#DEE2E6' },
 });

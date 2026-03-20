@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-
+import StoriesHeader from '../components/StoriesHeader';
 import type { Estabelecimento } from '../types';
 
 const TIPOS = [
@@ -98,10 +98,8 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(auth().currentUser);
   const [localizacao, setLocalizacao] = useState<{ lat: number; lng: number } | null>(null);
-  const [stories, setStories] = useState<any[]>([]);
   const [notificacoesNaoLidas, setNotificacoesNaoLidas] = useState(0);
 
-  // Monitorar Notificações do Cliente
   useEffect(() => {
     if (!user) {
         setNotificacoesNaoLidas(0);
@@ -117,7 +115,6 @@ export default function HomeScreen() {
     return unsub;
   }, [user]);
 
-  // Pede permissão e obtém localização
   useEffect(() => {
     const obter = async () => {
       if (Platform.OS === 'android') {
@@ -127,35 +124,19 @@ export default function HomeScreen() {
         if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
       }
       try {
+        // @ts-ignore
         navigator.geolocation?.getCurrentPosition(
           (pos) => {
             setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           },
           (err) => {
             console.log('GPS erro:', err);
-            navigator.geolocation?.getCurrentPosition(
-              (pos) => setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-              () => {},
-              { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
-            );
           },
           { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
         );
       } catch { }
     };
     obter();
-  }, []);
-
-  useEffect(() => {
-    const unsub = firestore()
-      .collection('stories')
-      .where('ativo', '==', true)
-      .limit(20)
-      .onSnapshot((snapshot) => {
-        if (!snapshot) return;
-        setStories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-    return unsub;
   }, []);
 
   useEffect(() => {
@@ -219,6 +200,7 @@ export default function HomeScreen() {
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
 
+      {/* HEADER FIXO */}
       <View style={s.header}>
         <View style={s.headerTop}>
           <View style={{ flex: 1 }}>
@@ -284,52 +266,33 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <View style={s.filtroWrap}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
-          {TIPOS.map((t) => (
-            <TouchableOpacity
-              key={t}
-              onPress={() => setFiltro(t)}
-              style={[s.chip, filtro === t && s.chipAtivo]}
-            >
-              <Text style={s.chipIcon}>{TIPO_ICONS[t] || '✦'}</Text>
-              <Text style={[s.chipText, filtro === t && s.chipTextAtivo]}>{t}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      <View style={s.storiesArea}>
-        <FlatList
-          horizontal
-          data={stories}
-          keyExtractor={(item) => item.id}
-          showsHorizontalScrollIndicator={false}
-          renderItem={({ item, index }) => (
-            <TouchableOpacity
-              style={s.story}
-              onPress={() => navigation.navigate('StoryView', { stories, startIndex: index })}
-            >
-              <View style={[s.storyBorder, { borderColor: '#C9A96E' }]}>
-                <View style={s.storyAvatar}>
-                  {item.imagem ? (
-                    <Image source={{ uri: item.imagem }} style={{ width: 60, height: 60, borderRadius: 30 }} />
-                  ) : (
-                    <Text style={s.storyEmoji}>🏪</Text>
-                  )}
-                </View>
-              </View>
-              <Text numberOfLines={1} style={s.storyName}>{item.nome}</Text>
-            </TouchableOpacity>
-          )}
-        />
-      </View>
-
       <FlatList
         data={filtrados}
         keyExtractor={(e) => e.id}
         contentContainerStyle={s.lista}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <>
+            {/* FILTROS DENTRO DO SCROLL DA LISTA */}
+            <View style={s.filtroWrap}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
+                {TIPOS.map((t) => (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => setFiltro(t)}
+                    style={[s.chip, filtro === t && s.chipAtivo]}
+                  >
+                    <Text style={s.chipIcon}>{TIPO_ICONS[t] || '✦'}</Text>
+                    <Text style={[s.chipText, filtro === t && s.chipTextAtivo]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* STORIES HEADER COMPONENT */}
+            <StoriesHeader />
+          </>
+        }
         renderItem={({ item }) => {
           const aberto = item._aberto;
           const dist = item._dist < 9999 ? item._dist : null;
@@ -417,14 +380,14 @@ const s = StyleSheet.create({
   buscaWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 14 },
   buscaInput: { flex: 1, color: '#fff', paddingVertical: 10 },
   buscaIcon: { marginRight: 8 },
-  filtroWrap: { backgroundColor: '#000', paddingBottom: 16 },
-  filtroScroll: { paddingHorizontal: 16 },
+  filtroWrap: { backgroundColor: '#000', paddingVertical: 12 },
+  filtroScroll: { paddingHorizontal: 0 },
   chip: { flexDirection: 'row', alignItems: 'center', marginRight: 10, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, backgroundColor: '#1A1A1A' },
   chipAtivo: { backgroundColor: '#C9A96E' },
   chipIcon: { marginRight: 6 },
   chipText: { color: '#888' },
   chipTextAtivo: { color: '#000', fontWeight: '700' },
-  lista: { padding: 16 },
+  lista: { paddingHorizontal: 16, paddingBottom: 32 },
   card: { backgroundColor: '#111', borderRadius: 28, marginBottom: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#222', paddingBottom: 8, position: 'relative' },
   distBadge: { position: 'absolute', top: 14, right: 14, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(201,169,110,0.4)' },
   distBadgeText: { color: '#C9A96E', fontSize: 11, fontWeight: '800' },
@@ -448,10 +411,4 @@ const s = StyleSheet.create({
   avaliacaoNumero: { color: '#888', fontSize: 13, marginLeft: 8, fontWeight: '700' },
   cardBtn: { marginHorizontal: 24, marginBottom: 20, marginTop: 12, borderRadius: 16, padding: 16, alignItems: 'center' },
   cardBtnText: { fontWeight: '800', fontSize: 15, textTransform: 'uppercase', letterSpacing: 0.5 },
-  storiesArea: { paddingVertical: 12, paddingLeft: 12, backgroundColor: '#000' },
-  story: { alignItems: 'center', marginRight: 14, width: 72 },
-  storyBorder: { width: 68, height: 68, borderRadius: 34, padding: 3, borderWidth: 2, justifyContent: 'center', alignItems: 'center' },
-  storyAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' },
-  storyEmoji: { fontSize: 28 },
-  storyName: { fontSize: 11, marginTop: 4, textAlign: 'center', color: '#888' },
 });

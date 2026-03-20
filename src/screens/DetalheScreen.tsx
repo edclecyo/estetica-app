@@ -113,21 +113,27 @@ export default function DetalheScreen() {
     }
     try {
       setSalvando(true);
+      
+      // Localiza o objeto do serviço para pegar o ID real e o preço numérico
       const servico = estab?.servicos.find(s => s.nome === servicoSel);
+      const precoLimpo = Number(String(servico?.preco || 0).replace(',', '.'));
+
       await fn.httpsCallable('criarAgendamento')({
         estabelecimentoId,
-        estabelecimentoNome: estab?.nome,
-        servicoId: servico?.id || servicoSel,
+        estabelecimentoNome: estab?.nome || 'Estabelecimento',
+        servicoId: servico?.id || 'id_desconhecido',
         servicoNome: servicoSel,
-        servicoPreco: servico?.preco || 0,
+        servicoPreco: precoLimpo,
         clienteNome: nome,
         clienteUid: auth().currentUser?.uid || '',
         data: dataSel.full,
         horario: horarioSel,
       });
+
       await AsyncStorage.setItem('clienteNome', nome);
       setConfirmado(true);
     } catch (e: any) {
+      console.error(e);
       Alert.alert('Erro', e.message || 'Não foi possível agendar.');
     } finally {
       setSalvando(false);
@@ -150,19 +156,19 @@ export default function DetalheScreen() {
           <View style={s.confirmCircle}><Text style={s.confirmEmoji}>🎉</Text></View>
           <Text style={s.confirmTitulo}>Agendado!</Text>
           <Text style={s.confirmSub}>Seu horário está confirmado, {nome.split(' ')[0]}!</Text>
-          <View style={s.confirmResumo}>
+          <div style={s.confirmResumo}>
             <Text style={s.confirmEstab}>{estab?.nome}</Text>
             <View style={s.confirmLinha}><Text>💆 {servicoSel}</Text></View>
             <View style={s.confirmLinha}><Text>📅 {dataSel?.full}</Text></View>
             <View style={s.confirmLinha}><Text>⏰ {horarioSel}</Text></View>
-          </View>
+          </div>
           <TouchableOpacity 
             style={s.btnPrimario} 
             onPress={() => navigation.reset({
               index: 0,
               routes: [{ 
                 name: 'HomeTabs', 
-                params: { screen: 'Agendamentos' } // Altere 'Agendamentos' para o nome exato da sua Tab de horários
+                params: { screen: 'Agendamentos' }
               }],
             })}
           >
@@ -188,7 +194,6 @@ export default function DetalheScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={s.body}>
-          {/* Steps */}
           <View style={s.stepsWrap}>
             {[1, 2, 3, 4].map(i => (
               <View key={i} style={s.stepItem}>
@@ -198,7 +203,6 @@ export default function DetalheScreen() {
             ))}
           </View>
 
-          {/* Serviços */}
           <View style={s.secao}>
             <Text style={s.secaoTitulo}>Serviço</Text>
             {svcsAtivos.map(sv => (
@@ -213,7 +217,6 @@ export default function DetalheScreen() {
             ))}
           </View>
 
-          {/* Data */}
           {step >= 2 && (
             <View style={s.secao}>
               <Text style={s.secaoTitulo}>Data</Text>
@@ -229,7 +232,6 @@ export default function DetalheScreen() {
             </View>
           )}
 
-          {/* Horário */}
           {step >= 3 && (
             <View style={s.secao}>
               <Text style={s.secaoTitulo}>Horário</Text>
@@ -251,7 +253,6 @@ export default function DetalheScreen() {
             </View>
           )}
 
-          {/* Nome e Resumo Final */}
           {step >= 4 && (
             <>
               <View style={s.secao}>
@@ -263,7 +264,6 @@ export default function DetalheScreen() {
                 )}
               </View>
 
-              {/* REINSERIDO: Card de detalhes do agendamento escolhido */}
               <View style={s.resumoFinalCard}>
                 <Text style={s.resumoFinalTitulo}>Resumo do Agendamento</Text>
                 <View style={s.resumoFinalLinha}>
@@ -340,7 +340,6 @@ const s = StyleSheet.create({
   nomeLogadoIc: { fontSize: 20 },
   nomeLogadoTxt: { fontSize: 15, fontWeight: '600' },
   input: { backgroundColor: '#fff', borderRadius: 14, padding: 14, fontSize: 14, color: '#1A1A1A' },
-  // Estilos do Card de Resumo Final
   resumoFinalCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: '#C9A96E', elevation: 2 },
   resumoFinalTitulo: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
   resumoFinalLinha: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },

@@ -1,268 +1,373 @@
 import React, { useEffect, useState, useRef } from "react";
 import {
-View,
-Text,
-TouchableOpacity,
-StyleSheet,
-Dimensions,
-Image,
-Animated
+  View, Text, TouchableOpacity, StyleSheet, Dimensions,
+  Image, Animated, StatusBar, Pressable,
+  Modal, ScrollView, ActivityIndicator
 } from "react-native";
 
-import firestore from "@react-native-firebase/firestore";
+// FIREBASE MODULAR API
+import firestore, { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  deleteDoc, 
+  increment, 
+  serverTimestamp 
+} from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
+
 import { useRoute, useNavigation } from "@react-navigation/native";
-
-const { width } = Dimensions.get("window");
-
-export default function StoryView(){
-
-const route:any = useRoute();
-const navigation:any = useNavigation();
-
-const { stories, startIndex } = route.params;
-
-const [index,setIndex] = useState(startIndex || 0);
-const [likes,setLikes] = useState(0);
-
-const progress = useRef(new Animated.Value(0)).current;
-
-const story = stories[index];
-
-useEffect(()=>{
-
-if(!story) return;
-
-registrarView();
-
-Animated.timing(progress,{
-toValue:1,
-duration:5000,
-useNativeDriver:false
-}).start(()=>{
-
-proximo();
-
-});
-
-},[index]);
-
-async function registrarView(){
-
-try{
-
-await firestore()
-.collection("storyViews")
-.add({
-storyId:story.id,
-userId:auth().currentUser?.uid || "anon",
-timestamp:Date.now()
-});
-
-}catch(e){}
-
-}
-
-async function curtir(){
-
-setLikes(likes+1);
-
-try{
-
-await firestore()
-.collection("storyLikes")
-.add({
-storyId:story.id,
-userId:auth().currentUser?.uid,
-timestamp:Date.now()
-});
-
-}catch(e){}
-
-}
-
-function proximo(){
-
-if(index + 1 >= stories.length){
-navigation.goBack();
-return;
-}
-
-progress.setValue(0);
-setIndex(index+1);
-
-}
-
-function voltar(){
-
-if(index === 0) return;
-
-progress.setValue(0);
-setIndex(index-1);
-
-}
-
-return(
-
-<View style={s.container}>
-
-{/* PROGRESS BAR */}
-
-<View style={s.progressContainer}>
-
-{stories.map((_:any,i:number)=>{
-
-return(
-
-<View key={i} style={s.progressBg}>
-
-{i === index && (
-
-<Animated.View
-style={[
-s.progressFill,
-{
-width:progress.interpolate({
-inputRange:[0,1],
-outputRange:["0%","100%"]
-})
-}
-]}
-/>
-
-)}
-
-{i < index && <View style={[s.progressFill,{width:"100%"}]} />}
-
-</View>
-
-);
-
-})}
-
-</View>
-
-{/* STORY */}
-
-{story?.imagem && (
-
-<Image
-source={{uri:story.imagem}}
-style={s.image}
-/>
-
-)}
-
-{/* AREA DE TOQUE */}
-
-<View style={s.touchLayer}>
-
-<TouchableOpacity
-style={{flex:1}}
-onPress={voltar}
-/>
-
-<TouchableOpacity
-style={{flex:1}}
-onPress={proximo}
-/>
-
-</View>
-
-{/* INFO */}
-
-<View style={s.footer}>
-
-<Text style={s.nome}>
-{story.nome}
-</Text>
-
-<TouchableOpacity
-style={s.likeBtn}
-onPress={curtir}
->
-
-<Text style={s.likeText}>
-❤️ Curtir
-</Text>
-
-</TouchableOpacity>
-
-</View>
-
-</View>
-
-);
-
+import { SafeAreaView } from 'react-native-safe-area-context'; // Novo padrão
+import Share from 'react-native-share';
+import Video from 'react-native-video';
+
+const { width, height } = Dimensions.get("window");
+
+export default function StoryView() {
+  const route: any = useRoute();
+  const navigation: any = useNavigation();
+  
+  const stories = route.params?.stories || [];
+  const startIndex = route.params?.startIndex || 0;
+
+  const [index, setIndex] = useState(startIndex);
+  const [isLiked, setIsLiked] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [quemCurtiu, setQuemCurtiu] = useState<any[]>([]);
+  const [totalViews, setTotalViews] = useState(0);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [videoDuration, setVideoDuration] = useState(5000); 
+
+  const story = stories[index];
+  const user = auth().currentUser;
+  const isAdmin = user?.uid === story?.adminId;
+
+  const progress = useRef(new Animated.Value(0)).current;
+  const likeAnim = useRef(new Animated.Value(1)).current;
+  const statsAnim = useRef(new Animated.Value(height)).current;
+  const isPaused = useRef(false);
+  const pausedValue = useRef(0);
+
+  useEffect(() => {
+    if (!story) return;
+    
+    progress.setValue(0);
+    pausedValue.current = 0;
+    
+    registrarView();
+    checkIfLiked();
+    
+    if (story.type !== 'video') {
+        startAnimation(0, 5000);
+    }
+
+    return () => progress.stopAnimation();
+  }, [index]);
+
+  function startAnimation(resumeValue = 0, duration = 5000) {
+    progress.setValue(resumeValue);
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: duration * (1 - resumeValue),
+      useNativeDriver: false
+    }).start(({ finished }) => {
+      if (finished && !isPaused.current) proximo();
+    });
+  }
+
+  const handlePressIn = () => {
+    isPaused.current = true;
+    progress.stopAnimation(v => pausedValue.current = v);
+  };
+
+  const handlePressOut = () => {
+    isPaused.current = false;
+    if (!showStats) {
+      startAnimation(pausedValue.current, story.type === 'video' ? videoDuration : 5000);
+    }
+  };
+
+  async function registrarView() {
+    if (!story?.id || !user) return;
+    
+    try {
+      const storyRef = doc(firestore(), "stories", story.id);
+      const viewId = `${story.id}_${user.uid}`; 
+      const viewRef = doc(firestore(), "storyViews", viewId);
+
+      const docView = await getDoc(viewRef);
+
+      if (!docView.exists()) {
+        await setDoc(viewRef, {
+          storyId: story.id,
+          userId: user.uid,
+          timestamp: serverTimestamp()
+        });
+
+        await updateDoc(storyRef, {
+          views: increment(1),
+          visto: true 
+        });
+      }
+    } catch (e) { 
+      console.log("Erro ao registrar view:", e); 
+    }
+  }
+
+  async function checkIfLiked() {
+    if (!story?.id || !user) return;
+    
+    try {
+      const likeId = `${story.id}_${user.uid}`;
+      const likeRef = doc(firestore(), "storyLikes", likeId);
+      const snap = await getDoc(likeRef);
+
+      // Sincroniza o estado do coração com o banco de dados
+      setIsLiked(snap.exists());
+    } catch (e) {
+      console.log("Erro ao checar like:", e);
+      setIsLiked(false);
+    }
+  }
+
+  async function curtir() {
+    if (!story?.id || !user) return;
+
+    const estavaCurtido = isLiked;
+    const novoEstadoLike = !estavaCurtido;
+    
+    // Feedback visual imediato
+    Animated.sequence([
+      Animated.timing(likeAnim, { toValue: 1.4, duration: 100, useNativeDriver: true }),
+      Animated.timing(likeAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+    ]).start();
+
+    setIsLiked(novoEstadoLike);
+
+    const storyRef = doc(firestore(), "stories", story.id);
+    const likeId = `${story.id}_${user.uid}`;
+    const likeRef = doc(firestore(), "storyLikes", likeId);
+
+    try {
+      if (novoEstadoLike) {
+        await setDoc(likeRef, {
+          storyId: story.id,
+          userName: user.displayName || "Cliente",
+          userId: user.uid,
+          timestamp: serverTimestamp()
+        });
+        await updateDoc(storyRef, { likesCount: increment(1) });
+      } else {
+        await deleteDoc(likeRef);
+        await updateDoc(storyRef, { likesCount: increment(-1) });
+      }
+    } catch (e) {
+      console.log("Erro ao processar like:", e);
+      setIsLiked(estavaCurtido); // Reverte o ícone se falhar
+    }
+  }
+
+  async function compartilhar() {
+    handlePressIn();
+    try {
+      await Share.open({
+        title: 'Compartilhar Story',
+        url: story.url || story.imagem,
+        message: `Olha o que vi no perfil de ${story.nome}!`
+      });
+    } catch (e) { console.log("Compartilhar cancelado"); }
+    handlePressOut();
+  }
+
+  async function abrirStats() {
+    if (!isAdmin) return;
+    handlePressIn();
+    setShowStats(true);
+    setLoadingStats(true);
+    try {
+      const storyRef = doc(firestore(), "stories", story.id);
+      const storyData = await getDoc(storyRef);
+      setTotalViews(storyData.data()?.views || 0);
+      
+      const likesQuery = query(
+        collection(firestore(), "storyLikes"), 
+        where("storyId", "==", story.id)
+      );
+      const likesSnap = await getDocs(likesQuery);
+      setQuemCurtiu(likesSnap.docs.map(d => d.data()));
+      
+      Animated.spring(statsAnim, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
+    } catch (e) { 
+        console.log("Erro stats:", e); 
+    } finally { 
+        setLoadingStats(false); 
+    }
+  }
+
+  function fecharStats() {
+    Animated.timing(statsAnim, { toValue: height, duration: 300, useNativeDriver: true }).start(() => {
+      setShowStats(false);
+      handlePressOut();
+    });
+  }
+
+  function proximo() {
+    if (index + 1 >= stories.length) {
+      navigation.goBack();
+    } else {
+      setIndex(index + 1);
+    }
+  }
+
+  function voltar() {
+    if (index > 0) {
+      setIndex(index - 1);
+    }
+  }
+
+  if (!story) return null;
+
+  return (
+    <View style={s.container}>
+      <StatusBar hidden />
+      
+      {story.type === 'video' ? (
+        <Video
+          source={{ uri: story.url || story.imagem }}
+          style={s.image}
+          resizeMode="cover"
+          paused={isPaused.current || showStats}
+          onLoad={(data) => {
+            const duration = data.duration * 1000;
+            setVideoDuration(duration);
+            startAnimation(0, duration);
+          }}
+          onEnd={proximo}
+        />
+      ) : (
+        <Image source={{ uri: story.url || story.imagem }} style={s.image} resizeMode="cover" />
+      )}
+
+      <View style={s.topOverlay} />
+
+      <SafeAreaView style={s.progressWrapper} edges={['top']}>
+        <View style={s.progressContainer}>
+          {stories.map((_: any, i: number) => (
+            <View key={i} style={s.progressBg}>
+              <Animated.View 
+                style={[
+                  s.progressFill, 
+                  { 
+                    width: i === index ? progress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }) 
+                           : i < index ? "100%" : "0%" 
+                  }
+                ]} 
+              />
+            </View>
+          ))}
+        </View>
+        <View style={s.headerInfo}>
+           <Image source={{ uri: story.avatar }} style={s.avatarImg} />
+           <Text style={s.nomeEstab}>{story.nome}</Text>
+           <TouchableOpacity style={{padding: 10}} onPress={() => navigation.goBack()}>
+             <Text style={s.closeText}>✕</Text>
+           </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+
+      <View style={s.touchLayer}>
+        <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut} onPress={voltar} style={s.touchSide} />
+        <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut} onPress={proximo} onLongPress={abrirStats} style={s.touchSide} />
+      </View>
+
+      <View style={s.footer}>
+        <TouchableOpacity onPress={curtir}>
+          <Animated.Text style={[s.footerIcon, { transform: [{ scale: likeAnim }], color: isLiked ? '#FF2D55' : '#FFF' }]}>
+            {isLiked ? '❤️' : '🤍'}
+          </Animated.Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={compartilhar}>
+          <Text style={s.footerIcon}>✈️</Text>
+        </TouchableOpacity>
+      </View>
+
+      {isAdmin && (
+        <TouchableOpacity style={s.swipeUpIndicator} onPress={abrirStats}>
+          <Text style={s.swipeText}>▲</Text>
+          <Text style={s.swipeLabel}>Atividade</Text>
+        </TouchableOpacity>
+      )}
+
+      <Modal visible={showStats} transparent animationType="none" onRequestClose={fecharStats}>
+        <View style={s.modalOverlay}>
+          <Pressable style={{flex:1}} onPress={fecharStats} />
+          <Animated.View style={[s.statsSheet, { transform: [{ translateY: statsAnim }] }]}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>Atividade do Story</Text>
+            <View style={s.statsHeader}>
+                <View style={s.statBox}>
+                    <Text style={s.statValue}>{totalViews}</Text>
+                    <Text style={s.statLabel}>Visualizações 👁️</Text>
+                </View>
+                <View style={s.statBox}>
+                    <Text style={s.statValue}>{quemCurtiu.length}</Text>
+                    <Text style={s.statLabel}>Curtidas ❤️</Text>
+                </View>
+            </View>
+            <ScrollView contentContainerStyle={{padding: 20}}>
+              <Text style={s.sectionTitle}>Pessoas que curtiram</Text>
+              {loadingStats ? <ActivityIndicator color="#C9A96E" /> : (
+                quemCurtiu.length === 0 ? <Text style={s.emptyText}>Ninguém curtiu ainda.</Text> :
+                quemCurtiu.map((item, i) => (
+                  <View key={i} style={s.userRow}>
+                    <View style={s.userAvatar}><Text>👤</Text></View>
+                    <Text style={s.userName}>{item.userName || "Usuário"}</Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </Animated.View>
+        </View>
+      </Modal>
+    </View>
+  );
 }
 
 const s = StyleSheet.create({
-
-container:{
-flex:1,
-backgroundColor:"#000",
-justifyContent:"center",
-alignItems:"center"
-},
-
-image:{
-width:"100%",
-height:"100%",
-position:"absolute"
-},
-
-touchLayer:{
-position:"absolute",
-flexDirection:"row",
-width:"100%",
-height:"100%"
-},
-
-footer:{
-position:"absolute",
-bottom:40,
-width:"100%",
-alignItems:"center"
-},
-
-nome:{
-color:"#fff",
-fontSize:18,
-fontWeight:"700",
-marginBottom:10
-},
-
-likeBtn:{
-backgroundColor:"#ff2d55",
-paddingHorizontal:20,
-paddingVertical:10,
-borderRadius:30
-},
-
-likeText:{
-color:"#fff",
-fontWeight:"700"
-},
-
-progressContainer:{
-position:"absolute",
-top:50,
-flexDirection:"row",
-width:"90%"
-},
-
-progressBg:{
-flex:1,
-height:4,
-backgroundColor:"rgba(255,255,255,0.3)",
-marginHorizontal:2,
-borderRadius:2
-},
-
-progressFill:{
-height:4,
-backgroundColor:"#fff",
-borderRadius:2
-}
-
+  container: { flex: 1, backgroundColor: "#000" },
+  image: { ...StyleSheet.absoluteFillObject },
+  topOverlay: { position: 'absolute', top: 0, width: '100%', height: 100, backgroundColor: 'rgba(0,0,0,0.3)' },
+  progressWrapper: { zIndex: 20 },
+  progressContainer: { flexDirection: "row", paddingHorizontal: 10, marginTop: 10, height: 2 },
+  progressBg: { flex: 1, height: 2, backgroundColor: "rgba(255,255,255,0.3)", marginHorizontal: 2, borderRadius: 2 },
+  progressFill: { height: '100%', backgroundColor: "#fff" },
+  headerInfo: { flexDirection: 'row', alignItems: 'center', padding: 15 },
+  avatarImg: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#333' },
+  nomeEstab: { color: '#fff', marginLeft: 10, fontWeight: '700', flex: 1 },
+  closeText: { color: '#fff', fontSize: 24, fontWeight: '300' },
+  touchLayer: { ...StyleSheet.absoluteFillObject, flexDirection: "row", zIndex: 10 },
+  touchSide: { flex: 1 },
+  footer: { position: "absolute", bottom: 40, right: 20, flexDirection: 'row', zIndex: 30 },
+  footerIcon: { fontSize: 30, marginLeft: 20 },
+  swipeUpIndicator: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center', zIndex: 30 },
+  swipeText: { color: '#fff', fontSize: 12 },
+  swipeLabel: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  statsSheet: { backgroundColor: '#1A1A1A', height: height * 0.65, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  sheetHandle: { width: 40, height: 5, backgroundColor: '#333', borderRadius: 3, alignSelf: 'center', marginTop: 10 },
+  sheetTitle: { color: '#fff', fontSize: 16, fontWeight: '800', textAlign: 'center', marginVertical: 15 },
+  statsHeader: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 20, borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 20 },
+  statBox: { flex: 1, alignItems: 'center' },
+  statValue: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  statLabel: { color: '#888', fontSize: 12, marginTop: 4 },
+  sectionTitle: { color: '#C9A96E', fontSize: 14, fontWeight: '700', marginBottom: 15 },
+  userRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  userAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  userName: { color: '#fff', fontWeight: '600' },
+  emptyText: { color: '#666', textAlign: 'center', marginTop: 20 }
 });

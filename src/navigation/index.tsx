@@ -5,23 +5,26 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, ActivityIndicator } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 
+// Telas Cliente
 import HomeScreen from '../screens/HomeScreen';
 import DetalheScreen from '../screens/DetalheScreen';
 import AgendamentosScreen from '../screens/AgendamentosScreen';
 import ClienteLoginScreen from '../screens/ClienteLoginScreen';
+import AvaliarScreen from '../screens/AvaliarScreen';
+import NotificacoesCliente from '../screens/NotificacoesCliente';
+import StoryView from '../screens/StoryView';
+
+// Telas Admin
 import AdminLoginScreen from '../screens/AdminLoginScreen';
 import AdminDashScreen from '../screens/AdminDashScreen';
 import AdminEstabScreen from '../screens/AdminEstabScreen';
-import AvaliarScreen from '../screens/AvaliarScreen';
 import AdminNotifScreen from '../screens/AdminNotifScreen';
-import StoryView from '../screens/StoryView';
 import PostarStory from '../screens/PostarStory';
-import NotificacoesCliente from '../screens/NotificacoesCliente';
+
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function HomeTabs() {
-  const { isCliente, user } = useAuth();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -51,7 +54,6 @@ function HomeTabs() {
         options={{
           tabBarLabel: 'Meus Horários',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📅</Text>,
-          tabBarBadge: undefined,
         }}
       />
     </Tab.Navigator>
@@ -63,8 +65,8 @@ export default function Navigation() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' }}>
-        <ActivityIndicator size="large" color="#1A1A1A" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <ActivityIndicator size="large" color="#C9A96E" />
       </View>
     );
   }
@@ -72,35 +74,29 @@ export default function Navigation() {
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-       {isAdmin ? (
-  <>
-    <Stack.Screen name="AdminDash" component={AdminDashScreen} />
-    <Stack.Screen name="AdminEstab" component={AdminEstabScreen} />
-    <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
-    <Stack.Screen name="AdminNotif" component={AdminNotifScreen} />
-  </>
-) : (
-  <>
-  
-    <Stack.Screen name="HomeTabs" component={HomeTabs} />
-	<Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
-    <Stack.Screen name="Detalhe" component={DetalheScreen} />
-    <Stack.Screen name="ClienteLogin" component={ClienteLoginScreen} />
-    <Stack.Screen name="Avaliar" component={AvaliarScreen} />
-    <Stack.Screen name="AdminDash" component={AdminDashScreen} />
-    <Stack.Screen name="AdminEstab" component={AdminEstabScreen} />
-	<Stack.Screen name="NotificacoesCliente" component={NotificacoesCliente} />
-	<Stack.Screen
-name="StoryView"
-component={StoryView}
-options={{ headerShown:false }}
-/>
-<Stack.Screen
-name="PostarStory"
-component={PostarStory}
-/>
-  </>
-)}
+        {isAdmin ? (
+          /* ROTAS DO ADMINISTRADOR (Agora incluindo a Home para ele visualizar) */
+          <>
+            <Stack.Screen name="AdminDash" component={AdminDashScreen} />
+            <Stack.Screen name="HomeTabs" component={HomeTabs} /> 
+            <Stack.Screen name="AdminEstab" component={AdminEstabScreen} />
+            <Stack.Screen name="AdminNotif" component={AdminNotifScreen} />
+            <Stack.Screen name="PostarStory" component={PostarStory} />
+            <Stack.Screen name="StoryView" component={StoryView} />
+            <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
+          </>
+        ) : (
+          /* ROTAS DO CLIENTE / PÚBLICAS */
+          <>
+            <Stack.Screen name="HomeTabs" component={HomeTabs} />
+            <Stack.Screen name="Detalhe" component={DetalheScreen} />
+            <Stack.Screen name="ClienteLogin" component={ClienteLoginScreen} />
+            <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
+            <Stack.Screen name="Avaliar" component={AvaliarScreen} />
+            <Stack.Screen name="NotificacoesCliente" component={NotificacoesCliente} />
+            <Stack.Screen name="StoryView" component={StoryView} />
+          </>
+        )}
       </Stack.Navigator>
     </NavigationContainer>
   );

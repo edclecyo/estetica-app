@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, ScrollView,
+  StatusBar, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
@@ -28,18 +29,26 @@ export default function ClienteLoginScreen() {
   const [cSenha, setCSenha] = useState('');
   const [cConfirm, setCConfirm] = useState('');
 
+  const sucessoAuth = () => {
+    if (estabelecimentoId) {
+      navigation.replace('Detalhe', { estabelecimentoId });
+    } else {
+      navigation.replace('HomeTabs');
+    }
+  };
+
   const fazerLogin = async () => {
     if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
     try {
       setLoading(true);
       await loginClienteEmail(email, senha);
-      if (estabelecimentoId) {
-        navigation.replace('Detalhe', { estabelecimentoId });
-      } else {
-        navigation.replace('HomeTabs');
-      }
+      sucessoAuth();
     } catch (e: any) {
-      Alert.alert('Erro', 'Email ou senha incorretos.');
+      // Tratamento seguro de erro
+      const msg = e?.code === 'auth/user-not-found' || e?.code === 'auth/wrong-password' || e?.code === 'auth/invalid-credential'
+        ? 'Email ou senha incorretos.' 
+        : 'Não foi possível realizar o login no momento.';
+      Alert.alert('Erro', msg);
     } finally {
       setLoading(false);
     }
@@ -49,19 +58,20 @@ export default function ClienteLoginScreen() {
     if (!nome || !cEmail || !cSenha) { Alert.alert('Atenção', 'Preencha todos os campos.'); return; }
     if (cSenha.length < 6) { Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.'); return; }
     if (cSenha !== cConfirm) { Alert.alert('Atenção', 'As senhas não coincidem.'); return; }
+    
     try {
       setLoading(true);
       await cadastrarClienteEmail(nome, cEmail, cSenha);
-      if (estabelecimentoId) {
-        navigation.replace('Detalhe', { estabelecimentoId });
-      } else {
-        navigation.replace('HomeTabs');
-      }
+      sucessoAuth();
     } catch (e: any) {
-      const msg =
-        e.code === 'auth/email-already-in-use' ? 'Este email já está cadastrado.' :
-        e.code === 'auth/invalid-email' ? 'Email inválido.' :
-        e.message || 'Não foi possível criar a conta.';
+      // Tratamento de erro melhorado para evitar "property credential doesn't exist"
+      let msg = 'Não foi possível criar a conta.';
+      
+      if (e?.code === 'auth/email-already-in-use') msg = 'Este email já está cadastrado.';
+      else if (e?.code === 'auth/invalid-email') msg = 'Email inválido.';
+      else if (e?.code === 'auth/weak-password') msg = 'A senha é muito fraca.';
+      else if (e?.message) msg = e.message;
+
       Alert.alert('Erro', msg);
     } finally {
       setLoading(false);
@@ -72,190 +82,285 @@ export default function ClienteLoginScreen() {
     try {
       setLoadingGoogle(true);
       await loginClienteGoogle();
-      if (estabelecimentoId) {
-        navigation.replace('Detalhe', { estabelecimentoId });
-      } else {
-        navigation.replace('HomeTabs');
-      }
+      sucessoAuth();
     } catch (e: any) {
-      Alert.alert('Erro', 'Não foi possível entrar com Google.');
+      // Evita o erro de propriedade inexistente aqui também
+      console.log("Erro Google:", e);
+      Alert.alert('Erro', 'Não foi possível entrar com Google. Tente novamente.');
     } finally {
       setLoadingGoogle(false);
     }
   };
 
   return (
-    <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
-      {/* Topo */}
-      <View style={s.topo}>
-        <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
-          <Text style={s.voltarBtnText}>←</Text>
-        </TouchableOpacity>
-        <Text style={s.topoEmoji}>✂️</Text>
-        <Text style={s.topoTitulo}>
-          {tela === 'login' ? 'Entrar para agendar' : 'Criar conta'}
-        </Text>
-        <Text style={s.topoSub}>
-          {tela === 'login'
-            ? 'Acesse sua conta para confirmar o agendamento'
-            : 'Crie sua conta gratuitamente'}
-        </Text>
-      </View>
-
-      <View style={s.body}>
-        {/* Google */}
-        <TouchableOpacity style={s.googleBtn} onPress={fazerLoginGoogle} disabled={loadingGoogle}>
-          {loadingGoogle
-            ? <ActivityIndicator color="#1A1A1A" />
-            : <>
-                <Text style={s.googleIc}>G</Text>
-                <Text style={s.googleText}>Continuar com Google</Text>
-              </>
-          }
-        </TouchableOpacity>
-
-        <View style={s.divisorWrap}>
-          <View style={s.divisorLinha} />
-          <Text style={s.divisorText}>ou</Text>
-          <View style={s.divisorLinha} />
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1 }}
+    >
+      <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
+        <StatusBar barStyle="light-content" backgroundColor="#000" />
+        
+        {/* Topo Premium */}
+        <View style={s.topo}>
+          <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
+            <Text style={s.voltarBtnText}>←</Text>
+          </TouchableOpacity>
+          
+          <View style={s.iconCircle}>
+            <Text style={s.topoEmoji}>✨</Text>
+          </View>
+          
+          <Text style={s.topoTitulo}>
+            {tela === 'login' ? 'Bem-vindo de volta' : 'Crie sua conta'}
+          </Text>
+          <Text style={s.topoSub}>
+            {tela === 'login'
+              ? 'Acesse para gerenciar seus agendamentos'
+              : 'Cadastre-se para agendar com facilidade'}
+          </Text>
         </View>
 
-        {/* Abas */}
-        <View style={s.abas}>
-          <TouchableOpacity
-            style={[s.aba, tela === 'login' && s.abaAtiva]}
-            onPress={() => setTela('login')}>
-            <Text style={[s.abaText, tela === 'login' && s.abaTextAtiva]}>Entrar</Text>
+        <View style={s.body}>
+          {/* Abas Estilo Switch */}
+          <View style={s.abas}>
+            <TouchableOpacity
+              style={[s.aba, tela === 'login' && s.abaAtiva]}
+              onPress={() => setTela('login')}>
+              <Text style={[s.abaText, tela === 'login' && s.abaTextAtiva]}>Entrar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.aba, tela === 'cadastro' && s.abaAtiva]}
+              onPress={() => setTela('cadastro')}>
+              <Text style={[s.abaText, tela === 'cadastro' && s.abaTextAtiva]}>Cadastro</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* LOGIN */}
+          {tela === 'login' && (
+            <View style={s.form}>
+              <View style={s.inputGroup}>
+                <Text style={s.label}>E-MAIL</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="exemplo@email.com"
+                  placeholderTextColor="#555"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>SENHA</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="••••••••"
+                  placeholderTextColor="#555"
+                  value={senha}
+                  onChangeText={setSenha}
+                  secureTextEntry
+                />
+              </View>
+
+              <TouchableOpacity style={s.btnPrimario} onPress={fazerLogin} disabled={loading}>
+                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Entrar →</Text>}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* CADASTRO */}
+          {tela === 'cadastro' && (
+            <View style={s.form}>
+              <View style={s.inputGroup}>
+                <Text style={s.label}>NOME COMPLETO</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Como quer ser chamado?"
+                  placeholderTextColor="#555"
+                  value={nome}
+                  onChangeText={setNome}
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>E-MAIL</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="seu@email.com"
+                  placeholderTextColor="#555"
+                  value={cEmail}
+                  onChangeText={setCEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>SENHA</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Mín. 6 caracteres"
+                  placeholderTextColor="#555"
+                  value={cSenha}
+                  onChangeText={setCSenha}
+                  secureTextEntry
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>CONFIRMAR SENHA</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Repita a senha"
+                  placeholderTextColor="#555"
+                  value={cConfirm}
+                  onChangeText={setCConfirm}
+                  secureTextEntry
+                />
+              </View>
+
+              <TouchableOpacity style={s.btnPrimario} onPress={fazerCadastro} disabled={loading}>
+                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Criar Conta ✨</Text>}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={s.divisorWrap}>
+            <View style={s.divisorLinha} />
+            <Text style={s.divisorText}>OU ENTRE COM</Text>
+            <View style={s.divisorLinha} />
+          </View>
+
+          {/* Google Button Premium */}
+          <TouchableOpacity style={s.googleBtn} onPress={fazerLoginGoogle} disabled={loadingGoogle}>
+            {loadingGoogle
+              ? <ActivityIndicator color="#fff" />
+              : <>
+                  <Text style={s.googleIc}>G</Text>
+                  <Text style={s.googleText}>Conta do Google</Text>
+                </>
+            }
           </TouchableOpacity>
+
+          <Text style={s.termos}>
+            Ao acessar, você concorda com nossos{'\n'}
+            <Text style={{ color: '#C9A96E' }}>Termos de Uso</Text> e <Text style={{ color: '#C9A96E' }}>Privacidade</Text>.
+          </Text>
+
           <TouchableOpacity
-            style={[s.aba, tela === 'cadastro' && s.abaAtiva]}
-            onPress={() => setTela('cadastro')}>
-            <Text style={[s.abaText, tela === 'cadastro' && s.abaTextAtiva]}>Criar conta</Text>
+            onPress={() => navigation.navigate('AdminLogin')}
+            style={s.adminBtn}>
+            <Text style={s.adminBtnText}>Acesso Profissional 🔧</Text>
           </TouchableOpacity>
+
+          <View style={{ height: 40 }} />
         </View>
-
-        {/* LOGIN */}
-        {tela === 'login' && (
-          <View style={s.form}>
-            <Text style={s.label}>EMAIL</Text>
-            <TextInput
-              style={s.input}
-              placeholder="seu@email.com"
-              placeholderTextColor="#bbb"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <Text style={s.label}>SENHA</Text>
-            <TextInput
-              style={s.input}
-              placeholder="Sua senha"
-              placeholderTextColor="#bbb"
-              value={senha}
-              onChangeText={setSenha}
-              secureTextEntry
-            />
-            <TouchableOpacity style={s.btnPrimario} onPress={fazerLogin} disabled={loading}>
-              {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={s.btnPrimarioText}>Entrar →</Text>
-              }
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* CADASTRO */}
-        {tela === 'cadastro' && (
-          <View style={s.form}>
-            <Text style={s.label}>NOME</Text>
-            <TextInput
-              style={s.input}
-              placeholder="Seu nome completo"
-              placeholderTextColor="#bbb"
-              value={nome}
-              onChangeText={setNome}
-            />
-            <Text style={s.label}>EMAIL</Text>
-            <TextInput
-              style={s.input}
-              placeholder="seu@email.com"
-              placeholderTextColor="#bbb"
-              value={cEmail}
-              onChangeText={setCEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <Text style={s.label}>SENHA</Text>
-            <TextInput
-              style={s.input}
-              placeholder="Mínimo 6 caracteres"
-              placeholderTextColor="#bbb"
-              value={cSenha}
-              onChangeText={setCSenha}
-              secureTextEntry
-            />
-            <Text style={s.label}>CONFIRMAR SENHA</Text>
-            <TextInput
-              style={s.input}
-              placeholder="Repita a senha"
-              placeholderTextColor="#bbb"
-              value={cConfirm}
-              onChangeText={setCConfirm}
-              secureTextEntry
-            />
-            <TouchableOpacity style={s.btnPrimario} onPress={fazerCadastro} disabled={loading}>
-              {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={s.btnPrimarioText}>Criar Conta →</Text>
-              }
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <Text style={s.termos}>
-          Ao continuar você concorda com nossos Termos de Uso e Política de Privacidade.
-        </Text>
-
-        {/* Botão Sou Admin */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate('AdminLogin')}
-          style={s.adminBtn}>
-          <Text style={s.adminBtnText}>🔧 Sou Admin</Text>
-        </TouchableOpacity>
-
-        <View style={{ height: 30 }} />
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
-  topo: { backgroundColor: '#1A1A1A', padding: 24, paddingTop: 52, alignItems: 'center', borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
-  voltarBtn: { position: 'absolute', top: 52, left: 20, backgroundColor: '#2A2A2A', borderRadius: 10, width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
-  voltarBtnText: { color: '#fff', fontSize: 18 },
-  topoEmoji: { fontSize: 36, marginBottom: 10 },
-  topoTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  topoSub: { color: '#777', fontSize: 13, textAlign: 'center' },
-  body: { padding: 20 },
-  googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderRadius: 14, padding: 14, gap: 10, borderWidth: 1.5, borderColor: '#E0E0E0', marginBottom: 16 },
-  googleIc: { fontSize: 18, fontWeight: '700', color: '#4285F4' },
-  googleText: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
-  divisorWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
-  divisorLinha: { flex: 1, height: 1, backgroundColor: '#E0E0E0' },
-  divisorText: { color: '#aaa', fontSize: 12 },
-  abas: { flexDirection: 'row', backgroundColor: '#E0E0E0', borderRadius: 12, padding: 3, marginBottom: 20 },
-  aba: { flex: 1, padding: 10, alignItems: 'center', borderRadius: 10 },
-  abaAtiva: { backgroundColor: '#fff' },
-  abaText: { fontSize: 13, color: '#888', fontWeight: '500' },
-  abaTextAtiva: { color: '#1A1A1A', fontWeight: '700' },
-  form: { gap: 4 },
-  label: { fontSize: 11, fontWeight: '700', color: '#999', letterSpacing: 1.2, marginBottom: 6, marginTop: 8 },
-  input: { backgroundColor: '#fff', borderRadius: 12, padding: 14, fontSize: 14, color: '#1A1A1A', borderWidth: 1.5, borderColor: '#E0E0E0', marginBottom: 4 },
-  btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 14, padding: 15, alignItems: 'center', marginTop: 12 },
-  btnPrimarioText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  termos: { color: '#bbb', fontSize: 11, textAlign: 'center', marginTop: 20, lineHeight: 16 },
-  adminBtn: { alignItems: 'center', marginTop: 16, padding: 12, borderRadius: 12, borderWidth: 1.5, borderColor: '#E0E0E0' },
-  adminBtnText: { color: '#999', fontSize: 13, fontWeight: '600' },
+  container: { flex: 1, backgroundColor: '#000' },
+  topo: { 
+    backgroundColor: '#000', 
+    padding: 24, 
+    paddingTop: 60, 
+    alignItems: 'center',
+  },
+  voltarBtn: { 
+    position: 'absolute', 
+    top: 52, 
+    left: 20, 
+    backgroundColor: '#111', 
+    borderRadius: 12, 
+    width: 44, 
+    height: 44, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#222'
+  },
+  voltarBtnText: { color: '#C9A96E', fontSize: 22 },
+  iconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#111',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#C9A96E'
+  },
+  topoEmoji: { fontSize: 32 },
+  topoTitulo: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8 },
+  topoSub: { color: '#666', fontSize: 14, textAlign: 'center', paddingHorizontal: 20 },
+  body: { padding: 24 },
+  abas: { 
+    flexDirection: 'row', 
+    backgroundColor: '#111', 
+    borderRadius: 16, 
+    padding: 6, 
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: '#222'
+  },
+  aba: { flex: 1, padding: 12, alignItems: 'center', borderRadius: 12 },
+  abaAtiva: { backgroundColor: '#C9A96E' },
+  abaText: { fontSize: 14, color: '#555', fontWeight: '600' },
+  abaTextAtiva: { color: '#000', fontWeight: '800' },
+  form: { gap: 16 },
+  inputGroup: { gap: 8 },
+  label: { fontSize: 10, fontWeight: '800', color: '#C9A96E', letterSpacing: 1.5 },
+  input: { 
+    backgroundColor: '#111', 
+    borderRadius: 14, 
+    padding: 16, 
+    fontSize: 15, 
+    color: '#FFF', 
+    borderWidth: 1, 
+    borderColor: '#222' 
+  },
+  btnPrimario: { 
+    backgroundColor: '#C9A96E', 
+    borderRadius: 16, 
+    padding: 18, 
+    alignItems: 'center', 
+    marginTop: 10,
+    shadowColor: '#C9A96E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5
+  },
+  btnPrimarioText: { color: '#000', fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
+  divisorWrap: { flexDirection: 'row', alignItems: 'center', marginVertical: 32 },
+  divisorLinha: { flex: 1, height: 1, backgroundColor: '#222' },
+  divisorText: { color: '#444', fontSize: 10, fontWeight: '800', marginHorizontal: 15, letterSpacing: 1 },
+  googleBtn: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    backgroundColor: '#111', 
+    borderRadius: 16, 
+    padding: 16, 
+    gap: 12, 
+    borderWidth: 1, 
+    borderColor: '#222' 
+  },
+  googleIc: { fontSize: 18, fontWeight: '900', color: '#FFF' },
+  googleText: { fontSize: 15, fontWeight: '600', color: '#FFF' },
+  termos: { color: '#444', fontSize: 12, textAlign: 'center', marginTop: 24, lineHeight: 18 },
+  adminBtn: { 
+    alignItems: 'center', 
+    marginTop: 32, 
+    padding: 16, 
+    borderRadius: 16, 
+    borderWidth: 1, 
+    borderColor: '#222',
+    backgroundColor: '#080808'
+  },
+  adminBtnText: { color: '#666', fontSize: 13, fontWeight: '700' },
 });

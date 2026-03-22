@@ -1,14 +1,9 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { AuthProvider } from './src/contexts/AuthContext';
 import Navigation from './src/navigation';
-import { escutarNotificacoes } from './src/services/notificacaoService';
 
+// ✅ Removido escutarNotificacoes() — AuthContext já cuida do foreground com filtro de admin
 export default function App() {
-  useEffect(() => {
-    const unsubscribe = escutarNotificacoes();
-    return unsubscribe;
-  }, []);
-
   return (
     <AuthProvider>
       <Navigation />

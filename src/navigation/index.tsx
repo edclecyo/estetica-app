@@ -13,17 +13,25 @@ import AgendamentosScreen from '../screens/AgendamentosScreen';
 import ClienteLoginScreen from '../screens/ClienteLoginScreen';
 import AvaliarScreen from '../screens/AvaliarScreen';
 import NotificacoesCliente from '../screens/NotificacoesCliente';
+import SetupSuperAdminScreen from '../screens/SetupSuperAdminScreen';
 import StoryView from '../screens/StoryView';
+
 // Telas Admin
 import AdminLoginScreen from '../screens/AdminLoginScreen';
 import AdminDashScreen from '../screens/AdminDashScreen';
 import AdminEstabScreen from '../screens/AdminEstabScreen';
 import AdminNotifScreen from '../screens/AdminNotifScreen';
 import PostarStory from '../screens/PostarStory';
+import AssinaturaScreen from '../screens/AssinaturaScreen';
+
+// Telas Super Admin
+import SuperAdminDashScreen from '../screens/SuperAdminDashScreen';
+import SuperAdminEstabsScreen from '../screens/SuperAdminEstabsScreen';
+import SuperAdminNotifScreen from '../screens/SuperAdminNotifScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
-const { loading, isAdmin, isResolvingAdmin } = useAuth();
+
 function HomeTabs() {
   return (
     <Tab.Navigator
@@ -61,17 +69,12 @@ function HomeTabs() {
 }
 
 export default function Navigation() {
-  const { loading, isAdmin } = useAuth();
-
-  // ✅ Ref para navegar de fora do contexto de navegação (ex: notificação)
+  const { loading, isAdmin, isSuperAdmin, isResolvingAdmin } = useAuth();
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
 
-  // ✅ Configura navegação ao tocar em notificação push
   useEffect(() => {
     configurarAberturaPorNotificacao((data) => {
       if (!navigationRef.current) return;
-
-      // Navega com base nos dados enviados no payload da notificação
       switch (data.tela) {
         case 'agendamento':
           navigationRef.current.navigate('Agendamentos');
@@ -87,38 +90,56 @@ export default function Navigation() {
           );
           break;
         case 'dash':
-          if (isAdmin) navigationRef.current.navigate('AdminDash');
+          if (isSuperAdmin) navigationRef.current.navigate('SuperAdminDash');
+          else if (isAdmin) navigationRef.current.navigate('AdminDash');
+          break;
+        case 'assinatura':
+          if (isAdmin) navigationRef.current.navigate('Assinatura');
           break;
         default:
-          // Sem tela definida no payload — não navega
           break;
       }
     });
-  }, [isAdmin]);
+  }, [isAdmin, isSuperAdmin]);
 
   if (loading || isResolvingAdmin) {
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
-      <ActivityIndicator size="large" color="#C9A96E" />
-    </View>
-  );
-}
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <ActivityIndicator size="large" color="#C9A96E" />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isAdmin ? (
-          <>
+
+        {/* ─── SUPER ADMIN ─── */}
+        {isSuperAdmin ? (
+          <Stack.Group>
+            <Stack.Screen name="SuperAdminDash" component={SuperAdminDashScreen} />
+            <Stack.Screen name="SuperAdminEstabs" component={SuperAdminEstabsScreen} />
+            <Stack.Screen name="SuperAdminNotif" component={SuperAdminNotifScreen} />
+            {/* ✅ Acesso ao login caso precise trocar de conta */}
+            <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
+          </Stack.Group>
+
+        // ─── ADMIN NORMAL ───
+        ) : isAdmin ? (
+          <Stack.Group>
             <Stack.Screen name="AdminDash" component={AdminDashScreen} />
-            <Stack.Screen name="HomeTabs" component={HomeTabs} />
             <Stack.Screen name="AdminEstab" component={AdminEstabScreen} />
             <Stack.Screen name="AdminNotif" component={AdminNotifScreen} />
             <Stack.Screen name="PostarStory" component={PostarStory} />
             <Stack.Screen name="StoryView" component={StoryView} />
+            <Stack.Screen name="HomeTabs" component={HomeTabs} />
             <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
-          </>
+            <Stack.Screen name="Assinatura" component={AssinaturaScreen} />
+          </Stack.Group>
+
+        // ─── CLIENTE ───
         ) : (
-          <>
+          <Stack.Group>
             <Stack.Screen name="HomeTabs" component={HomeTabs} />
             <Stack.Screen name="Detalhe" component={DetalheScreen} />
             <Stack.Screen name="ClienteLogin" component={ClienteLoginScreen} />
@@ -126,8 +147,10 @@ export default function Navigation() {
             <Stack.Screen name="Avaliar" component={AvaliarScreen} />
             <Stack.Screen name="NotificacoesCliente" component={NotificacoesCliente} />
             <Stack.Screen name="StoryView" component={StoryView} />
-          </>
+			<Stack.Screen name="SetupSuperAdmin" component={SetupSuperAdminScreen} />
+          </Stack.Group>
         )}
+
       </Stack.Navigator>
     </NavigationContainer>
   );

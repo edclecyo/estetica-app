@@ -10,7 +10,10 @@ import {
   cadastrarClienteEmail,
   loginClienteGoogle,
 } from '../services/clienteAuthService';
-
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { registrarTokenPush } from '../services/notificacaoService';
 type Tela = 'login' | 'cadastro';
 
 export default function ClienteLoginScreen() {
@@ -37,56 +40,96 @@ export default function ClienteLoginScreen() {
     }
   };
 
-  const fazerLogin = async () => {
-    if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
-    try {
-      setLoading(true);
-      await loginClienteEmail(email, senha);
-      sucessoAuth();
-    } catch (e: any) {
-      const msg = e?.code === 'auth/user-not-found' || e?.code === 'auth/wrong-password' || e?.code === 'auth/invalid-credential'
-        ? 'Email ou senha incorretos.' 
-        : 'Não foi possível realizar o login no momento.';
-      Alert.alert('Erro', msg);
-    } finally {
-      setLoading(false);
-    }
-  };
+ const fazerLogin = async () => {
+  if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
+  try {
+    setLoading(true);
 
-  const fazerCadastro = async () => {
-    if (!nome || !cEmail || !cSenha) { Alert.alert('Atenção', 'Preencha todos os campos.'); return; }
-    if (cSenha.length < 6) { Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.'); return; }
-    if (cSenha !== cConfirm) { Alert.alert('Atenção', 'As senhas não coincidem.'); return; }
-    
-    try {
-      setLoading(true);
-      await cadastrarClienteEmail(nome, cEmail, cSenha);
-      sucessoAuth();
-    } catch (e: any) {
-      let msg = 'Não foi possível criar a conta.';
-      if (e?.code === 'auth/email-already-in-use') msg = 'Este email já está cadastrado.';
-      else if (e?.code === 'auth/invalid-email') msg = 'Email inválido.';
-      else if (e?.code === 'auth/weak-password') msg = 'A senha é muito fraca.';
-      else if (e?.message) msg = e.message;
-      Alert.alert('Erro', msg);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // ✅ Faz login temporário para verificar
+    const { user } = await auth().signInWithEmailAndPassword(email, senha);
 
-  const fazerLoginGoogle = async () => {
-    try {
-      setLoadingGoogle(true);
-      await loginClienteGoogle();
-      sucessoAuth();
-    } catch (e: any) {
-      console.log("Erro Google:", e);
-      Alert.alert('Erro', 'Não foi possível entrar com Google. Tente novamente.');
-    } finally {
+    // ✅ Verifica se é admin ANTES do AuthContext reagir
+    const snap = await firestore().collection('admins').doc(user.uid).get();
+
+    if (snap.exists && snap.data()?.ativo) {
+      // ❌ É admin — faz logout imediato sem deixar o AuthContext reagir
+      await auth().signOut();
+      setLoading(false);
+      Alert.alert(
+        'Acesso Negado',
+        'Esta é uma conta de estabelecimento.\n\nUse o botão "Acesso Profissional 🔧" abaixo.'
+      );
+      return;
+    }
+
+    // ✅ É cliente — salva token e segue
+    await registrarTokenPush(user.uid, 'cliente');
+    sucessoAuth();
+
+  } catch (e: any) {
+    const msg =
+      e?.code === 'auth/user-not-found' ||
+      e?.code === 'auth/wrong-password' ||
+      e?.code === 'auth/invalid-credential'
+        ? 'Email ou senha incorretos.'
+        : 'Não foi possível realizar o login.';
+    Alert.alert('Erro', msg);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const fazerLoginGoogle = async () => {
+  try {
+    setLoadingGoogle(true);
+
+    // ✅ Faz login Google
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    await GoogleSignin.signOut();
+    const signInResult = await GoogleSignin.signIn();
+    const idToken = signInResult.data?.idToken;
+    if (!idToken) throw new Error('Token não encontrado.');
+
+    const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+    const { user } = await auth().signInWithCredential(googleCredential);
+
+    // ✅ Verifica se é admin antes do AuthContext reagir
+    const snap = await firestore().collection('admins').doc(user.uid).get();
+
+    if (snap.exists && snap.data()?.ativo) {
+      await auth().signOut();
+      try { await GoogleSignin.signOut(); } catch {}
       setLoadingGoogle(false);
+      Alert.alert(
+        'Acesso Negado',
+        'Esta é uma conta de estabelecimento.\n\nUse o botão "Acesso Profissional 🔧" abaixo.'
+      );
+      return;
     }
-  };
 
+    // ✅ É cliente — salva dados e segue
+    try {
+      const doc = await firestore().collection('clientes').doc(user.uid).get();
+      if (!doc.exists) {
+        await firestore().collection('clientes').doc(user.uid).set({
+          nome: user.displayName || '',
+          email: user.email || '',
+          foto: user.photoURL || '',
+          criadoEm: firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+    } catch {}
+
+    await registrarTokenPush(user.uid, 'cliente');
+    sucessoAuth();
+
+  } catch (e: any) {
+    console.log('Erro Google:', e);
+    Alert.alert('Erro', 'Não foi possível entrar com Google.');
+  } finally {
+    setLoadingGoogle(false);
+  }
+};
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}

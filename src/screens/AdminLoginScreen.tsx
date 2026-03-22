@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert, ScrollView, 
+  StyleSheet, ActivityIndicator, Alert, ScrollView,
   KeyboardAvoidingView, Platform, StatusBar, Image
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
-import { loginAdmin, recuperarSenha } from '../services/authService';
+import { recuperarSenha } from '../services/authService';
 
 type Tela = 'login' | 'cadastro' | 'recuperar';
 
@@ -34,20 +34,44 @@ export default function AdminLoginScreen() {
     return { label: 'Forte', color: '#4CAF50', nivel: 4 };
   };
 
+  // ✅ Login com verificação — bloqueia contas de cliente
   const fazerLogin = async () => {
-  if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
-  try {
-    setLoading(true);
-    await loginAdmin(email, senha);
-    // ✅ AuthContext vai redirecionar automaticamente
-    // Timeout de segurança — se não redirecionar em 5s, para o loading
-    setTimeout(() => setLoading(false), 5000);
-  } catch (e: any) {
-    setLoading(false);
-    Alert.alert('Erro', 'Acesso negado ou dados incorretos.');
-  }
-};
+    if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
+    try {
+      setLoading(true);
 
+      const { user } = await auth().signInWithEmailAndPassword(email, senha);
+
+      // ✅ Verifica se existe doc de admin ativo
+      const snap = await firestore().collection('admins').doc(user.uid).get();
+
+      if (!snap.exists || !snap.data()?.ativo) {
+        // ❌ Conta de cliente tentando entrar — bloqueia
+        await auth().signOut();
+        setLoading(false);
+        Alert.alert(
+          'Acesso Negado',
+          'Esta conta não tem acesso ao painel profissional.\n\nUse o login de cliente na tela anterior.'
+        );
+        return;
+      }
+
+      // ✅ É admin válido — AuthContext redireciona automaticamente
+      setTimeout(() => setLoading(false), 5000);
+
+    } catch (e: any) {
+      setLoading(false);
+      const msg =
+        e?.code === 'auth/user-not-found' ||
+        e?.code === 'auth/wrong-password' ||
+        e?.code === 'auth/invalid-credential'
+          ? 'Email ou senha incorretos.'
+          : 'Não foi possível realizar o login.';
+      Alert.alert('Erro', msg);
+    }
+  };
+
+  // ✅ Cadastro com logout imediato para evitar redirect errado
   const fazerCadastro = async () => {
     if (!cNome || !cEmail || !cSenha) { Alert.alert('Atenção', 'Preencha todos os campos.'); return; }
     if (cSenha.length < 6) { Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.'); return; }
@@ -56,6 +80,8 @@ export default function AdminLoginScreen() {
       setLoading(true);
       const { user } = await auth().createUserWithEmailAndPassword(cEmail, cSenha);
       await user.updateProfile({ displayName: cNome });
+
+      // ✅ Salva doc no Firestore antes de qualquer redirecionamento
       await firestore().collection('admins').doc(user.uid).set({
         nome: cNome,
         email: cEmail,
@@ -64,11 +90,29 @@ export default function AdminLoginScreen() {
         ativo: true,
         criadoEm: firestore.FieldValue.serverTimestamp(),
       });
-      Alert.alert('Sucesso! 🎉', 'Sua conta de profissional foi criada!', [
-        { text: 'Ir para Login', onPress: () => setTela('login') },
+
+      // ✅ Logout imediato — evita onAuthStateChanged redirecionar antes do doc existir
+      await auth().signOut();
+
+      Alert.alert('Conta criada! 🎉', 'Faça login com suas credenciais para acessar o painel.', [
+        {
+          text: 'Fazer Login',
+          onPress: () => {
+            setTela('login');
+            setEmail(cEmail); // ✅ Preenche email automaticamente
+            setSenha('');
+            setCNome('');
+            setCEmail('');
+            setCTel('');
+            setCSenha('');
+            setCConfirm('');
+          },
+        },
       ]);
     } catch (e: any) {
-      const msg = e.code === 'auth/email-already-in-use' ? 'Este email já é um administrador.' : 'Erro ao criar conta.';
+      const msg = e.code === 'auth/email-already-in-use'
+        ? 'Este email já está cadastrado.'
+        : 'Erro ao criar conta. Tente novamente.';
       Alert.alert('Erro', msg);
     } finally {
       setLoading(false);
@@ -94,24 +138,25 @@ export default function AdminLoginScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: '#000' }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <StatusBar barStyle="light-content" />
       <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
 
-        {/* Topo Premium */}
+        {/* TOPO */}
         <View style={s.topo}>
           <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
             <Text style={s.voltarBtnText}>←</Text>
           </TouchableOpacity>
-          
+
           <View style={s.logoContainer}>
-            <Image 
+            <Image
               source={require('../assets/logo.png')}
               style={s.logoImage}
               resizeMode="contain"
             />
           </View>
-          
+
           <Text style={s.topoTitulo}>
             {tela === 'login' ? 'Painel do Profissional'
               : tela === 'cadastro' ? 'Seja um Parceiro'
@@ -125,8 +170,8 @@ export default function AdminLoginScreen() {
         </View>
 
         <View style={s.body}>
-          
-          {/* LOGIN */}
+
+          {/* ─── LOGIN ─── */}
           {tela === 'login' && (
             <View style={s.form}>
               <View style={s.inputGroup}>
@@ -164,12 +209,15 @@ export default function AdminLoginScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity style={s.btnPrimario} onPress={fazerLogin} disabled={loading}>
-                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Acessar Painel →</Text>}
+                {loading
+                  ? <ActivityIndicator color="#000" />
+                  : <Text style={s.btnPrimarioText}>Acessar Painel →</Text>}
               </TouchableOpacity>
+			  
             </View>
           )}
 
-          {/* CADASTRO */}
+          {/* ─── CADASTRO ─── */}
           {tela === 'cadastro' && (
             <View style={s.form}>
               <View style={s.inputGroup}>
@@ -190,7 +238,6 @@ export default function AdminLoginScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>SENHA DE ACESSO</Text>
                 <TextInput style={s.input} placeholder="Mín. 6 caracteres" placeholderTextColor="#555" value={cSenha} onChangeText={setCSenha} secureTextEntry />
-                
                 {cSenha.length > 0 && (
                   <View style={s.forcaWrap}>
                     <View style={s.forcaBarras}>
@@ -209,12 +256,14 @@ export default function AdminLoginScreen() {
               </View>
 
               <TouchableOpacity style={s.btnPrimario} onPress={fazerCadastro} disabled={loading}>
-                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Criar Painel Profissional ✨</Text>}
+                {loading
+                  ? <ActivityIndicator color="#000" />
+                  : <Text style={s.btnPrimarioText}>Criar Painel Profissional ✨</Text>}
               </TouchableOpacity>
             </View>
           )}
 
-          {/* RECUPERAR */}
+          {/* ─── RECUPERAR ─── */}
           {tela === 'recuperar' && (
             <View style={s.form}>
               <Text style={s.recuperarDesc}>
@@ -225,28 +274,36 @@ export default function AdminLoginScreen() {
                 <TextInput style={s.input} placeholder="email@exemplo.com" placeholderTextColor="#555" value={rEmail} onChangeText={setREmail} keyboardType="email-address" autoCapitalize="none" />
               </View>
               <TouchableOpacity style={s.btnPrimario} onPress={fazerRecuperar} disabled={loading}>
-                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Enviar Instruções →</Text>}
+                {loading
+                  ? <ActivityIndicator color="#000" />
+                  : <Text style={s.btnPrimarioText}>Enviar Instruções →</Text>}
               </TouchableOpacity>
             </View>
           )}
 
-          {/* Links de Troca de Tela */}
+          {/* ─── LINKS ─── */}
           <View style={s.linksWrap}>
             <Text style={s.linkText}>
-              {tela === 'login' ? 'Quer ser um parceiro?' : 'Já possui acesso?'} {' '}
-              <Text 
-                style={s.linkBtn} 
+              {tela === 'login' ? 'Novo parceiro?' : 'Já tem acesso?'}{' '}
+              <Text
+                style={s.linkBtn}
                 onPress={() => setTela(tela === 'login' ? 'cadastro' : 'login')}
               >
                 {tela === 'login' ? 'Cadastre-se' : 'Fazer Login'}
               </Text>
             </Text>
-            
+
             {tela !== 'login' && (
-               <TouchableOpacity onPress={() => setTela('login')} style={{marginTop: 15}}>
-                  <Text style={{color: '#666', fontSize: 12}}>Voltar ao início</Text>
-               </TouchableOpacity>
+              <TouchableOpacity onPress={() => setTela('login')} style={{ marginTop: 15 }}>
+                <Text style={{ color: '#666', fontSize: 12 }}>Voltar ao login</Text>
+              </TouchableOpacity>
             )}
+
+            {/* ✅ Aviso de área exclusiva — sem link para área de cliente */}
+            <View style={s.separador} />
+            <Text style={s.separadorText}>
+              Área exclusiva para estabelecimentos parceiros
+            </Text>
           </View>
 
         </View>
@@ -272,9 +329,9 @@ const s = StyleSheet.create({
   input: { backgroundColor: '#111', borderRadius: 14, padding: 16, fontSize: 15, color: '#FFF', borderWidth: 1, borderColor: '#222' },
   passwordWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111', borderRadius: 14, borderWidth: 1, borderColor: '#222' },
   olho: { paddingHorizontal: 15 },
-  btnPrimario: { 
+  btnPrimario: {
     backgroundColor: '#C9A96E', borderRadius: 16, padding: 18, alignItems: 'center', marginTop: 10,
-    shadowColor: '#C9A96E', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5
+    shadowColor: '#C9A96E', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5,
   },
   btnPrimarioText: { color: '#000', fontSize: 16, fontWeight: '800' },
   esqueceuBtn: { alignSelf: 'flex-end' },
@@ -287,4 +344,6 @@ const s = StyleSheet.create({
   linksWrap: { alignItems: 'center', marginTop: 40 },
   linkText: { color: '#666', fontSize: 14 },
   linkBtn: { color: '#C9A96E', fontWeight: '800' },
+  separador: { width: 40, height: 1, backgroundColor: '#222', marginTop: 24, marginBottom: 12 },
+  separadorText: { color: '#333', fontSize: 11, textAlign: 'center', paddingHorizontal: 20 },
 });

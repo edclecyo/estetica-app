@@ -156,12 +156,12 @@ export default function DetalheScreen() {
           <View style={s.confirmCircle}><Text style={s.confirmEmoji}>🎉</Text></View>
           <Text style={s.confirmTitulo}>Agendado!</Text>
           <Text style={s.confirmSub}>Seu horário está confirmado, {nome.split(' ')[0]}!</Text>
-          <div style={s.confirmResumo}>
-            <Text style={s.confirmEstab}>{estab?.nome}</Text>
-            <View style={s.confirmLinha}><Text>💆 {servicoSel}</Text></View>
-            <View style={s.confirmLinha}><Text>📅 {dataSel?.full}</Text></View>
-            <View style={s.confirmLinha}><Text>⏰ {horarioSel}</Text></View>
-          </div>
+          <View style={s.confirmResumo}>
+  <Text style={s.confirmEstab}>{estab?.nome}</Text>
+  <View style={s.confirmLinha}><Text>💆 {servicoSel}</Text></View>
+  <View style={s.confirmLinha}><Text>📅 {dataSel?.full}</Text></View>
+  <View style={s.confirmLinha}><Text>⏰ {horarioSel}</Text></View>
+</View>
           <TouchableOpacity 
             style={s.btnPrimario} 
             onPress={() => navigation.reset({

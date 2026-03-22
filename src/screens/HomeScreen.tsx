@@ -1,20 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  TextInput,
-  StyleSheet,
-  ActivityIndicator,
-  StatusBar,
-  ScrollView,
-  Alert,
-  Image,
-  PermissionsAndroid,
-  Platform,
+  View, Text, FlatList, TouchableOpacity, TextInput,
+  StyleSheet, ActivityIndicator, StatusBar, ScrollView,
+  Alert, Image, PermissionsAndroid, Platform,
 } from 'react-native';
-
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
@@ -28,34 +17,18 @@ const TIPOS = [
   'Terapia Capilar', 'Estúdio de Maquiagem', 'Design de Sobrancelhas', 'Extensão de Cílios',
   'Micropigmentação', 'Depilação a Laser', 'Depilação com Cera', 'Estúdio de Tatuagem',
   'Body Piercing', 'Massoterapia', 'Bronzeamento Artificial', 'Podologia',
-  'Harmonização Facial', 'Estúdio de Yoga', 'Centro Holístico'
+  'Harmonização Facial', 'Estúdio de Yoga', 'Centro Holístico',
 ];
 
 const TIPO_ICONS: Record<string, string> = {
-  'Todos': '✦',
-  'Salão de Beleza': '✂️',
-  'Barbearia Premium': '💈',
-  'Espaço de Unhas': '💅',
-  'Manicure & Pedicure': '🎨',
-  'Clínica de Estética': '🏥',
-  'Estética Avançada': '🧬',
-  'Spa & Relaxamento': '🧖‍♀️',
-  'Especialista em Cabelos': '💇‍♀️',
-  'Terapia Capilar': '🧴',
-  'Estúdio de Maquiagem': '💄',
-  'Design de Sobrancelhas': '📐',
-  'Extensão de Cílios': '👁️',
-  'Micropigmentação': '✒️',
-  'Depilação a Laser': '⚡',
-  'Depilação com Cera': '🍯',
-  'Estúdio de Tatuagem': '🎨',
-  'Body Piercing': '💎',
-  'Massoterapia': '💆‍♂️',
-  'Bronzeamento Artificial': '☀️',
-  'Podologia': '👣',
-  'Harmonização Facial': '✨',
-  'Estúdio de Yoga': '🧘',
-  'Centro Holístico': '🌿',
+  'Todos': '✦', 'Salão de Beleza': '✂️', 'Barbearia Premium': '💈',
+  'Espaço de Unhas': '💅', 'Manicure & Pedicure': '🎨', 'Clínica de Estética': '🏥',
+  'Estética Avançada': '🧬', 'Spa & Relaxamento': '🧖‍♀️', 'Especialista em Cabelos': '💇‍♀️',
+  'Terapia Capilar': '🧴', 'Estúdio de Maquiagem': '💄', 'Design de Sobrancelhas': '📐',
+  'Extensão de Cílios': '👁️', 'Micropigmentação': '✒️', 'Depilação a Laser': '⚡',
+  'Depilação com Cera': '🍯', 'Estúdio de Tatuagem': '🎨', 'Body Piercing': '💎',
+  'Massoterapia': '💆‍♂️', 'Bronzeamento Artificial': '☀️', 'Podologia': '👣',
+  'Harmonização Facial': '✨', 'Estúdio de Yoga': '🧘', 'Centro Holístico': '🌿',
 };
 
 function calcularDistancia(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -65,10 +38,8 @@ function calcularDistancia(lat1: number, lng1: number, lat2: number, lng2: numbe
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -91,7 +62,6 @@ function estaAberto(horario?: string): boolean {
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
-
   const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>([]);
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('Todos');
@@ -100,21 +70,28 @@ export default function HomeScreen() {
   const [localizacao, setLocalizacao] = useState<{ lat: number; lng: number } | null>(null);
   const [notificacoesNaoLidas, setNotificacoesNaoLidas] = useState(0);
 
+  // ✅ Listener de notificações não lidas do cliente
   useEffect(() => {
-    if (!user) {
+  if (!user?.uid) {
+    setNotificacoesNaoLidas(0);
+    return;
+  }
+  const unsub = firestore()
+    .collection('notificacoes')
+    .where('clienteId', '==', user.uid)
+    .where('lida', '==', false)
+    .onSnapshot(
+      snap => setNotificacoesNaoLidas(snap?.size || 0),
+      err => {
+        // ✅ Silencioso — índice pode não existir ainda
+        console.log('Notif badge erro (pode precisar de índice):', err.code);
         setNotificacoesNaoLidas(0);
-        return;
-    }
-    const unsub = firestore()
-      .collection('notificacoes')
-      .where('clienteId', '==', user.uid)
-      .where('lida', '==', false)
-      .onSnapshot(snap => {
-        setNotificacoesNaoLidas(snap?.size || 0);
-      });
-    return unsub;
-  }, [user]);
+      }
+    );
+  return unsub;
+}, [user?.uid]);
 
+  // ✅ GPS
   useEffect(() => {
     const obter = async () => {
       if (Platform.OS === 'android') {
@@ -126,43 +103,40 @@ export default function HomeScreen() {
       try {
         // @ts-ignore
         navigator.geolocation?.getCurrentPosition(
-          (pos) => {
-            setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          },
-          (err) => {
-            console.log('GPS erro:', err);
-          },
+          (pos: any) => setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          (err: any) => console.log('GPS erro:', err),
           { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
         );
-      } catch { }
+      } catch {}
     };
     obter();
   }, []);
 
+  // ✅ Auth state
   useEffect(() => {
-    const unsub = auth().onAuthStateChanged((u) => setUser(u));
+    const unsub = auth().onAuthStateChanged(u => setUser(u));
     return unsub;
   }, []);
 
+  // ✅ Estabelecimentos ativos
   useEffect(() => {
     const unsub = firestore()
       .collection('estabelecimentos')
       .where('ativo', '==', true)
-      .onSnapshot((snap) => {
-        const lista = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Estabelecimento[];
-        setEstabelecimentos(lista);
+      .onSnapshot(snap => {
+        setEstabelecimentos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estabelecimento[]);
         setLoading(false);
       });
     return unsub;
   }, []);
 
   const filtrados = estabelecimentos
-    .filter((e) => {
+    .filter(e => {
       const mb = e.nome?.toLowerCase().includes(busca.toLowerCase());
       const mt = filtro === 'Todos' || e.tipo === filtro;
       return mb && mt;
     })
-    .map((e) => {
+    .map(e => {
       const lat = e.coords?.lat ?? e.lat;
       const lng = e.coords?.lng ?? e.lng;
       const dist = localizacao && lat && lng
@@ -176,21 +150,17 @@ export default function HomeScreen() {
       return a._dist - b._dist;
     });
 
-  const renderStars = (rating: number) => {
-    return (
-      <View style={s.starsRow}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Text key={star} style={[s.starIcon, { color: star <= Math.round(rating || 5) ? '#C9A96E' : '#444' }]}>
-            ★
-          </Text>
-        ))}
-      </View>
-    );
-  };
+  const renderStars = (rating: number) => (
+    <View style={s.starsRow}>
+      {[1, 2, 3, 4, 5].map(star => (
+        <Text key={star} style={[s.starIcon, { color: star <= Math.round(rating || 5) ? '#C9A96E' : '#444' }]}>★</Text>
+      ))}
+    </View>
+  );
 
   if (loading) {
     return (
-      <View style={[s.loadingWrap, { backgroundColor: '#000' }]}>
+      <View style={s.loadingWrap}>
         <ActivityIndicator size="large" color="#C9A96E" />
       </View>
     );
@@ -200,7 +170,7 @@ export default function HomeScreen() {
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-      {/* HEADER FIXO */}
+      {/* HEADER */}
       <View style={s.header}>
         <View style={s.headerTop}>
           <View style={{ flex: 1 }}>
@@ -213,15 +183,20 @@ export default function HomeScreen() {
           </View>
 
           <View style={s.headerAcoes}>
+            {/* ✅ Sininho — só aparece se logado */}
             {user && (
-              <TouchableOpacity 
-                style={s.notifBtn} 
+              <TouchableOpacity
+                style={s.notifBtn}
                 onPress={() => navigation.navigate('NotificacoesCliente')}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Text style={s.notifIcon}>🔔</Text>
+                {/* ✅ Badge só aparece se tiver notificações não lidas */}
                 {notificacoesNaoLidas > 0 && (
                   <View style={s.notifBadge}>
-                    <Text style={s.notifBadgeText}>{notificacoesNaoLidas}</Text>
+                    <Text style={s.notifBadgeText}>
+                      {notificacoesNaoLidas > 9 ? '9+' : notificacoesNaoLidas}
+                    </Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -234,8 +209,7 @@ export default function HomeScreen() {
                   Alert.alert('Sair', 'Deseja sair da sua conta?', [
                     { text: 'Cancelar', style: 'cancel' },
                     {
-                      text: 'Sair',
-                      style: 'destructive',
+                      text: 'Sair', style: 'destructive',
                       onPress: async () => {
                         await auth().signOut();
                         try { await GoogleSignin.signOut(); } catch {}
@@ -268,15 +242,14 @@ export default function HomeScreen() {
 
       <FlatList
         data={filtrados}
-        keyExtractor={(e) => e.id}
+        keyExtractor={e => e.id}
         contentContainerStyle={s.lista}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <>
-            {/* FILTROS DENTRO DO SCROLL DA LISTA */}
             <View style={s.filtroWrap}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
-                {TIPOS.map((t) => (
+                {TIPOS.map(t => (
                   <TouchableOpacity
                     key={t}
                     onPress={() => setFiltro(t)}
@@ -288,8 +261,6 @@ export default function HomeScreen() {
                 ))}
               </ScrollView>
             </View>
-
-            {/* STORIES HEADER COMPONENT */}
             <StoriesHeader />
           </>
         }
@@ -314,11 +285,10 @@ export default function HomeScreen() {
 
               <View style={s.cardHeaderCircular}>
                 <View style={[s.imageContainer, { borderColor: item.cor || '#C9A96E' }]}>
-                  {imagemUri ? (
-                    <Image source={{ uri: imagemUri }} style={s.circleImage} />
-                  ) : (
-                    <Text style={s.cardEmojiLarge}>{item.img || '🏢'}</Text>
-                  )}
+                  {imagemUri
+                    ? <Image source={{ uri: imagemUri }} style={s.circleImage} />
+                    : <Text style={s.cardEmojiLarge}>{item.img || '🏢'}</Text>
+                  }
                 </View>
               </View>
 
@@ -327,9 +297,7 @@ export default function HomeScreen() {
                   <Text style={s.cardNome}>{item.nome}</Text>
                   <Text style={s.miniIcon}>{TIPO_ICONS[item.tipo] || '✨'}</Text>
                 </View>
-
                 <Text style={[s.cardTipo, { color: item.cor || '#C9A96E' }]}>{item.tipo}</Text>
-
                 <View style={s.statusRowCentral}>
                   <View style={[s.dot, { backgroundColor: aberto ? '#4CAF50' : '#F44336' }]} />
                   <Text style={[s.statusText, { color: aberto ? '#4CAF50' : '#F44336' }]}>
@@ -339,11 +307,9 @@ export default function HomeScreen() {
                     <Text style={s.horarioTexto}> • {item.horarioFuncionamento}</Text>
                   )}
                 </View>
-
                 {dist !== null && (
                   <Text style={s.distanciaInfoSub}>A {formatarDistancia(dist)} de você</Text>
                 )}
-
                 <View style={s.ratingRow}>
                   {renderStars(item.avaliacao || 5)}
                   <Text style={s.avaliacaoNumero}>({item.avaliacao ? item.avaliacao.toFixed(1) : '5.0'})</Text>
@@ -363,23 +329,41 @@ export default function HomeScreen() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { backgroundColor: '#000', paddingHorizontal: 20, paddingTop: 52, paddingBottom: 20 },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
+
+  // ✅ paddingTop correto para Android e iOS
+  header: {
+    backgroundColor: '#000',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 12 : 52,
+    paddingBottom: 20,
+  },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   headerSub: { color: '#C9A96E', fontSize: 12 },
   headerTitulo: { color: '#FFF', fontSize: 22, fontWeight: '700' },
-  headerAcoes: { flexDirection: 'row', alignItems: 'center' },
-  notifBtn: { marginRight: 15, position: 'relative', padding: 5 },
+  headerAcoes: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+
+  notifBtn: { position: 'relative', padding: 5 },
   notifIcon: { fontSize: 22 },
-  notifBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#F44336', borderRadius: 10, width: 18, height: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#000' },
-  notifBadgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+  notifBadge: {
+    position: 'absolute', top: 0, right: 0,
+    backgroundColor: '#F44336', borderRadius: 10,
+    minWidth: 18, height: 18,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1.5, borderColor: '#000',
+    paddingHorizontal: 3,
+  },
+  notifBadgeText: { color: '#FFF', fontSize: 9, fontWeight: '900' },
+
   loginBtn: { backgroundColor: '#C9A96E', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   loginBtnText: { color: '#000', fontWeight: '700' },
   sairBtn: { backgroundColor: '#1A1A1A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   sairBtnText: { color: '#C9A96E' },
+
   buscaWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 14 },
   buscaInput: { flex: 1, color: '#fff', paddingVertical: 10 },
   buscaIcon: { marginRight: 8 },
+
   filtroWrap: { backgroundColor: '#000', paddingVertical: 12 },
   filtroScroll: { paddingHorizontal: 0 },
   chip: { flexDirection: 'row', alignItems: 'center', marginRight: 10, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, backgroundColor: '#1A1A1A' },
@@ -387,6 +371,7 @@ const s = StyleSheet.create({
   chipIcon: { marginRight: 6 },
   chipText: { color: '#888' },
   chipTextAtivo: { color: '#000', fontWeight: '700' },
+
   lista: { paddingHorizontal: 16, paddingBottom: 32 },
   card: { backgroundColor: '#111', borderRadius: 28, marginBottom: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#222', paddingBottom: 8, position: 'relative' },
   distBadge: { position: 'absolute', top: 14, right: 14, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(201,169,110,0.4)' },

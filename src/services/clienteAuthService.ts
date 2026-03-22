@@ -9,26 +9,28 @@ GoogleSignin.configure({
 
 export async function loginClienteEmail(email: string, senha: string) {
   const { user } = await auth().signInWithEmailAndPassword(email, senha);
-  await registrarTokenPush(user.uid, 'cliente'); // ✅ era credential.user.uid (e estava após o return)
+  await registrarTokenPush(user.uid, 'cliente');
   return user;
 }
 
 export async function cadastrarClienteEmail(nome: string, email: string, senha: string) {
   try {
     const { user } = await auth().createUserWithEmailAndPassword(email, senha);
-    await registrarTokenPush(user.uid, 'cliente'); // ✅ era credential.user.uid
-
     await user.updateProfile({ displayName: nome });
 
+    // ✅ Cria doc primeiro
     try {
       await firestore().collection('clientes').doc(user.uid).set({
         nome,
         email,
         criadoEm: firestore.FieldValue.serverTimestamp(),
-      });
+      }, { merge: true }); // ✅ merge garante que fcmToken não é apagado
     } catch (firestoreError) {
       console.log('Firestore erro (não crítico):', firestoreError);
     }
+
+    // ✅ Token depois do set — não será sobrescrito
+    await registrarTokenPush(user.uid, 'cliente');
 
     return user;
   } catch (e) {
@@ -45,24 +47,23 @@ export async function loginClienteGoogle() {
     const idToken = signInResult.data?.idToken;
     if (!idToken) throw new Error('Token não encontrado.');
 
-    const googleCredential = auth.GoogleAuthProvider.credential(idToken); // ✅ renomeado para evitar conflito
+    const googleCredential = auth.GoogleAuthProvider.credential(idToken);
     const { user } = await auth().signInWithCredential(googleCredential);
 
-    await registrarTokenPush(user.uid, 'cliente'); // ✅ movido para após ter o user
-
+    // ✅ Salva dados com merge — preserva fcmToken existente
     try {
-      const doc = await firestore().collection('clientes').doc(user.uid).get();
-      if (!doc.exists) {
-        await firestore().collection('clientes').doc(user.uid).set({
-          nome: user.displayName || '',
-          email: user.email || '',
-          foto: user.photoURL || '',
-          criadoEm: firestore.FieldValue.serverTimestamp(),
-        });
-      }
+      await firestore().collection('clientes').doc(user.uid).set({
+        nome: user.displayName || '',
+        email: user.email || '',
+        foto: user.photoURL || '',
+        criadoEm: firestore.FieldValue.serverTimestamp(),
+      }, { merge: true }); // ✅
     } catch (firestoreError) {
       console.log('Firestore erro (não crítico):', firestoreError);
     }
+
+    // ✅ Token após o set
+    await registrarTokenPush(user.uid, 'cliente');
 
     return user;
   } catch (e: any) {

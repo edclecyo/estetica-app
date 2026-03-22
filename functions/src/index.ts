@@ -7,15 +7,57 @@ import axios from "axios";
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
+// ─── CRIAR SUPER ADMIN (uso único) ─────────
+export const criarSuperAdmin = functions.onCall(async (request) => {
+  const { email, senha, nome, chaveSecreta } = request.data;
 
+  // ✅ Chave secreta — só quem souber pode executar
+  if (chaveSecreta !== 'BEAUTY_MASTER_2024') {
+    throw new functions.HttpsError('permission-denied', 'Chave inválida.');
+  }
+
+  // ✅ Verifica se já existe um Super Admin — só permite um
+  const superAdminSnap = await db.collection('admins')
+    .where('cargo', '==', 'Super Admin')
+    .limit(1)
+    .get();
+
+  if (!superAdminSnap.empty) {
+    throw new functions.HttpsError(
+      'already-exists',
+      'Super Admin já existe. Esta função só pode ser executada uma vez.'
+    );
+  }
+
+  // ✅ Cria o usuário no Firebase Auth
+  const userRecord = await admin.auth().createUser({
+    email,
+    password: senha,
+    displayName: nome,
+  });
+
+  // ✅ Salva no Firestore como Super Admin
+  await db.collection('admins').doc(userRecord.uid).set({
+    nome,
+    email,
+    cargo: 'Super Admin',
+    ativo: true,
+    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  console.log('✅ Super Admin criado:', email, userRecord.uid);
+  return { ok: true, uid: userRecord.uid };
+});
 // ─── HELPER: busca token do cliente ─────────
 async function getTokenCliente(uid: string): Promise<string | null> {
+  if (!uid) return null;
   const snap = await db.collection('clientes').doc(uid).get();
   return snap.data()?.fcmToken || null;
 }
 
 // ─── HELPER: busca token do admin pelo adminId ─────────
 async function getTokenAdmin(adminId: string): Promise<string | null> {
+  if (!adminId) return null;
   const snap = await db.collection('admins').doc(adminId).get();
   return snap.data()?.fcmToken || null;
 }
@@ -28,77 +70,195 @@ async function enviarPush(
   data?: Record<string, string>
 ) {
   try {
-    await messaging.send({
+    const resultado = await messaging.send({
       token,
       notification: { title: titulo, body: corpo },
       ...(data && { data }),
     });
-  } catch (e) {
-    console.log('Erro ao enviar push:', e);
+    console.log('✅ Push enviado. messageId:', resultado);
+  } catch (e: any) {
+    console.log('❌ Erro ao enviar push:', e.code, e.message);
+    if (
+      e.code === 'messaging/invalid-registration-token' ||
+      e.code === 'messaging/registration-token-not-registered'
+    ) {
+      const clienteSnap = await db.collection('clientes')
+        .where('fcmToken', '==', token).limit(1).get();
+      if (!clienteSnap.empty) {
+        await clienteSnap.docs[0].ref.update({ fcmToken: null });
+        console.log('🗑️ Token inválido removido');
+      }
+    }
   }
+}
+
+// ─── HELPER: salva notificação para o cliente no Firestore ─────────
+async function salvarNotifCliente(
+  clienteUid: string,
+  titulo: string,
+  msg: string,
+  tipo: string,
+  extras?: Record<string, any>
+) {
+  await db.collection('notificacoes').add({
+    clienteId: clienteUid,
+    titulo,
+    msg,
+    tipo,
+    lida: false,
+    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    ...extras,
+  });
 }
 
 // ─── 1. LEMBRETE AUTOMÁTICO ─────────
 export const lembreteAgendamento = onSchedule("every 30 minutes", async () => {
   const agora = new Date();
-  const dataHoje = agora.toLocaleDateString('pt-BR');
 
   const snap = await db.collection('agendamentos')
-    .where('data', '==', dataHoje)
     .where('status', '==', 'confirmado')
-    .where('notificado', '==', false)
     .get();
 
   const promessas = snap.docs.map(async (doc) => {
     const agend = doc.data();
-    // ✅ Busca token na coleção correta: 'clientes'
-    const token = await getTokenCliente(agend.clienteUid);
-    if (!token) return null;
+    if (!agend.clienteUid || !agend.data || !agend.horario) return null;
 
-    await enviarPush(
-      token,
-      '⏰ Seu horário está chegando!',
-      `Lembrete: Você tem ${agend.servicoNome} às ${agend.horario}. Te esperamos!`,
-      { tela: 'agendamento' }
-    );
-    return doc.ref.update({ notificado: true });
+    const [dia, mes, ano] = agend.data.split('/').map(Number);
+    const [hora, minuto] = agend.horario.split(':').map(Number);
+    const dataAgend = new Date(ano, mes - 1, dia, hora, minuto);
+
+    const diffMs = dataAgend.getTime() - agora.getTime();
+    const diffHoras = diffMs / (1000 * 60 * 60);
+    const diffDias = diffHoras / 24;
+
+    let titulo = '';
+    let msg = '';
+    let tipoNotif = '';
+
+    if (diffDias >= 1.9 && diffDias <= 2.1) {
+      if (agend.notificado2dias) return null;
+      titulo = '📅 Seu agendamento está chegando!';
+      msg = `Daqui a 2 dias você tem ${agend.servicoNome} às ${agend.horario}. Te esperamos!`;
+      tipoNotif = 'lembrete_2dias';
+    } else if (diffHoras >= 2.9 && diffHoras <= 3.1) {
+      if (agend.notificado3h) return null;
+      titulo = '⏰ Faltam 3 horas!';
+      msg = `Seu ${agend.servicoNome} hoje às ${agend.horario}. Não esqueça!`;
+      tipoNotif = 'lembrete_3h';
+    } else if (diffHoras >= 0.4 && diffHoras <= 0.6) {
+      if (agend.notificado) return null;
+      titulo = '🚨 Seu horário é em 30 minutos!';
+      msg = `${agend.servicoNome} às ${agend.horario}. Estamos te esperando!`;
+      tipoNotif = 'lembrete_30min';
+    } else {
+      return null;
+    }
+
+    await salvarNotifCliente(agend.clienteUid, titulo, msg, 'lembrete', {
+      servicoNome: agend.servicoNome,
+      data: agend.data,
+      horario: agend.horario,
+      tipoNotif,
+    });
+
+    const token = await getTokenCliente(agend.clienteUid);
+    if (token) {
+      await enviarPush(token, titulo, msg, { tela: 'agendamento', tipoNotif });
+    }
+
+    if (tipoNotif === 'lembrete_2dias') {
+      return doc.ref.update({ notificado2dias: true });
+    } else if (tipoNotif === 'lembrete_3h') {
+      return doc.ref.update({ notificado3h: true });
+    } else if (tipoNotif === 'lembrete_30min') {
+      return doc.ref.update({ notificado: true });
+    }
+
+    return null;
   });
 
   await Promise.all(promessas);
 });
 
-// ─── 2. NOTIFICAÇÃO DE MUDANÇA DE STATUS ─────────
+// ─── 2. CONCLUSÃO AUTOMÁTICA após 1h do horário ─────────
+export const concluirAgendamentosPassados = onSchedule("every 60 minutes", async () => {
+  const agora = new Date();
+
+  const snap = await db.collection('agendamentos')
+    .where('status', '==', 'confirmado')
+    .get();
+
+  const promessas = snap.docs.map(async (doc) => {
+    const agend = doc.data();
+    if (!agend.data || !agend.horario) return null;
+
+    const [dia, mes, ano] = agend.data.split('/').map(Number);
+    const [hora, minuto] = agend.horario.split(':').map(Number);
+    const dataAgend = new Date(ano, mes - 1, dia, hora, minuto);
+
+    const diffMs = agora.getTime() - dataAgend.getTime();
+    const diffHoras = diffMs / (1000 * 60 * 60);
+
+    // ✅ Só conclui se passou mais de 1 hora do horário
+    if (diffHoras < 1) return null;
+
+    await doc.ref.update({ status: 'concluido' });
+    console.log('✅ Agendamento auto-concluído:', doc.id);
+
+    if (!agend.clienteUid || agend.clienteUid === agend.adminId) return null;
+
+    const titulo = '⭐ Como foi seu atendimento?';
+    const msg = `Seu ${agend.servicoNome} já aconteceu! Deixe sua avaliação e ajude outros clientes.`;
+
+    // ✅ Salva notificação com dados para navegar direto à avaliação
+    await salvarNotifCliente(agend.clienteUid, titulo, msg, 'concluido_auto', {
+      servicoNome: agend.servicoNome,
+      data: agend.data,
+      horario: agend.horario,
+      agendamentoId: doc.id,
+      estabelecimentoId: agend.estabelecimentoId,
+      estabelecimentoNome: agend.estabelecimentoNome,
+    });
+
+    const token = await getTokenCliente(agend.clienteUid);
+    if (token) {
+      await enviarPush(token, titulo, msg, {
+        tela: 'agendamento',
+        tipo: 'concluido_auto',
+        id: doc.id,
+      });
+    }
+
+    return null;
+  });
+
+  await Promise.all(promessas);
+});
+
+// ─── 3. NOTIFICAÇÃO DE MUDANÇA DE STATUS (trigger) ─────────
 export const onAgendamentoStatusChange = onDocumentUpdated("agendamentos/{docId}", async (event) => {
   const antes = event.data?.before.data();
   const depois = event.data?.after.data();
 
   if (!antes || !depois || antes.status === depois.status) return;
 
-  // ✅ Busca token na coleção correta: 'clientes'
-  const token = await getTokenCliente(depois.clienteUid);
-  if (!token) return;
-
-  let titulo = '';
-  let corpo = '';
-
-  if (depois.status === 'concluido') {
-    titulo = '✅ Atendimento Concluído!';
-    corpo = `Seu serviço de ${depois.servicoNome} foi finalizado. Avalie-nos!`;
-  } else if (depois.status === 'cancelado') {
-    titulo = '❌ Agendamento Cancelado';
-    corpo = `Seu horário para ${depois.servicoNome} foi cancelado.`;
+  if (depois.status === 'concluido' || depois.status === 'cancelado') {
+    console.log('Status concluido/cancelado — tratado pelas funções manuais, trigger ignorado');
+    return;
   }
 
-  if (titulo) {
-    await enviarPush(token, titulo, corpo, {
-      tela: 'agendamento',
-      tipo: 'status_change',
-      id: event.params.docId,
-    });
+  const clienteUid = depois.clienteUid;
+  const adminId = depois.adminId;
+
+  if (!clienteUid || clienteUid === adminId) {
+    console.log('clienteUid igual ao adminId ou vazio — notificação ignorada');
+    return;
   }
+
+  console.log('Status change não tratado pelo trigger:', depois.status);
 });
 
-// ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────
+// ─── 4. SALVAR/EDITAR ESTABELECIMENTO ─────────
 export const salvarEstabelecimento = functions.onCall(async (request) => {
   if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
 
@@ -123,7 +283,7 @@ export const salvarEstabelecimento = functions.onCall(async (request) => {
   return { id: docId, ok: true };
 });
 
-// ─── 4. CRIAR AGENDAMENTO ─────────
+// ─── 5. CRIAR AGENDAMENTO ─────────
 export const criarAgendamento = functions.onCall(async (request) => {
   const data = request.data;
 
@@ -135,28 +295,32 @@ export const criarAgendamento = functions.onCall(async (request) => {
     throw new functions.HttpsError('invalid-argument', 'Campos faltando');
   }
 
-  const agendRef = await db.collection('agendamentos').add({
+  const adminId = estSnap.data()?.adminId;
+
+  await db.collection('agendamentos').add({
     ...data,
+    adminId,
     status: 'confirmado',
     notificado: false,
     visivelAdmin: true,
     criadoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  const adminId = estSnap.data()?.adminId;
-
   if (adminId) {
-    // Notificação no Firestore
     await db.collection('notificacoes').add({
       adminId,
       titulo: 'Novo Agendamento! 📅',
       msg: `${data.clienteNome} agendou ${data.servicoNome} para ${data.data}.`,
+      clienteNome: data.clienteNome,
+      servicoNome: data.servicoNome,
+      data: data.data,
+      horario: data.horario,
+      status: 'confirmado',
       lida: false,
       apagada: false,
       criadoEm: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // ✅ Push para o admin também
     const tokenAdmin = await getTokenAdmin(adminId);
     if (tokenAdmin) {
       await enviarPush(
@@ -168,23 +332,88 @@ export const criarAgendamento = functions.onCall(async (request) => {
     }
   }
 
-  return { id: agendRef.id };
+  return { ok: true };
 });
 
-// ─── 5. STATUS MANUAL ─────────
+// ─── 6. STATUS MANUAL ─────────
 export const concluirAgendamento = functions.onCall(async (request) => {
   const { agendamentoId } = request.data;
+
+  console.log('🔵 concluirAgendamento chamado:', agendamentoId);
+
+  const agendSnap = await db.collection('agendamentos').doc(agendamentoId).get();
+  const agend = agendSnap.data();
+
+  console.log('📋 Agendamento:', JSON.stringify({
+    clienteUid: agend?.clienteUid || 'VAZIO',
+    adminId: agend?.adminId || 'VAZIO',
+    servicoNome: agend?.servicoNome,
+    saoIguais: agend?.clienteUid === agend?.adminId,
+  }));
+
   await db.collection('agendamentos').doc(agendamentoId).update({ status: 'concluido' });
+
+  if (agend?.clienteUid && agend.clienteUid !== agend.adminId) {
+    const titulo = '✅ Atendimento Concluído!';
+    const msg = `Seu serviço de ${agend.servicoNome} foi finalizado. Como foi? Deixe sua avaliação!`;
+
+    // ✅ Salva com agendamentoId e estabelecimentoId para o botão de avaliação
+    await salvarNotifCliente(agend.clienteUid, titulo, msg, 'concluido', {
+      servicoNome: agend.servicoNome,
+      data: agend.data,
+      horario: agend.horario,
+      agendamentoId: agendamentoId,
+      estabelecimentoId: agend.estabelecimentoId,
+      estabelecimentoNome: agend.estabelecimentoNome,
+    });
+
+    const tokenCliente = await getTokenCliente(agend.clienteUid);
+    console.log('🔑 Token:', tokenCliente ? tokenCliente.substring(0, 25) + '...' : 'NULL');
+
+    if (tokenCliente) {
+      await enviarPush(tokenCliente, titulo, msg, {
+        tela: 'agendamento',
+        tipo: 'concluido',
+        id: agendamentoId,
+      });
+    }
+  }
+
   return { ok: true };
 });
 
 export const cancelarAgendamento = functions.onCall(async (request) => {
   const { agendamentoId } = request.data;
+
+  const agendSnap = await db.collection('agendamentos').doc(agendamentoId).get();
+  const agend = agendSnap.data();
+
   await db.collection('agendamentos').doc(agendamentoId).update({ status: 'cancelado' });
+
+  if (agend?.clienteUid && agend.clienteUid !== agend.adminId) {
+    const titulo = '❌ Agendamento Cancelado';
+    const msg = `Seu horário para ${agend.servicoNome} em ${agend.data} foi cancelado.`;
+
+    await salvarNotifCliente(agend.clienteUid, titulo, msg, 'cancelado', {
+      servicoNome: agend.servicoNome,
+      data: agend.data,
+      horario: agend.horario,
+    });
+
+    const tokenCliente = await getTokenCliente(agend.clienteUid);
+    if (tokenCliente) {
+      await enviarPush(tokenCliente, titulo, msg, {
+        tela: 'agendamento',
+        tipo: 'cancelado',
+        id: agendamentoId,
+      });
+    }
+  }
+
   return { ok: true };
 });
 
-// ─── 6. REPUTAÇÃO E AVALIAÇÃO ─────────
+// ─── 7. REPUTAÇÃO E AVALIAÇÃO ─────────
 export const atualizarReputacaoEAvaliacao = onDocumentUpdated("agendamentos/{docId}", async (event) => {
   const antes = event.data?.before.data();
   const depois = event.data?.after.data();
@@ -192,7 +421,7 @@ export const atualizarReputacaoEAvaliacao = onDocumentUpdated("agendamentos/{doc
 
   const estRef = db.collection('estabelecimentos').doc(depois.estabelecimentoId);
 
-  if (depois.status === 'concluido' && depois.avaliacaoCliente !== antes.avaliacaoCliente) {
+  if (depois.avaliacaoCliente !== antes.avaliacaoCliente && depois.avaliacaoCliente) {
     await db.runTransaction(async (transaction) => {
       const estDoc = await transaction.get(estRef);
       if (!estDoc.exists) return;
@@ -223,7 +452,6 @@ export const atualizarReputacaoEAvaliacao = onDocumentUpdated("agendamentos/{doc
         historicoCancelamento: admin.firestore.FieldValue.increment(1),
       });
 
-      // ✅ Alerta de reputação usa getTokenAdmin em vez de 'usuarios'
       if (negativasAtuais === 10) {
         const tokenAdmin = await getTokenAdmin(dados.adminId);
         if (tokenAdmin) {
@@ -239,7 +467,7 @@ export const atualizarReputacaoEAvaliacao = onDocumentUpdated("agendamentos/{doc
   }
 });
 
-// ─── 7. PLANOS E PAGAMENTOS ─────────
+// ─── 8. PLANOS E PAGAMENTOS ─────────
 export const iniciarTrial = functions.onCall(async (req) => {
   const { estabelecimentoId } = req.data;
   const fim = new Date();
@@ -301,7 +529,7 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
   }
 });
 
-// ─── 8. RANKING E DESTAQUES ─────────
+// ─── 9. RANKING E DESTAQUES ─────────
 export const atualizarRanking = onSchedule("every 1 hours", async () => {
   const snap = await db.collection('estabelecimentos').get();
   await Promise.all(snap.docs.map(doc => {

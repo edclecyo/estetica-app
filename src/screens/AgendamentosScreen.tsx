@@ -188,7 +188,7 @@ export default function AgendamentosScreen() {
         }
         renderItem={({ item }) => {
           const st = statusConfig(item.status);
-          const podeAvaliar = item.status === 'concluido' && !item.avaliacao;
+          const podeAvaliar = item.status === 'concluido' && !item.avaliado;
 
           return (
             <View style={[s.card, { borderLeftColor: st.cor }]}>
@@ -226,13 +226,13 @@ export default function AgendamentosScreen() {
                   <Text style={[s.statusText, { color: st.cor }]}>{st.label}</Text>
                 </View>
 
-                {item.avaliacao && (
-                  <View style={s.avaliacaoWrap}>
-                    {[1, 2, 3, 4, 5].map(i => (
-                      <Text key={i} style={[s.estrelinha, i <= item.avaliacao!.estrelas && s.estrelinhaAtiva]}>★</Text>
-                    ))}
-                  </View>
-                )}
+                {item.avaliado && item.avaliacaoCliente && (
+  <View style={s.avaliacaoWrap}>
+    {[1, 2, 3, 4, 5].map(i => (
+      <Text key={i} style={[s.estrelinha, i <= item.avaliacaoCliente && s.estrelinhaAtiva]}>★</Text>
+    ))}
+  </View>
+)}
 
                 {podeAvaliar && (
                   <TouchableOpacity

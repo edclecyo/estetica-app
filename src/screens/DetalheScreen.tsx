@@ -35,7 +35,8 @@ const fn = functions();
 
 const BannerMedia = ({ data, style }: { data: any, style: any }) => {
   const [imgErro, setImgErro] = useState(false);
-  const isUrl = data?.img?.startsWith('http') || data?.fotoPerfil?.startsWith('http');
+  const isUrl = typeof data?.fotoPerfil === 'string' && data?.fotoPerfil?.startsWith('http') || 
+                typeof data?.img === 'string' && data?.img?.startsWith('http');
   const uri = data?.fotoPerfil || data?.img;
 
   if (isUrl && !imgErro) {
@@ -77,7 +78,7 @@ export default function DetalheScreen() {
       .collection('estabelecimentos')
       .doc(estabelecimentoId)
       .onSnapshot(snap => {
-        if (snap.exists) {
+        if (snap.exists()) {
           setEstab({ id: snap.id, ...snap.data() } as Estabelecimento);
         }
         setLoading(false);
@@ -113,8 +114,6 @@ export default function DetalheScreen() {
     }
     try {
       setSalvando(true);
-      
-      // Localiza o objeto do serviço para pegar o ID real e o preço numérico
       const servico = estab?.servicos.find(s => s.nome === servicoSel);
       const precoLimpo = Number(String(servico?.preco || 0).replace(',', '.'));
 
@@ -156,12 +155,14 @@ export default function DetalheScreen() {
           <View style={s.confirmCircle}><Text style={s.confirmEmoji}>🎉</Text></View>
           <Text style={s.confirmTitulo}>Agendado!</Text>
           <Text style={s.confirmSub}>Seu horário está confirmado, {nome.split(' ')[0]}!</Text>
-          <div style={s.confirmResumo}>
+          
+          <View style={s.confirmResumo}>
             <Text style={s.confirmEstab}>{estab?.nome}</Text>
             <View style={s.confirmLinha}><Text>💆 {servicoSel}</Text></View>
             <View style={s.confirmLinha}><Text>📅 {dataSel?.full}</Text></View>
             <View style={s.confirmLinha}><Text>⏰ {horarioSel}</Text></View>
-          </div>
+          </View>
+
           <TouchableOpacity 
             style={s.btnPrimario} 
             onPress={() => navigation.reset({
@@ -207,7 +208,7 @@ export default function DetalheScreen() {
             <Text style={s.secaoTitulo}>Serviço</Text>
             {svcsAtivos.map(sv => (
               <TouchableOpacity key={sv.id} onPress={() => { setServicoSel(sv.nome); setStep(Math.max(step, 2)); }} style={[s.servicoCard, servicoSel === sv.nome && s.servicoCardAtivo]}>
-                {sv.foto ? <Image source={{ uri: sv.foto }} style={s.servicoFoto} /> : <View style={s.servicoFotoPlaceholder}><Text>💆</Text></View>}
+                {(sv as any).foto ? <Image source={{ uri: (sv as any).foto }} style={s.servicoFoto} /> : <View style={s.servicoFotoPlaceholder}><Text>💆</Text></View>}
                 <View style={s.servicoLeft}>
                   <Text style={[s.servicoNome, servicoSel === sv.nome && { color: '#fff' }]}>{sv.nome}</Text>
                   <Text style={[s.servicoDur, servicoSel === sv.nome && { color: '#aaa' }]}>⏱ {sv.duracao} min</Text>

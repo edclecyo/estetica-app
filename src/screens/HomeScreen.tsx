@@ -59,7 +59,7 @@ const TIPO_ICONS: Record<string, string> = {
 };
 
 function calcularDistancia(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  if (!lat1 || !lng1 || !lat2 || !lng2) return 9999;
+  if ([lat1, lng1, lat2, lng2].some((v) => v === null || v === undefined || Number.isNaN(v))) return 9999;
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -75,6 +75,14 @@ function calcularDistancia(lat1: number, lng1: number, lat2: number, lng2: numbe
 function formatarDistancia(km: number): string {
   if (km >= 1) return `${km.toFixed(1)} km`;
   return `${Math.round(km * 1000)} m`;
+}
+
+function normalizarTexto(valor?: string): string {
+  return (valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function estaAberto(horario?: string): boolean {
@@ -126,10 +134,10 @@ export default function HomeScreen() {
       try {
         // @ts-ignore
         navigator.geolocation?.getCurrentPosition(
-          (pos) => {
+          (pos: any) => {
             setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           },
-          (err) => {
+          (err: any) => {
             console.log('GPS erro:', err);
           },
           { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
@@ -148,9 +156,13 @@ export default function HomeScreen() {
     const unsub = firestore()
       .collection('estabelecimentos')
       .where('ativo', '==', true)
+      .where('assinaturaAtiva', '==', true) // 🔥 Sincronizado com Functions
       .onSnapshot((snap) => {
         const lista = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Estabelecimento[];
         setEstabelecimentos(lista);
+        setLoading(false);
+      }, (err) => {
+        console.log("Erro Firestore:", err);
         setLoading(false);
       });
     return unsub;
@@ -158,13 +170,15 @@ export default function HomeScreen() {
 
   const filtrados = estabelecimentos
     .filter((e) => {
-      const mb = e.nome?.toLowerCase().includes(busca.toLowerCase());
-      const mt = filtro === 'Todos' || e.tipo === filtro;
+      const nome = normalizarTexto(e.nome);
+      const buscaNormalizada = normalizarTexto(busca);
+      const mb = nome.includes(buscaNormalizada);
+      const mt = filtro === 'Todos' || normalizarTexto(e.tipo) === normalizarTexto(filtro);
       return mb && mt;
     })
     .map((e) => {
-      const lat = e.coords?.lat ?? e.lat;
-      const lng = e.coords?.lng ?? e.lng;
+      const lat = (e as any).coords?.lat ?? (e as any).lat;
+      const lng = (e as any).coords?.lng ?? (e as any).lng;
       const dist = localizacao && lat && lng
         ? calcularDistancia(localizacao.lat, localizacao.lng, lat, lng)
         : 9999;
@@ -200,7 +214,6 @@ export default function HomeScreen() {
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-      {/* HEADER FIXO */}
       <View style={s.header}>
         <View style={s.headerTop}>
           <View style={{ flex: 1 }}>
@@ -273,7 +286,6 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <>
-            {/* FILTROS DENTRO DO SCROLL DA LISTA */}
             <View style={s.filtroWrap}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
                 {TIPOS.map((t) => (
@@ -288,15 +300,13 @@ export default function HomeScreen() {
                 ))}
               </ScrollView>
             </View>
-
-            {/* STORIES HEADER COMPONENT */}
             <StoriesHeader />
           </>
         }
         renderItem={({ item }) => {
           const aberto = item._aberto;
           const dist = item._dist < 9999 ? item._dist : null;
-          const imagemUri = item.fotoPerfil || (item.img?.startsWith('http') ? item.img : null);
+          const imagemUri = (item as any).fotoPerfil || (item.img?.startsWith('http') ? item.img : null);
 
           return (
             <TouchableOpacity

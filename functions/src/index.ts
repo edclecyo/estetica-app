@@ -364,6 +364,63 @@ export const manutencaoDiaria = onSchedule(
     }
   }
 );
+// ─── SCHEDULED JOBS (LIMPEZA/COBRANÇA) ───────────
+
+export const verificarAssinaturas = onSchedule("every day 02:00", async () => {
+  const agora = admin.firestore.Timestamp.now();
+  const snap = await db.collection('estabelecimentos')
+    .where('assinaturaAtiva', '==', true)
+    .where('expiraEm', '<', agora).limit(500).get();
+
+  const batch = db.batch();
+  snap.docs.forEach(doc => batch.update(doc.ref, { 
+    assinaturaAtiva: false, plano: 'free', statusPagamento: 'expirado' 
+  }));
+  await batch.commit();
+});
+
+export const cobrarAssinaturas = onSchedule("every day 09:00", async () => {
+  const hoje = new Date();
+  const em3dias = new Date();
+  em3dias.setDate(hoje.getDate() + 3);
+  const limite = admin.firestore.Timestamp.fromDate(em3dias);
+
+  let lastDoc = null;
+  while (true) {
+    let query = db.collection('estabelecimentos')
+      .where('assinaturaAtiva', '==', true)
+      .where('expiraEm', '<=', limite).limit(500);
+
+    if (lastDoc) query = query.startAfter(lastDoc);
+    const snap = await query.get();
+    if (snap.empty) break;
+
+    const batch = db.batch();
+    for (const doc of snap.docs) {
+      const est = doc.data();
+      const expira = est.expiraEm.toDate();
+      const diff = Math.ceil((expira.getTime() - hoje.getTime()) / 86400000);
+
+      if (diff === 3 && !est.notificado3dias) {
+        await db.collection('notificacoes').add({
+            clienteId: est.adminId,
+            titulo: "Plano vencendo",
+            msg: "Seu plano vence em 3 dias",
+            tipo: "cobranca",
+            lida: false,
+            criadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+        batch.update(doc.ref, { notificado3dias: true });
+      } else if (diff < 0) {
+        batch.update(doc.ref, { assinaturaAtiva: false, statusPagamento: 'pendente' });
+      }
+    }
+    await batch.commit();
+    if (snap.size < 500) break;
+    lastDoc = snap.docs[snap.size - 1];
+  }
+});
+
 export const criarAssinatura = functions.onCall(async (request) => {
   if (!request.auth) {
     throw new functions.HttpsError('unauthenticated', 'Acesso negado');
@@ -561,4 +618,18 @@ await db.collection('pagamentos').add({
 
     res.sendStatus(500);
   }
+});
+// ─── LIMPEZA DE DADOS (CLEANUP) ──────────────────
+
+export const limpezaHardDelete = onSchedule("every day 05:00", async () => {
+  const limite = new Date();
+  limite.setDate(limite.getDate() - 90);
+
+  const snap = await db.collection('agendamentos')
+    .where('deletado', '==', true)
+    .where('deletadoEm', '<', limite).limit(500).get();
+
+  const batch = db.batch();
+  snap.docs.forEach(doc => batch.delete(doc.ref));
+  await batch.commit();
 });

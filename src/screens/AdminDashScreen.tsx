@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, Alert, Dimensions, StatusBar, Image, ScrollView
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import functions from '@react-native-firebase/functions';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { BarChart } from 'react-native-chart-kit';
@@ -37,68 +38,76 @@ export default function AdminDashScreen() {
   const [loading, setLoading] = useState(true);
   const [notifNaoLidas, setNotifNaoLidas] = useState(0);
 
+  // ESTABELECIMENTOS
   useEffect(() => {
     if (!admin?.id) return;
-    const unsubEstabs = firestore()
+
+    const unsub = firestore()
       .collection('estabelecimentos')
       .where('adminId', '==', admin.id)
       .onSnapshot(snap => {
         const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
         setEstabs(lista);
-        
-        if (lista.length > 0) {
-          const ids = lista.map(e => e.id);
-          
-          // Monitorar Agendamentos
-          firestore().collection('agendamentos')
-            .where('estabelecimentoId', 'in', ids)
-            .orderBy('criadoEm', 'desc')
-            .limit(100)
-            .onSnapshot(snapA => {
-              if (snapA) setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
-              setLoading(false);
-            });
-
-        // Monitorar Meus Stories e Curtidas
-firestore().collection('stories')
-  .where('adminId', '==', admin.id) 
-  // Removi o orderBy temporariamente para testar se é erro de índice
-  .onSnapshot(snapS => {
-    if (snapS) {
-      console.log("Documentos encontrados:", snapS.docs.length); // Verifique no Metro Log
-      
-      const storiesData = snapS.docs.map(d => ({ 
-        id: d.id, 
-        ...d.data() 
-      })) as any[];
-
-      // Ordenamos manualmente no JavaScript para evitar erro de índice no Firebase
-      storiesData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-
-      setMeusStories(storiesData);
-      
-      const likes = storiesData.reduce((acc, curr: any) => acc + (curr.likesCount || 0), 0);
-      setTotalLikes(likes);
-    }
-  }, err => {
-    console.error("Erro na consulta de stories:", err);
-  });
-        } else {
-          setAgends([]);
-          setLoading(false);
-        }
       });
 
-    return unsubEstabs;
+    return unsub;
   }, [admin?.id]);
 
+  // AGENDAMENTOS
+  useEffect(() => {
+    if (!estabs.length) return;
+
+    const ids = estabs.map(e => e.id).slice(0, 10);
+
+    const unsub = firestore()
+      .collection('agendamentos')
+      .where('estabelecimentoId', 'in', ids)
+      .orderBy('criadoEm', 'desc')
+      .limit(100)
+      .onSnapshot(snap => {
+        setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
+        setLoading(false);
+      });
+
+    return unsub;
+  }, [estabs]);
+
+  // STORIES
   useEffect(() => {
     if (!admin?.id) return;
+
+    const unsub = firestore()
+      .collection('stories')
+      .where('adminId', '==', admin.id)
+      .onSnapshot(snap => {
+        const storiesData = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        })) as any[];
+
+        storiesData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+
+        setMeusStories(storiesData);
+
+        const likes = storiesData.reduce((acc, curr: any) => acc + (curr.likesCount || 0), 0);
+        setTotalLikes(likes);
+      }, err => {
+        console.error("Erro na consulta de stories:", err);
+      });
+
+    return unsub;
+  }, [admin?.id]);
+
+  // NOTIFICAÇÕES
+  useEffect(() => {
+    if (!admin?.id) return;
+
     const unsubNotif = firestore()
       .collection('notificacoes')
       .where('adminId', '==', admin.id)
       .where('lida', '==', false)
-      .onSnapshot(snap => snap && setNotifNaoLidas(snap.docs.length));
+      .onSnapshot(snap => setNotifNaoLidas(snap.docs.length));
+
     return unsubNotif;
   }, [admin?.id]);
 
@@ -112,7 +121,25 @@ firestore().collection('stories')
   const atualizarStatusAgendamento = (id: string, novoStatus: 'concluido' | 'cancelado') => {
     Alert.alert('Confirmar', `Deseja marcar como ${novoStatus}?`, [
       { text: 'Não', style: 'cancel' },
-      { text: 'Sim', onPress: () => firestore().collection('agendamentos').doc(id).update({ status: novoStatus }) }
+      {
+        text: 'Sim',
+        onPress: async () => {
+          try {
+            if (novoStatus === 'concluido') {
+              await functions().httpsCallable('concluirAgendamento')({
+                agendamentoId: id
+              });
+            } else {
+              await firestore()
+                .collection('agendamentos')
+                .doc(id)
+                .update({ status: 'cancelado' });
+            }
+          } catch {
+            Alert.alert('Erro', 'Não foi possível atualizar o status');
+          }
+        }
+      },
     ]);
   };
 
@@ -123,10 +150,10 @@ firestore().collection('stories')
     ]);
   };
 
-  const receitaTotal = useMemo(() => 
+  const receitaTotal = useMemo(() =>
     agends.filter(a => a.status === 'confirmado' || a.status === 'concluido')
-    .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
-  , [agends]);
+      .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
+    , [agends]);
 
   const chartData = useMemo(() => {
     const labels = []; const valores = []; const hoje = new Date();

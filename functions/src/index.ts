@@ -5,6 +5,15 @@ import * as admin from 'firebase-admin';
 import axios from "axios";
 import * as crypto from "crypto";
 
+type MercadoPagoPreapproval = {
+  id: string;
+  status: 'authorized' | 'paused' | 'cancelled' | 'pending';
+};
+// Interface para corrigir os erros de tipagem do Axios no criarAssinatura
+interface MercadoPagoResponse {
+  init_point: string;
+  id: string;
+}
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
@@ -96,7 +105,7 @@ async function enviarPush(token: string, titulo: string, corpo: string, data?: R
 
 // ─── 1. LEMBRETE OTIMIZADO ─────────
 export const lembreteAgendamento = onSchedule(
-  { region: REGION, schedule: "every 6 hours" },
+  { region: REGION, schedule: "every 1 hours" },
   async () => {
 
     const agora = admin.firestore.Timestamp.now();
@@ -135,6 +144,12 @@ export const onAgendamentoUpdate = onDocumentUpdated(
     const depois = event.data?.after.data();
     if (!antes || !depois) return;
 
+    // 🚀 EVITA EXECUÇÃO DESNECESSÁRIA
+    if (
+      antes.status === depois.status &&
+      antes.avaliacaoCliente === depois.avaliacaoCliente
+    ) return;
+
     // ─── PUSH STATUS ─────────
     if (antes.status !== depois.status && depois.fcmTokenCliente) {
       let titulo = '';
@@ -155,7 +170,7 @@ export const onAgendamentoUpdate = onDocumentUpdated(
       }
     }
 
-    // ─── REPUTAÇÃO + RANKING (SEM SCHEDULER) ─────────
+    // ─── RANKING ─────────
     if (depois.status === 'concluido' && depois.avaliacaoCliente !== antes.avaliacaoCliente) {
 
       const estRef = db.collection('estabelecimentos').doc(depois.estabelecimentoId);
@@ -188,11 +203,14 @@ export const onAgendamentoUpdate = onDocumentUpdated(
 );
 
 // ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────
+// ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────
 export const salvarEstabelecimento = functions.onCall(async (request) => {
   if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
 
   const data = request.data;
   const adminId = request.auth.uid;
+
+  if (!data.nome) throw new functions.HttpsError('invalid-argument', 'Nome é obrigatório');
 
   const docId = data.estabelecimentoId || db.collection('estabelecimentos').doc().id;
   const estRef = db.collection('estabelecimentos').doc(docId);
@@ -218,7 +236,6 @@ export const salvarEstabelecimento = functions.onCall(async (request) => {
   await estRef.set(payload, { merge: true });
   return { id: docId, ok: true };
 });
-
 // ─── 4. CRIAR AGENDAMENTO OTIMIZADO ─────────
 export const criarAgendamento = functions.onCall(async (request) => {
   // ✅ FIX: validação de autenticação adicionada
@@ -226,16 +243,28 @@ export const criarAgendamento = functions.onCall(async (request) => {
 
   const data = request.data || {};
   const clienteUid = request.auth.uid;
+  
   const estabelecimentoId = String(data.estabelecimentoId || "");
   const servicoNome = String(data.servicoNome || "").trim();
   const clienteNome = String(data.clienteNome || "").trim();
   const dataBr = String(data.data || "").trim();
   const horario = String(data.horario || "").trim();
-
+// ✅ Validação de campos obrigatórios
   if (!estabelecimentoId || !servicoNome || !clienteNome || !dataBr || !horario) {
     throw new functions.HttpsError('invalid-argument', 'Campos obrigatórios ausentes');
   }
+// 🚨 ANTI-SPAM (1 agendamento por horário)
+const existe = await db.collection('agendamentos')
+  .where('clienteUid', '==', clienteUid)
+  .where('data', '==', dataBr)
+  .where('horario', '==', horario)
+  .limit(1)
+  .get();
 
+if (!existe.empty) {
+  throw new functions.HttpsError('already-exists', 'Você já tem um agendamento nesse horário');
+}
+ // 🔍 Busca estabelecimento
   const estSnap = await db.collection('estabelecimentos')
     .doc(estabelecimentoId)
     .get();
@@ -244,11 +273,11 @@ export const criarAgendamento = functions.onCall(async (request) => {
     throw new functions.HttpsError('not-found', 'Estabelecimento não encontrado');
   }
   const est = estSnap.data() || {};
-
+// 🔒 Verifica assinatura
   if (!est.assinaturaAtiva) {
     throw new functions.HttpsError('failed-precondition', 'Sem assinatura');
   }
-
+// 🔍 Valida serviço
   const servicos = Array.isArray(est.servicos) ? est.servicos : [];
   const servico = servicos.find((s: any) => String(s?.nome || "").trim() === servicoNome);
   if (!servico) {
@@ -335,7 +364,75 @@ export const manutencaoDiaria = onSchedule(
     }
   }
 );
+export const criarAssinatura = functions.onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.HttpsError('unauthenticated', 'Acesso negado');
+  }
 
+  const { estabelecimentoId, email, plano } = request.data;
+
+  if (!estabelecimentoId || !email || !plano) {
+    throw new functions.HttpsError('invalid-argument', 'Dados inválidos');
+  }
+
+  const planos: any = {
+  essencial: 29.9,
+  pro: 49.9,
+  elite: 89.99,
+};
+
+  const valor = planos[plano];
+
+  if (!valor) {
+    throw new functions.HttpsError('invalid-argument', 'Plano inválido');
+  }
+
+  try {
+    const resp = await axios.post<MercadoPagoResponse>(
+  'https://api.mercadopago.com/preapproval',
+      {
+        reason: `Plano ${plano}`,
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: "months",
+          transaction_amount: valor,
+          currency_id: "BRL",
+        },
+        back_url: "https://seuapp.com/sucesso",
+        payer_email: email,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+        },
+        timeout: 5000,
+      }
+    );
+
+    const initPoint = resp.data?.init_point;
+    const id = resp.data?.id;
+
+    if (!initPoint || !id) {
+      throw new functions.HttpsError('internal', 'Erro ao criar pagamento');
+    }
+
+    // 🔗 Salva vínculo com estabelecimento
+    await db.collection('estabelecimentos')
+      .doc(estabelecimentoId)
+      .update({
+        mercadoPagoId: id,
+        plano,
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    return { url: initPoint };
+
+  } catch (error: any) {
+    console.error('Erro criar assinatura:', error?.response?.data || error.message);
+
+    throw new functions.HttpsError('internal', 'Erro ao gerar pagamento');
+  }
+});
 // ─── 7. PLANOS E PAGAMENTOS ─────────
 export const iniciarTrial = functions.onCall(async (req) => {
   if (!req.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
@@ -364,31 +461,39 @@ export const iniciarTrial = functions.onCall(async (req) => {
 export const webhookMercadoPago = functions.onRequest(async (req, res) => {
   const segredoWebhook = process.env.MP_WEBHOOK_SECRET;
   const tokenWebhook = process.env.MP_WEBHOOK_TOKEN;
+  
   const tokenQuery = Array.isArray(req.query.token) ? req.query.token[0] : req.query.token;
+// 🔒 Validação por token
   if (tokenWebhook && tokenQuery !== tokenWebhook) {
     res.sendStatus(401);
     return;
   }
 
   const { action, data } = req.body;
-
+// 🚫 Ignora eventos que não interessam
   if (action !== "subscription.updated" || !data?.id) {
     res.sendStatus(200);
     return;
   }
 
-  // ✅ FIX: `id` extraído corretamente de `data.id`
   const id: string = data.id;
-
+// 🔐 Validação de assinatura Mercado Pago
   if (segredoWebhook) {
     const assinaturaHeader = typeof req.headers["x-signature"] === "string"
       ? req.headers["x-signature"]
       : undefined;
+
     const requestIdHeader = typeof req.headers["x-request-id"] === "string"
       ? req.headers["x-request-id"]
       : undefined;
 
-    const assinaturaValida = validarAssinaturaMercadoPago(assinaturaHeader, requestIdHeader, id, segredoWebhook);
+    const assinaturaValida = validarAssinaturaMercadoPago(
+      assinaturaHeader,
+      requestIdHeader,
+      id,
+      segredoWebhook
+    );
+
     if (!assinaturaValida) {
       res.sendStatus(401);
       return;
@@ -396,12 +501,30 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
   }
 
   try {
-    const resp = await axios.get(
+	   // 📡 Consulta status no Mercado Pago
+    const resp = await axios.get<MercadoPagoPreapproval>(
       `https://api.mercadopago.com/preapproval/${id}`,
-      { headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+        },
+        timeout: 5000, // 🔥 evita travar function
+      }
     );
 
-    // ✅ FIX: `snap` declarado antes de ser usado
+    // 🔒 Validação da resposta
+    if (!resp.data || !resp.data.status) {
+      console.error('Resposta inválida do Mercado Pago:', resp.data);
+      res.sendStatus(500);
+      return;
+    }
+	// 💾 Log de pagamento (AGORA CORRETO)
+await db.collection('pagamentos').add({
+  mercadoPagoId: id,
+  status: resp.data.status,
+  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+});
+// 🔍 Busca estabelecimento
     const snap = await db.collection('estabelecimentos')
       .where('mercadoPagoId', '==', id)
       .limit(1)
@@ -413,14 +536,29 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
       return;
     }
 
-    await snap.docs[0].ref.update({
+    const docRef = snap.docs[0].ref;
+    const dadosAtuais = snap.docs[0].data();
+
+    // 🔁 evita atualização duplicada (webhook repetido)
+    if (dadosAtuais?.statusPagamento === resp.data.status) {
+      res.sendStatus(200);
+      return;
+    }
+ // 🔄 Atualiza status
+    await docRef.update({
       assinaturaAtiva: resp.data.status === 'authorized',
       statusPagamento: resp.data.status,
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(), // 🔥 rastreio
     });
 
     res.sendStatus(200);
-  } catch (error) {
-    console.error('Erro no Webhook:', error);
+
+  } catch (error: any) {
+    console.error('Erro no Webhook Mercado Pago:', {
+      message: error?.message,
+      response: error?.response?.data,
+    });
+
     res.sendStatus(500);
   }
 });

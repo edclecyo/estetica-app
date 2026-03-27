@@ -1,13 +1,25 @@
 {
   "compilerOptions": {
     "module": "commonjs",
+    "target": "es2017",
+
+    "outDir": "lib",
+    "rootDir": "src",
+
+    "sourceMap": true,
+
+    "strict": false,
     "noImplicitReturns": true,
     "noUnusedLocals": false,
-    "outDir": "lib",
-    "sourceMap": true,
-    "strict": false,
-    "target": "es2017",
-    "skipLibCheck": true
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
   },
   "compileOnSave": true,
   "include": [

@@ -14,10 +14,10 @@ import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-const PLANOS = [
-  { id: 'essencial', nome: 'Essencial', preco: '30', cor: '#4CAF50', desc: 'Até 2 profissionais' },
-  { id: 'pro', nome: 'Pro', preco: '70', cor: '#2196F3', desc: 'Profissionais ilimitados' },
-  { id: 'elite', nome: 'Elite', preco: '150', cor: '#9C27B0', desc: 'Destaque no ranking + Pro' },
+cconst PLANOS = [
+  { id: 'essencial', nome: 'Essencial', preco: '29,90', cor: '#4CAF50', desc: 'Até 2 profissionais' },
+  { id: 'pro', nome: 'Pro', preco: '49,90', cor: '#2196F3', desc: 'Profissionais ilimitados' },
+  { id: 'elite', nome: 'Elite', preco: '89,99', cor: '#9C27B0', desc: 'Destaque no ranking + Pro' },
 ];
 
 export default function AssinaturaScreen({ navigation }) {

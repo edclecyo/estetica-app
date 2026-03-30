@@ -41,17 +41,34 @@ export default function AdminLoginScreen() {
     await loginAdmin(email, senha);
     // ✅ AuthContext vai redirecionar automaticamente
     // Timeout de segurança — se não redirecionar em 5s, para o loading
-    setTimeout(() => setLoading(false), 5000);
+   await loginAdmin(email, senha);
   } catch (e: any) {
     setLoading(false);
     Alert.alert('Erro', 'Acesso negado ou dados incorretos.');
   }
 };
 
-  const fazerCadastro = async () => {
-    if (!cNome || !cEmail || !cSenha) { Alert.alert('Atenção', 'Preencha todos os campos.'); return; }
-    if (cSenha.length < 6) { Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.'); return; }
-    if (cSenha !== cConfirm) { Alert.alert('Atenção', 'As senhas não coincidem.'); return; }
+   const fazerCadastro = async () => {
+  if (!cNome.trim() || !cEmail.trim() || !cSenha) {
+    Alert.alert('Atenção', 'Preencha todos os campos.');
+    return;
+  }
+
+  if (!cEmail.includes('@')) {
+    Alert.alert('Atenção', 'Email inválido.');
+    return;
+  }
+
+  if (cSenha.length < 6) {
+    Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.');
+    return;
+  }
+
+  if (cSenha !== cConfirm) {
+    Alert.alert('Atenção', 'As senhas não coincidem.');
+    return;
+  }
+};
     try {
       setLoading(true);
       const { user } = await auth().createUserWithEmailAndPassword(cEmail, cSenha);

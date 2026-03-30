@@ -119,14 +119,24 @@ export const lembreteAgendamento = onSchedule(
     const promises: Array<Promise<void>> = snap.docs.map(async (doc) => {
       const agend = doc.data();
 
-      if (!agend.fcmTokenCliente) return;
+     // 🔔 salva no banco SEMPRE
+await db.collection('notificacoes').add({
+  clienteId: agend.clienteUid,
+  titulo: '⏰ Seu horário está chegando!',
+  mensagem: `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
+  lida: false,
+  criadoEm: admin.firestore.FieldValue.serverTimestamp()
+});
 
-      await enviarPush(
-        agend.fcmTokenCliente,
-        '⏰ Seu horário está chegando!',
-        `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
-        { tela: 'agendamento' }
-      );
+// 📲 envia push SE tiver token
+if (agend.fcmTokenCliente) {
+  await enviarPush(
+    agend.fcmTokenCliente,
+    '⏰ Seu horário está chegando!',
+    `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
+    { tela: 'agendamento' }
+  );
+}
 
       await doc.ref.update({ notificado: true });
     });
@@ -142,6 +152,7 @@ export const onAgendamentoUpdate = onDocumentUpdated(
 
     const antes = event.data?.before.data();
     const depois = event.data?.after.data();
+
     if (!antes || !depois) return;
 
     // 🚀 EVITA EXECUÇÃO DESNECESSÁRIA
@@ -151,7 +162,7 @@ export const onAgendamentoUpdate = onDocumentUpdated(
     ) return;
 
     // ─── PUSH STATUS ─────────
-    if (antes.status !== depois.status && depois.fcmTokenCliente) {
+    if (antes.status !== depois.status) {
       let titulo = '';
       let corpo = '';
 
@@ -164,9 +175,21 @@ export const onAgendamentoUpdate = onDocumentUpdated(
       }
 
       if (titulo) {
-        await enviarPush(depois.fcmTokenCliente, titulo, corpo, {
-          tela: 'agendamento',
+        // 🔔 salvar no banco
+        await db.collection('notificacoes').add({
+          clienteId: depois.clienteUid,
+          titulo,
+          mensagem: corpo,
+          lida: false,
+          criadoEm: admin.firestore.FieldValue.serverTimestamp()
         });
+
+        // 📲 push
+        if (depois.fcmTokenCliente) {
+          await enviarPush(depois.fcmTokenCliente, titulo, corpo, {
+            tela: 'agendamento',
+          });
+        }
       }
     }
 
@@ -202,7 +225,7 @@ export const onAgendamentoUpdate = onDocumentUpdated(
   }
 );
 
-// ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────
+
 // ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────
 export const salvarEstabelecimento = functions.onCall(async (request) => {
   if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
@@ -239,6 +262,7 @@ export const salvarEstabelecimento = functions.onCall(async (request) => {
 // ─── 4. CRIAR AGENDAMENTO OTIMIZADO ─────────
 export const criarAgendamento = functions.onCall(async (request) => {
   // ✅ FIX: validação de autenticação adicionada
+ 
   if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
 
   const data = request.data || {};
@@ -249,6 +273,16 @@ export const criarAgendamento = functions.onCall(async (request) => {
   const clienteNome = String(data.clienteNome || "").trim();
   const dataBr = String(data.data || "").trim();
   const horario = String(data.horario || "").trim();
+  
+
+// ✅ AGORA SIM
+if (clienteNome.length > 100) {
+  throw new functions.HttpsError('invalid-argument', 'Nome muito grande');
+}
+
+if (servicoNome.length > 100) {
+  throw new functions.HttpsError('invalid-argument', 'Serviço inválido');
+}
 // ✅ Validação de campos obrigatórios
   if (!estabelecimentoId || !servicoNome || !clienteNome || !dataBr || !horario) {
     throw new functions.HttpsError('invalid-argument', 'Campos obrigatórios ausentes');
@@ -338,7 +372,7 @@ export const manutencaoDiaria = onSchedule(
   { region: REGION, schedule: "every 24 hours" },
   async () => {
 
-    const agora = new Date();
+const agora = admin.firestore.Timestamp.now();
 
     const [exp, dest] = await Promise.all([
       db.collection('estabelecimentos').where('expiraEm', '<=', agora).get(),
@@ -386,7 +420,10 @@ export const cobrarAssinaturas = onSchedule("every day 09:00", async () => {
   const limite = admin.firestore.Timestamp.fromDate(em3dias);
 
   let lastDoc = null;
-  while (true) {
+  let loops = 0;
+
+while (loops < 10) {
+  loops++;
     let query = db.collection('estabelecimentos')
       .where('assinaturaAtiva', '==', true)
       .where('expiraEm', '<=', limite).limit(500);
@@ -405,7 +442,7 @@ export const cobrarAssinaturas = onSchedule("every day 09:00", async () => {
         await db.collection('notificacoes').add({
             clienteId: est.adminId,
             titulo: "Plano vencendo",
-            msg: "Seu plano vence em 3 dias",
+            mensagem: "Seu plano vence em 3 dias",
             tipo: "cobranca",
             lida: false,
             criadoEm: admin.firestore.FieldValue.serverTimestamp()
@@ -518,23 +555,35 @@ export const iniciarTrial = functions.onCall(async (req) => {
 export const webhookMercadoPago = functions.onRequest(async (req, res) => {
   const segredoWebhook = process.env.MP_WEBHOOK_SECRET;
   const tokenWebhook = process.env.MP_WEBHOOK_TOKEN;
-  
+
   const tokenQuery = Array.isArray(req.query.token) ? req.query.token[0] : req.query.token;
-// 🔒 Validação por token
+  // 🔒 Validação por token
   if (tokenWebhook && tokenQuery !== tokenWebhook) {
     res.sendStatus(401);
     return;
   }
 
   const { action, data } = req.body;
-// 🚫 Ignora eventos que não interessam
+  // 🚫 Ignora eventos que não interessam
   if (action !== "subscription.updated" || !data?.id) {
     res.sendStatus(200);
     return;
   }
 
   const id: string = data.id;
-// 🔐 Validação de assinatura Mercado Pago
+
+  const jaProcessado = await db.collection('pagamentos')
+    .where('mercadoPagoId', '==', id)
+    .where('status', '==', 'authorized') // ou status atual
+    .limit(1)
+    .get();
+
+  if (!jaProcessado.empty) {
+    res.sendStatus(200);
+    return;
+  }
+
+  // 🔐 Validação de assinatura Mercado Pago
   if (segredoWebhook) {
     const assinaturaHeader = typeof req.headers["x-signature"] === "string"
       ? req.headers["x-signature"]
@@ -558,7 +607,7 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
   }
 
   try {
-	   // 📡 Consulta status no Mercado Pago
+    // 📡 Consulta status no Mercado Pago
     const resp = await axios.get<MercadoPagoPreapproval>(
       `https://api.mercadopago.com/preapproval/${id}`,
       {
@@ -575,13 +624,22 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
       res.sendStatus(500);
       return;
     }
-	// 💾 Log de pagamento (AGORA CORRETO)
-await db.collection('pagamentos').add({
-  mercadoPagoId: id,
-  status: resp.data.status,
-  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-});
-// 🔍 Busca estabelecimento
+
+    // 💾 Log de pagamento (AGORA CORRETO)
+    const existe = await db.collection('pagamentos')
+      .where('mercadoPagoId', '==', id)
+      .limit(1)
+      .get();
+
+    if (existe.empty) {
+      await db.collection('pagamentos').add({
+        mercadoPagoId: id,
+        status: resp.data.status,
+        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    // 🔍 Busca estabelecimento
     const snap = await db.collection('estabelecimentos')
       .where('mercadoPagoId', '==', id)
       .limit(1)
@@ -601,7 +659,8 @@ await db.collection('pagamentos').add({
       res.sendStatus(200);
       return;
     }
- // 🔄 Atualiza status
+
+    // 🔄 Atualiza status
     await docRef.update({
       assinaturaAtiva: resp.data.status === 'authorized',
       statusPagamento: resp.data.status,

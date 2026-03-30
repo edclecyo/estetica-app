@@ -23,7 +23,7 @@ import PostarStory from '../screens/PostarStory';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
-const { loading, isAdmin, isResolvingAdmin } = useAuth();
+
 function HomeTabs() {
   return (
     <Tab.Navigator
@@ -61,7 +61,7 @@ function HomeTabs() {
 }
 
 export default function Navigation() {
-  const { loading, isAdmin } = useAuth();
+  const { loading, isAdmin, isResolvingAdmin } = useAuth();
 
   // ✅ Ref para navegar de fora do contexto de navegação (ex: notificação)
   const navigationRef = useRef<NavigationContainerRef<any>>(null);

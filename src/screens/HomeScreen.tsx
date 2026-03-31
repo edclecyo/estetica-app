@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   StyleSheet, ActivityIndicator, StatusBar, ScrollView,
@@ -86,7 +86,12 @@ function FotoVerificada({ uri, emoji, size = 68 }: { uri?: string | null; emoji?
 }
 
 function calcularDistancia(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  if (!lat1 || !lng1 || !lat2 || !lng2) return 9999;
+  if (
+  typeof lat1 !== 'number' ||
+  typeof lng1 !== 'number' ||
+  typeof lat2 !== 'number' ||
+  typeof lng2 !== 'number'
+) return 9999;
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -292,28 +297,47 @@ export default function HomeScreen() {
       .collection('estabelecimentos')
       .where('ativo', '==', true)
       .onSnapshot(snap => {
-        setEstabelecimentos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estabelecimento[]);
-        setLoading(false);
-      });
+  if (!snap) return;
+
+  const dados = snap.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+  })) as Estabelecimento[];
+
+  setEstabelecimentos(prev => {
+    if (JSON.stringify(prev) === JSON.stringify(dados)) return prev;
+    return dados;
+  });
+
+  setLoading(false);
+});
     return unsub;
   }, []);
 
-  const filtrados = estabelecimentos
+const filtrados = useMemo(() => {
+  return estabelecimentos
     .filter(e => {
-      const mb = e.nome?.toLowerCase().includes(busca.toLowerCase());
+      const nome = (e.nome || '').toLowerCase();
+      const mb = nome.includes(busca.toLowerCase());
       const mt = filtro === 'Todos' || e.tipo === filtro;
       return mb && mt;
     })
     .map(e => {
       const lat = e.coords?.lat ?? e.lat;
       const lng = e.coords?.lng ?? e.lng;
-      const dist = localizacao && lat && lng
-        ? calcularDistancia(localizacao.lat, localizacao.lng, lat, lng)
-        : 9999;
+
+      const dist =
+        localizacao && typeof lat === 'number' && typeof lng === 'number'
+          ? calcularDistancia(localizacao.lat, localizacao.lng, lat, lng)
+          : 9999;
+
       return {
         ...e,
-        _dist: dist,
-        _aberto: estaAberto((e as any).horarioFuncionamento, (e as any).diasFuncionamento),
+        _dist: isNaN(dist) ? 9999 : dist,
+        _aberto: estaAberto(
+          (e as any).horarioFuncionamento,
+          (e as any).diasFuncionamento
+        ),
       };
     })
     .sort((a, b) => {
@@ -321,6 +345,7 @@ export default function HomeScreen() {
       if (!a._aberto && b._aberto) return 1;
       return a._dist - b._dist;
     });
+}, [estabelecimentos, busca, filtro, localizacao]);
 
   const renderStars = (rating: number) => (
     <View style={s.starsRow}>

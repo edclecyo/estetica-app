@@ -75,7 +75,7 @@ export default function DetalheScreen() {
   const [nome, setNome] = useState('');
   const [confirmado, setConfirmado] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState('');
-
+const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
   const datas = getDatas();
 
   useEffect(() => {
@@ -158,6 +158,7 @@ export default function DetalheScreen() {
         clienteUid: user.uid,
         data: dataSel.full,
         horario: horarioSel,
+		 formaPagamento,
       });
 
       await AsyncStorage.setItem('clienteNome', nome);
@@ -322,10 +323,41 @@ export default function DetalheScreen() {
               </View>
             </>
           )}
+{step >= 4 && (
+  <View style={s.secao}>
+    <Text style={s.secaoTitulo}>Pagamento</Text>
 
+    <TouchableOpacity
+      onPress={() => setFormaPagamento('app')}
+      style={[
+        s.pagamentoCard,
+        formaPagamento === 'app' && s.pagamentoCardAtivo
+      ]}
+    >
+      <Text style={s.pagamentoTitulo}>💳 Pagar agora</Text>
+      <Text style={s.pagamentoDesc}>
+        Pague no app e garanta seu horário
+      </Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity
+      onPress={() => setFormaPagamento('local')}
+      style={[
+        s.pagamentoCard,
+        formaPagamento === 'local' && s.pagamentoCardAtivo
+      ]}
+    >
+      <Text style={s.pagamentoTitulo}>🏢 Pagar no local</Text>
+      <Text style={s.pagamentoDesc}>
+        Pague após o atendimento
+      </Text>
+    </TouchableOpacity>
+  </View>
+)}
           <TouchableOpacity
             style={[s.btnPrimario, (!servicoSel || !dataSel || !horarioSel || !nome) && s.btnDisabled]}
-            disabled={!servicoSel || !dataSel || !horarioSel || !nome || salvando}
+            disabled={
+  !servicoSel ||  !dataSel || !horarioSel ||  !nome ||  !formaPagamento ||  salvando}
             onPress={confirmar}>
             {salvando ? <ActivityIndicator color="#fff" /> : <Text style={s.btnPrimarioText}>Finalizar Agendamento</Text>}
           </TouchableOpacity>
@@ -402,4 +434,26 @@ const s = StyleSheet.create({
   confirmEstab: { fontSize: 14, fontWeight: '700', marginBottom: 10 },
   confirmLinha: { marginBottom: 4 },
   whatsappBtn: { position: 'absolute', bottom: 24, right: 24, backgroundColor: '#25D366', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 6 },
+pagamentoCard: {
+  backgroundColor: '#fff',
+  borderRadius: 14,
+  padding: 14,
+  marginBottom: 10,
+  borderWidth: 1,
+  borderColor: '#eee'
+},
+pagamentoCardAtivo: {
+  borderColor: '#C9A96E',
+  backgroundColor: '#C9A96E22'
+},
+pagamentoTitulo: {
+  fontSize: 14,
+  fontWeight: '700',
+  color: '#1A1A1A'
+},
+pagamentoDesc: {
+  fontSize: 12,
+  color: '#666',
+  marginTop: 4
+},
 });

@@ -34,11 +34,18 @@ export default function NotificacoesClienteScreen() {
           setLoading(false);
         },
         (error) => {
-          // Se cair aqui, geralmente é falta de Índice ou Regras de Segurança
-          console.log("Erro Firestore Notificações:", error.message);
-          setErrorPermission(true);
-          setLoading(false);
-        }
+  console.log("Erro Firestore Notificações:", error.message);
+
+  // Só mostra erro se NÃO tiver dados ainda
+  setNotificacoes(prev => {
+    if (prev.length === 0) {
+      setErrorPermission(true);
+    }
+    return prev;
+  });
+
+  setLoading(false);
+}
       );
 
     return () => unsub();

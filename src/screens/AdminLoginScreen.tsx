@@ -38,7 +38,7 @@ export default function AdminLoginScreen() {
   if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
   try {
     setLoading(true);
-    await loginAdmin(email, senha);
+   
     // ✅ AuthContext vai redirecionar automaticamente
     // Timeout de segurança — se não redirecionar em 5s, para o loading
    await loginAdmin(email, senha);

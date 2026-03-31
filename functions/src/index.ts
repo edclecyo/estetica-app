@@ -91,60 +91,108 @@ async function getTokenAdmin(adminId: string): Promise<string | null> {
 }
 
 // ─── HELPER: envia push com data payload ─────────
-async function enviarPush(token: string, titulo: string, corpo: string, data?: Record<string, string>) {
-  try {
-    await messaging.send({
-      token,
-      notification: { title: titulo, body: corpo },
-      ...(data && { data }),
-    });
-  } catch (e) {
-    console.log('Erro push:', e);
-  }
+async function enviarPush(token: string, titulo: string, corpo: string, data?: any) {
+  if (!token) return;
+
+  await messaging.send({
+    token,
+    notification: {
+      title: titulo,
+      body: corpo,
+    },
+    ...(data && { data }),
+  });
 }
 
 // ─── 1. LEMBRETE OTIMIZADO ─────────
 export const lembreteAgendamento = onSchedule(
-  { region: REGION, schedule: "every 1 hours" },
+  { region: REGION, schedule: "every 15 minutes" }, // 🔥 melhor que 1h
   async () => {
 
-    const agora = admin.firestore.Timestamp.now();
+    const MAX_LOOPS = 20;
+    const LIMIT = 200;
+    const MAX_PUSH = 100;
 
-    const snap = await db.collection('agendamentos')
-      .where('notificarEm', '<=', agora)
-      .where('notificado', '==', false)
-      .limit(100)
-      .get();
+    let lastDoc = null;
+    let loops = 0;
 
-    const promises: Array<Promise<void>> = snap.docs.map(async (doc) => {
-      const agend = doc.data();
+    while (true) {
+      if (loops >= MAX_LOOPS) break;
+      loops++;
 
-     // 🔔 salva no banco SEMPRE
-await db.collection('notificacoes').add({
-  clienteId: agend.clienteUid,
-  titulo: '⏰ Seu horário está chegando!',
-  mensagem: `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
-  lida: false,
-  criadoEm: admin.firestore.FieldValue.serverTimestamp()
-});
+      let query = db.collection('agendamentos')
+        .where('notificarEm', '<=', admin.firestore.Timestamp.now())
+        .where('notificado', '==', false)
+        .limit(LIMIT);
 
-// 📲 envia push SE tiver token
-if (agend.fcmTokenCliente) {
-  await enviarPush(
-    agend.fcmTokenCliente,
-    '⏰ Seu horário está chegando!',
-    `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
-    { tela: 'agendamento' }
-  );
-}
+      if (lastDoc) query = query.startAfter(lastDoc);
 
-      await doc.ref.update({ notificado: true });
-    });
+      const snap = await query.get();
 
-    await Promise.all(promises);
+      console.log(`📦 Loop ${loops} | Docs: ${snap.size}`);
+
+      if (snap.empty) break;
+
+      const batch = db.batch();
+      const pushPromises: Promise<any>[] = [];
+
+      for (const doc of snap.docs) {
+        const agend = doc.data();
+
+        const expira = new Date();
+        expira.setDate(expira.getDate() + 30);
+
+        // 🔔 salvar notificação
+        const notifRef = db.collection('notificacoes').doc();
+        batch.set(notifRef, {
+          clienteId: agend.clienteUid,
+          titulo: '⏰ Seu horário está chegando!',
+          mensagem: `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
+          lida: false,
+          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          expiraEm: admin.firestore.Timestamp.fromDate(expira)
+        });
+
+        // 📲 push
+        if (agend.fcmTokenCliente) {
+          pushPromises.push(
+            messaging.send({
+              token: agend.fcmTokenCliente,
+              notification: {
+                title: '⏰ Seu horário está chegando!',
+                body: 'Confira seu agendamento no app'
+              },
+              data: { tela: 'agendamento' }
+            })
+          );
+        }
+
+        // 🔁 controle de lote de push
+        if (pushPromises.length >= MAX_PUSH) {
+          await Promise.allSettled(pushPromises);
+          pushPromises.length = 0;
+        }
+
+        // ✅ marca como notificado
+        batch.update(doc.ref, { notificado: true });
+      }
+
+      // 💾 salva tudo
+      await batch.commit();
+
+      // 🚀 envia restante dos push
+      if (pushPromises.length) {
+        await Promise.allSettled(pushPromises);
+      }
+
+      // ⛔ paginação
+      if (snap.size < LIMIT) break;
+      lastDoc = snap.docs[snap.size - 1];
+    }
+
+    console.log("✅ Lembretes finalizados");
   }
 );
-
 // ─── 2. STATUS + RANKING JUNTO ─────────
 export const onAgendamentoUpdate = onDocumentUpdated(
   { document: "agendamentos/{docId}", region: REGION },
@@ -176,13 +224,17 @@ export const onAgendamentoUpdate = onDocumentUpdated(
 
       if (titulo) {
         // 🔔 salvar no banco
-        await db.collection('notificacoes').add({
-          clienteId: depois.clienteUid,
-          titulo,
-          mensagem: corpo,
-          lida: false,
-          criadoEm: admin.firestore.FieldValue.serverTimestamp()
-        });
+        const expira = new Date();
+expira.setDate(expira.getDate() + 30);
+
+await db.collection('notificacoes').add({
+  clienteId: depois.clienteUid,
+  titulo,
+  mensagem: corpo,
+  lida: false,
+  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  expiraEm: admin.firestore.Timestamp.fromDate(expira) // ✅ CORRETO
+});
 
         // 📲 push
         if (depois.fcmTokenCliente) {
@@ -260,77 +312,92 @@ export const salvarEstabelecimento = functions.onCall(async (request) => {
   return { id: docId, ok: true };
 });
 // ─── 4. CRIAR AGENDAMENTO OTIMIZADO ─────────
+// ─── 4. CRIAR AGENDAMENTO OTIMIZADO ─────────
 export const criarAgendamento = functions.onCall(async (request) => {
-  // ✅ FIX: validação de autenticação adicionada
- 
+
   if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
 
   const data = request.data || {};
   const clienteUid = request.auth.uid;
-  
+
   const estabelecimentoId = String(data.estabelecimentoId || "");
   const servicoNome = String(data.servicoNome || "").trim();
   const clienteNome = String(data.clienteNome || "").trim();
   const dataBr = String(data.data || "").trim();
   const horario = String(data.horario || "").trim();
-  
 
-// ✅ AGORA SIM
-if (clienteNome.length > 100) {
-  throw new functions.HttpsError('invalid-argument', 'Nome muito grande');
-}
+  if (clienteNome.length > 100) {
+    throw new functions.HttpsError('invalid-argument', 'Nome muito grande');
+  }
 
-if (servicoNome.length > 100) {
-  throw new functions.HttpsError('invalid-argument', 'Serviço inválido');
-}
-// ✅ Validação de campos obrigatórios
+  if (servicoNome.length > 100) {
+    throw new functions.HttpsError('invalid-argument', 'Serviço inválido');
+  }
+
   if (!estabelecimentoId || !servicoNome || !clienteNome || !dataBr || !horario) {
     throw new functions.HttpsError('invalid-argument', 'Campos obrigatórios ausentes');
   }
-// 🚨 ANTI-SPAM (1 agendamento por horário)
-const existe = await db.collection('agendamentos')
-  .where('clienteUid', '==', clienteUid)
-  .where('data', '==', dataBr)
-  .where('horario', '==', horario)
-  .limit(1)
-  .get();
 
-if (!existe.empty) {
-  throw new functions.HttpsError('already-exists', 'Você já tem um agendamento nesse horário');
-}
- // 🔍 Busca estabelecimento
-  const estSnap = await db.collection('estabelecimentos')
-    .doc(estabelecimentoId)
+  // 🚨 ANTI-SPAM CLIENTE
+  const existe = await db.collection('agendamentos')
+    .where('clienteUid', '==', clienteUid)
+    .where('data', '==', dataBr)
+    .where('horario', '==', horario)
+    .limit(1)
     .get();
+
+  if (!existe.empty) {
+    throw new functions.HttpsError('already-exists', 'Você já tem um agendamento nesse horário');
+  }
+
+  // 🔍 Busca estabelecimento
+  const estSnap = await db.collection('estabelecimentos').doc(estabelecimentoId).get();
 
   if (!estSnap.exists) {
     throw new functions.HttpsError('not-found', 'Estabelecimento não encontrado');
   }
+
   const est = estSnap.data() || {};
-// 🔒 Verifica assinatura
+
+  // 🔒 Verifica assinatura
   if (!est.assinaturaAtiva) {
     throw new functions.HttpsError('failed-precondition', 'Sem assinatura');
   }
-// 🔍 Valida serviço
+
+  // 🔍 Valida serviço
   const servicos = Array.isArray(est.servicos) ? est.servicos : [];
-  const servico = servicos.find((s: any) => String(s?.nome || "").trim() === servicoNome);
+  const servico = servicos.find((s: any) =>
+    String(s?.nome || "").trim() === servicoNome
+  );
+
   if (!servico) {
     throw new functions.HttpsError('invalid-argument', 'Serviço inválido para este estabelecimento');
   }
 
-  const dataHora = parseDataHoraBR(dataBr, horario);
-  const notificarEmDate = new Date(dataHora.getTime() - (60 * 60 * 1000)); // 1h antes
+  // 🔥 NOVO: evita conflito no estabelecimento (leve e seguro)
+  const conflito = await db.collection('agendamentos')
+    .where('estabelecimentoId', '==', estabelecimentoId)
+    .where('data', '==', dataBr)
+    .where('horario', '==', horario)
+    .limit(1)
+    .get();
 
-  // ✅ FIX: convertido para Timestamp do Firestore corretamente
+  if (!conflito.empty) {
+    throw new functions.HttpsError('already-exists', 'Horário já ocupado');
+  }
+
+  const dataHora = parseDataHoraBR(dataBr, horario);
+  const notificarEmDate = new Date(dataHora.getTime() - (60 * 60 * 1000));
+
   const notificarEm = admin.firestore.Timestamp.fromDate(notificarEmDate);
   const fcmTokenCliente = await getTokenCliente(clienteUid);
 
   const agendRef = await db.collection('agendamentos').add({
     estabelecimentoId,
-    estabelecimentoNome: est.nome || data.estabelecimentoNome || "Estabelecimento",
+    estabelecimentoNome: est.nome || "Estabelecimento",
     adminId: est.adminId || null,
-    servicoId: servico.id || data.servicoId || null,
-    servicoNome: servico.nome || servicoNome,
+    servicoId: servico.id || null,
+    servicoNome: servico.nome,
     servicoPreco: Number(servico.preco || 0),
     clienteNome,
     clienteUid,
@@ -345,7 +412,6 @@ if (!existe.empty) {
 
   return { id: agendRef.id };
 });
-
 // ─── 5. STATUS MANUAL ─────────
 export const concluirAgendamento = functions.onCall(async (request) => {
   if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
@@ -400,7 +466,11 @@ const agora = admin.firestore.Timestamp.now();
 );
 // ─── SCHEDULED JOBS (LIMPEZA/COBRANÇA) ───────────
 
-export const verificarAssinaturas = onSchedule("every day 02:00", async () => {
+export const verificarAssinaturas = onSchedule(
+  { region: REGION, schedule: "every day 02:00" },
+  async () => {
+
+	 
   const agora = admin.firestore.Timestamp.now();
   const snap = await db.collection('estabelecimentos')
     .where('assinaturaAtiva', '==', true)
@@ -419,10 +489,12 @@ export const cobrarAssinaturas = onSchedule("every day 09:00", async () => {
   em3dias.setDate(hoje.getDate() + 3);
   const limite = admin.firestore.Timestamp.fromDate(em3dias);
 
-  let lastDoc = null;
-  let loops = 0;
+ const MAX_LOOPS = 20;
+let loops = 0;
+let lastDoc = null; // 🔥 FALTAVA ISSO
 
-while (loops < 10) {
+while (true) {
+  if (loops >= MAX_LOOPS) break;
   loops++;
     let query = db.collection('estabelecimentos')
       .where('assinaturaAtiva', '==', true)
@@ -433,29 +505,47 @@ while (loops < 10) {
     if (snap.empty) break;
 
     const batch = db.batch();
-    for (const doc of snap.docs) {
-      const est = doc.data();
-      const expira = est.expiraEm.toDate();
-      const diff = Math.ceil((expira.getTime() - hoje.getTime()) / 86400000);
 
-      if (diff === 3 && !est.notificado3dias) {
-        await db.collection('notificacoes').add({
-            clienteId: est.adminId,
-            titulo: "Plano vencendo",
-            mensagem: "Seu plano vence em 3 dias",
-            tipo: "cobranca",
-            lida: false,
-            criadoEm: admin.firestore.FieldValue.serverTimestamp()
-        });
-        batch.update(doc.ref, { notificado3dias: true });
-      } else if (diff < 0) {
-        batch.update(doc.ref, { assinaturaAtiva: false, statusPagamento: 'pendente' });
-      }
-    }
-    await batch.commit();
-    if (snap.size < 500) break;
-    lastDoc = snap.docs[snap.size - 1];
+for (const doc of snap.docs) {
+  const est = doc.data();
+
+  const expiraData = est.expiraEm?.toDate?.();
+  if (!expiraData) continue;
+
+  const diff = Math.ceil((expiraData.getTime() - hoje.getTime()) / 86400000);
+
+  if (diff === 3 && !est.notificado3dias) {
+    const expira = new Date();
+    expira.setDate(expira.getDate() + 30);
+
+    const notifRef = db.collection('notificacoes').doc();
+
+    batch.set(notifRef, {
+      clienteId: est.adminId,
+      titulo: "Plano vencendo",
+      mensagem: "Seu plano vence em 3 dias",
+      tipo: "cobranca",
+      lida: false,
+      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      expiraEm: admin.firestore.Timestamp.fromDate(expira)
+    });
+
+    batch.update(doc.ref, { notificado3dias: true });
+
+  } else if (diff < 0) {
+    batch.update(doc.ref, {
+      assinaturaAtiva: false,
+      statusPagamento: 'pendente'
+    });
   }
+}
+
+await batch.commit();
+
+if (snap.size < 500) break;
+lastDoc = snap.docs[snap.size - 1];
+}
+
 });
 
 export const criarAssinatura = 
@@ -555,12 +645,13 @@ export const iniciarTrial = functions.onCall(async (req) => {
 
 // ─── 10. VERIFICAÇÃO AUTOMÁTICA ─────────
 export const verificarSeloAutomatico = onSchedule("every 24 hours", async () => {
-  const snap = await db.collection('estabelecimentos').get();
+  const snap = await db.collection('estabelecimentos')
+    .where('plano', 'in', ['elite', 'pro'])
+    .get();
 
   const promessas = snap.docs.map(async (doc) => {
     const e = doc.data();
 
-    // ✅ Elite — selo automático sem precisar solicitar
     if (e.plano === 'elite' && e.assinaturaAtiva) {
       if (!e.verificado) {
         await doc.ref.update({
@@ -569,12 +660,10 @@ export const verificarSeloAutomatico = onSchedule("every 24 hours", async () => 
           verificadoEm: admin.firestore.FieldValue.serverTimestamp(),
           motivoVerificacao: 'Plano Elite — verificação automática',
         });
-        console.log('✅ Selo automático Elite:', doc.id);
       }
       return;
     }
 
-    // ✅ Remove selo se perdeu os critérios (cancelou plano, etc)
     if (e.verificado && e.verificadoAutomatico) {
       const perdeuCriterios =
         !e.assinaturaAtiva ||
@@ -588,7 +677,6 @@ export const verificarSeloAutomatico = onSchedule("every 24 hours", async () => 
           motivoRemocaoSelo: 'Critérios não atendidos',
           seloRemovidoEm: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log('❌ Selo removido por critérios:', doc.id);
       }
     }
   });
@@ -658,16 +746,20 @@ export const solicitarSelo = functions.onCall(async (request) => {
     .get();
 
   for (const superAdmin of superAdminsSnap.docs) {
-    await db.collection('notificacoes').add({
-      adminId: superAdmin.id,
-      titulo: '🔔 Nova solicitação de selo',
-      msg: `${est.nome} solicitou o selo verificado (Plano Pro).`,
-      tipo: 'solicitacao_selo',
-      estabelecimentoId,
-      lida: false,
-      apagada: false,
-      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    const expira = new Date();
+expira.setDate(expira.getDate() + 30);
+
+await db.collection('notificacoes').add({
+  adminId: superAdmin.id,
+  titulo: '🔔 Nova solicitação de selo',
+  msg: `${est.nome} solicitou o selo verificado`,
+  tipo: 'solicitacao_selo',
+  estabelecimentoId,
+  lida: false,
+  apagada: false,
+  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  expiraEm: admin.firestore.Timestamp.fromDate(expira) // ✅ CORRETO
+});
 
     const tokenSuperAdmin = await getTokenAdmin(superAdmin.id);
     if (tokenSuperAdmin) {
@@ -723,15 +815,19 @@ export const responderSolicitacaoSelo = functions.onCall(async (request) => {
     ? `Parabéns! ${sol.estabelecimentoNome} agora tem o selo verificado ✅`
     : `Sua solicitação foi rejeitada. ${motivo ? `Motivo: ${motivo}` : ''}`;
 
-  await db.collection('notificacoes').add({
-    adminId: sol.adminId,
-    titulo,
-    msg,
-    tipo: 'resposta_selo',
-    lida: false,
-    apagada: false,
-    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  const expira = new Date();
+expira.setDate(expira.getDate() + 30);
+
+await db.collection('notificacoes').add({
+  adminId: sol.adminId,
+  titulo,
+  msg,
+  tipo: 'resposta_selo',
+  lida: false,
+  apagada: false,
+  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  expiraEm: admin.firestore.Timestamp.fromDate(expira) // ✅ CORRETO
+});
 
   const tokenAdmin = await getTokenAdmin(sol.adminId);
   if (tokenAdmin) {
@@ -850,7 +946,11 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
         criadoEm: admin.firestore.FieldValue.serverTimestamp(),
       });
     }
-
+if (!['authorized', 'paused', 'cancelled', 'pending'].includes(resp.data.status)) {
+  console.warn("Status desconhecido:", resp.data.status);
+  res.sendStatus(200);
+  return;
+}
     // 8. 🔄 Atualização Final
     await docRef.update({
       assinaturaAtiva: resp.data.status === 'authorized',
@@ -874,12 +974,21 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
 export const limpezaHardDelete = onSchedule("every day 05:00", async () => {
   const limite = new Date();
   limite.setDate(limite.getDate() - 90);
+let loops = 0;
+const MAX_LOOPS = 20;
 
+while (true) {
+  if (loops++ >= MAX_LOOPS) break;
   const snap = await db.collection('agendamentos')
     .where('deletado', '==', true)
-    .where('deletadoEm', '<', limite).limit(500).get();
+    .where('deletadoEm', '<', limite)
+    .limit(500)
+    .get();
+
+  if (snap.empty) break;
 
   const batch = db.batch();
   snap.docs.forEach(doc => batch.delete(doc.ref));
   await batch.commit();
+}
 });

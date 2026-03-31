@@ -36,60 +36,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [isResolvingAdmin, setIsResolvingAdmin] = useState(true);
 
-  // --- LÓGICA DE NOTIFICAÇÕES ---
-  useEffect(() => {
-    if (!user) return;
-
-    const configurarNotificacoes = async () => {
-      try {
-        const authStatus = await messaging().requestPermission();
-        const enabled =
-          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-        if (enabled) {
-          const token = await messaging().getToken();
-          if (token) {
-            const colecao = admin ? 'admins' : 'clientes';
-            await firestore()
-              .collection(colecao)
-              .doc(user.uid)
-              .set({ fcmToken: token, ultimoAcesso: new Date() }, { merge: true });
-
-            if (admin) {
-              await messaging().subscribeToTopic(`admin_${user.uid}`);
-            }
-          }
-        }
-      } catch (error) {
-        console.log('Erro ao configurar notificações:', error);
-      }
-    };
-
-    configurarNotificacoes();
-
-    // ✅ Foreground — filtra mensagens de avaliação para admin
-    const unsubscribeMessaging = messaging().onMessage(async remoteMessage => {
-      const titulo = remoteMessage.notification?.title || 'Notificação';
-      const corpo = remoteMessage.notification?.body || '';
-      const tipo = remoteMessage.data?.tipo || '';
-
-      if (admin && (
-        corpo.includes('Avalie') ||
-        corpo.includes('avaliação') ||
-        tipo === 'concluido' ||
-        tipo === 'cancelado'
-      )) {
-        console.log('Push de cliente ignorado para admin:', titulo);
-        return;
-      }
-
-      Alert.alert(titulo, corpo);
-    });
-
-    return unsubscribeMessaging;
-  }, [user, admin]);
-
   // --- MONITORAMENTO DE AUTH ---
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(async firebaseUser => {

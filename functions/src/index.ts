@@ -458,7 +458,8 @@ while (loops < 10) {
   }
 });
 
-export const criarAssinatura = functions.onCall(async (request) => {
+export const criarAssinatura = 
+functions.onCall({ region: REGION }, async (request) => {
   if (!request.auth) {
     throw new functions.HttpsError('unauthenticated', 'Acesso negado');
   }
@@ -556,15 +557,16 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
   const segredoWebhook = process.env.MP_WEBHOOK_SECRET;
   const tokenWebhook = process.env.MP_WEBHOOK_TOKEN;
 
+  // 1. 🔒 Validação por token (Query Params)
   const tokenQuery = Array.isArray(req.query.token) ? req.query.token[0] : req.query.token;
-  // 🔒 Validação por token
   if (tokenWebhook && tokenQuery !== tokenWebhook) {
     res.sendStatus(401);
     return;
   }
 
   const { action, data } = req.body;
-  // 🚫 Ignora eventos que não interessam
+
+  // 2. 🚫 Ignora eventos que não interessam
   if (action !== "subscription.updated" || !data?.id) {
     res.sendStatus(200);
     return;
@@ -572,18 +574,7 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
 
   const id: string = data.id;
 
-  const jaProcessado = await db.collection('pagamentos')
-    .where('mercadoPagoId', '==', id)
-    .where('status', '==', 'authorized') // ou status atual
-    .limit(1)
-    .get();
-
-  if (!jaProcessado.empty) {
-    res.sendStatus(200);
-    return;
-  }
-
-  // 🔐 Validação de assinatura Mercado Pago
+  // 3. 🔐 Validação de assinatura Mercado Pago (Opcional/Segurança Extra)
   if (segredoWebhook) {
     const assinaturaHeader = typeof req.headers["x-signature"] === "string"
       ? req.headers["x-signature"]
@@ -607,39 +598,24 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
   }
 
   try {
-    // 📡 Consulta status no Mercado Pago
+    // 4. 📡 Consulta status real no Mercado Pago
     const resp = await axios.get<MercadoPagoPreapproval>(
       `https://api.mercadopago.com/preapproval/${id}`,
       {
         headers: {
           Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
         },
-        timeout: 5000, // 🔥 evita travar function
+        timeout: 5000,
       }
     );
 
-    // 🔒 Validação da resposta
     if (!resp.data || !resp.data.status) {
       console.error('Resposta inválida do Mercado Pago:', resp.data);
       res.sendStatus(500);
       return;
     }
 
-    // 💾 Log de pagamento (AGORA CORRETO)
-    const existe = await db.collection('pagamentos')
-      .where('mercadoPagoId', '==', id)
-      .limit(1)
-      .get();
-
-    if (existe.empty) {
-      await db.collection('pagamentos').add({
-        mercadoPagoId: id,
-        status: resp.data.status,
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-
-    // 🔍 Busca estabelecimento
+    // 5. 🔍 Busca estabelecimento no Firestore
     const snap = await db.collection('estabelecimentos')
       .where('mercadoPagoId', '==', id)
       .limit(1)
@@ -654,17 +630,46 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
     const docRef = snap.docs[0].ref;
     const dadosAtuais = snap.docs[0].data();
 
-    // 🔁 evita atualização duplicada (webhook repetido)
+    // 🛠️ Ajuste do erro TS2339: Acessando last_modified com segurança
+    const lastModifiedMP = (resp.data as any).last_modified;
+    const novaDataMP = new Date(lastModifiedMP || Date.now());
+
+    // 6. 🔁 Validação de concorrência (Evita webhooks antigos ou duplicados)
+    if (dadosAtuais.ultimaAtualizacaoMP) {
+      const dataLocal = dadosAtuais.ultimaAtualizacaoMP.toDate();
+      if (dataLocal > novaDataMP) {
+        console.log("Ignorando webhook antigo");
+        res.sendStatus(200);
+        return;
+      }
+    }
+
     if (dadosAtuais?.statusPagamento === resp.data.status) {
+      console.log("Status idêntico ao atual, ignorando atualização.");
       res.sendStatus(200);
       return;
     }
 
-    // 🔄 Atualiza status
+    // 7. 💾 Log de pagamento
+    const pgtosSnap = await db.collection('pagamentos')
+      .where('mercadoPagoId', '==', id)
+      .limit(1)
+      .get();
+
+    if (pgtosSnap.empty) {
+      await db.collection('pagamentos').add({
+        mercadoPagoId: id,
+        status: resp.data.status,
+        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    // 8. 🔄 Atualização Final
     await docRef.update({
       assinaturaAtiva: resp.data.status === 'authorized',
       statusPagamento: resp.data.status,
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(), // 🔥 rastreio
+      ultimaAtualizacaoMP: admin.firestore.Timestamp.fromDate(novaDataMP),
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     res.sendStatus(200);
@@ -674,7 +679,6 @@ export const webhookMercadoPago = functions.onRequest(async (req, res) => {
       message: error?.message,
       response: error?.response?.data,
     });
-
     res.sendStatus(500);
   }
 });

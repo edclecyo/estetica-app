@@ -35,19 +35,23 @@ const fn = functions();
 
 const BannerMedia = ({ data, style }: { data: any, style: any }) => {
   const [imgErro, setImgErro] = useState(false);
-  const isUrl = typeof data?.fotoPerfil === 'string' && data?.fotoPerfil?.startsWith('http') || 
-                typeof data?.img === 'string' && data?.img?.startsWith('http');
+
+  const isUrl =
+    (typeof data?.fotoPerfil === 'string' && data?.fotoPerfil?.startsWith('http')) ||
+    (typeof data?.img === 'string' && data?.img?.startsWith('http'));
+
   const uri = data?.fotoPerfil || data?.img;
 
   if (isUrl && !imgErro) {
     return (
-      <Image 
-        source={{ uri }} 
-        style={[style, { borderRadius: 40 }]} 
-        onError={() => setImgErro(true)} 
+      <Image
+        source={{ uri }}
+        style={[style, { borderRadius: 40 }]}
+        onError={() => setImgErro(true)}
       />
     );
   }
+
   return (
     <Text style={style}>
       {(!isUrl ? data?.img : null) || '🏢'}
@@ -71,6 +75,7 @@ export default function DetalheScreen() {
   const [nome, setNome] = useState('');
   const [confirmado, setConfirmado] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState('');
+
   const datas = getDatas();
 
   useEffect(() => {
@@ -78,32 +83,41 @@ export default function DetalheScreen() {
       .collection('estabelecimentos')
       .doc(estabelecimentoId)
       .onSnapshot(snap => {
-        if (snap.exists()) {
+        if (snap.exists) {
           setEstab({ id: snap.id, ...snap.data() } as Estabelecimento);
         }
         setLoading(false);
-      }, err => {
-        setLoading(false);
-      });
+      }, () => setLoading(false));
 
     const user = auth().currentUser;
     if (user?.displayName) {
       setNome(user.displayName);
       setNomeUsuario(user.displayName);
     }
+
     return () => unsub();
   }, [estabelecimentoId]);
 
   useEffect(() => {
     if (!dataSel || !estabelecimentoId) return;
+
     const unsub = firestore()
       .collection('agendamentos')
       .where('estabelecimentoId', '==', estabelecimentoId)
       .where('data', '==', dataSel.full)
       .where('status', '==', 'confirmado')
       .onSnapshot(snap => {
-        if (snap) setHorariosOcupados(snap.docs.map(d => d.data().horario));
+        // ✅ Adicionada verificação: se o snap existir, mapeia os docs. 
+        // Caso contrário, define como array vazio.
+        if (snap && snap.docs) {
+          setHorariosOcupados(snap.docs.map(d => d.data().horario));
+        } else {
+          setHorariosOcupados([]);
+        }
+      }, error => {
+        console.error("Erro ao buscar horários ocupados: ", error);
       });
+
     return () => unsub();
   }, [dataSel, estabelecimentoId]);
 
@@ -112,28 +126,47 @@ export default function DetalheScreen() {
       Alert.alert('Atenção', 'Preencha todos os campos!');
       return;
     }
+
+    const user = auth().currentUser;
+    if (!user?.uid) {
+      Alert.alert('Erro', 'Usuário não autenticado.');
+      return;
+    }
+
     try {
       setSalvando(true);
-      const servico = estab?.servicos.find(s => s.nome === servicoSel);
-      const precoLimpo = Number(String(servico?.preco || 0).replace(',', '.'));
+
+      const servicos = Array.isArray(estab?.servicos) ? estab.servicos : [];
+      const servico = servicos.find(s => s.nome === servicoSel);
+
+      if (!servico) {
+        throw new Error('Serviço não encontrado');
+      }
+
+      // Converte o preço para número garantindo compatibilidade com a Function
+      const precoLimpo = typeof servico.preco === 'number' 
+        ? servico.preco 
+        : Number(String(servico.preco || 0).replace(',', '.'));
 
       await fn.httpsCallable('criarAgendamento')({
         estabelecimentoId,
         estabelecimentoNome: estab?.nome || 'Estabelecimento',
-        servicoId: servico?.id || 'id_desconhecido',
+        servicoId: servico.id || '', // Enviando o ID conforme esperado pela Function
         servicoNome: servicoSel,
         servicoPreco: precoLimpo,
         clienteNome: nome,
-        clienteUid: auth().currentUser?.uid || '',
+        clienteUid: user.uid,
         data: dataSel.full,
         horario: horarioSel,
       });
 
       await AsyncStorage.setItem('clienteNome', nome);
       setConfirmado(true);
+
     } catch (e: any) {
-      console.error(e);
-      Alert.alert('Erro', e.message || 'Não foi possível agendar.');
+      console.error('Erro ao agendar:', e);
+      const msg = e?.message || e?.details || 'Não foi possível agendar. Tente novamente.';
+      Alert.alert('Erro', msg);
     } finally {
       setSalvando(false);
     }
@@ -146,32 +179,39 @@ export default function DetalheScreen() {
     Linking.openURL(`https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`);
   };
 
-  if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#C9A96E" /></View>;
+  if (loading) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator size="large" color="#C9A96E" />
+      </View>
+    );
+  }
 
   if (confirmado) {
     return (
       <View style={s.confirmWrap}>
         <View style={s.confirmCard}>
-          <View style={s.confirmCircle}><Text style={s.confirmEmoji}>🎉</Text></View>
+          <View style={s.confirmCircle}>
+            <Text style={s.confirmEmoji}>🎉</Text>
+          </View>
           <Text style={s.confirmTitulo}>Agendado!</Text>
-          <Text style={s.confirmSub}>Seu horário está confirmado, {nome.split(' ')[0]}!</Text>
-          
+          <Text style={s.confirmSub}>
+            Seu horário está confirmado, {nome.split(' ')[0]}!
+          </Text>
           <View style={s.confirmResumo}>
             <Text style={s.confirmEstab}>{estab?.nome}</Text>
             <View style={s.confirmLinha}><Text>💆 {servicoSel}</Text></View>
             <View style={s.confirmLinha}><Text>📅 {dataSel?.full}</Text></View>
             <View style={s.confirmLinha}><Text>⏰ {horarioSel}</Text></View>
           </View>
-
-          <TouchableOpacity 
-            style={s.btnPrimario} 
-            onPress={() => navigation.reset({
-              index: 0,
-              routes: [{ 
-                name: 'HomeTabs', 
-                params: { screen: 'Agendamentos' }
-              }],
-            })}
+          <TouchableOpacity
+            style={s.btnPrimario}
+            onPress={() =>
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'HomeTabs', params: { screen: 'Agendamentos' } }],
+              })
+            }
           >
             <Text style={s.btnPrimarioText}>Ver meus agendamentos</Text>
           </TouchableOpacity>
@@ -180,12 +220,14 @@ export default function DetalheScreen() {
     );
   }
 
-  const svcsAtivos = estab?.servicos?.filter(s => s.ativo) || [];
+  const svcsAtivos = Array.isArray(estab?.servicos) ? estab.servicos.filter(s => s.ativo) : [];
 
   return (
     <View style={s.container}>
       <View style={[s.banner, { backgroundColor: (estab?.cor || '#C9A96E') + '22' }]}>
-        <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}><Text style={s.voltarBtnText}>←</Text></TouchableOpacity>
+        <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
+          <Text style={s.voltarBtnText}>←</Text>
+        </TouchableOpacity>
         <BannerMedia data={estab} style={s.bannerEmoji} />
         <View style={s.bannerInfo}>
           <Text style={s.bannerNome}>{estab?.nome}</Text>
@@ -198,7 +240,9 @@ export default function DetalheScreen() {
           <View style={s.stepsWrap}>
             {[1, 2, 3, 4].map(i => (
               <View key={i} style={s.stepItem}>
-                <View style={[s.stepCircle, step >= i && s.stepCircleAtivo]}><Text style={[s.stepNum, step >= i && s.stepNumAtivo]}>{i}</Text></View>
+                <View style={[s.stepCircle, step >= i && s.stepCircleAtivo]}>
+                  <Text style={[s.stepNum, step >= i && s.stepNumAtivo]}>{i}</Text>
+                </View>
                 {i < 4 && <View style={[s.stepLine, step > i && s.stepLineAtiva]} />}
               </View>
             ))}

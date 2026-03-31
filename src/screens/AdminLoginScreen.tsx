@@ -48,7 +48,7 @@ export default function AdminLoginScreen() {
   }
 };
 
-   const fazerCadastro = async () => {
+  const fazerCadastro = async () => {
   if (!cNome.trim() || !cEmail.trim() || !cSenha) {
     Alert.alert('Atenção', 'Preencha todos os campos.');
     return;
@@ -68,29 +68,45 @@ export default function AdminLoginScreen() {
     Alert.alert('Atenção', 'As senhas não coincidem.');
     return;
   }
-};
-    try {
-      setLoading(true);
-      const { user } = await auth().createUserWithEmailAndPassword(cEmail, cSenha);
-      await user.updateProfile({ displayName: cNome });
-      await firestore().collection('admins').doc(user.uid).set({
-        nome: cNome,
-        email: cEmail,
-        telefone: cTel || '',
-        cargo: 'Admin',
-        ativo: true,
-        criadoEm: firestore.FieldValue.serverTimestamp(),
-      });
-      Alert.alert('Sucesso! 🎉', 'Sua conta de profissional foi criada!', [
-        { text: 'Ir para Login', onPress: () => setTela('login') },
-      ]);
-    } catch (e: any) {
-      const msg = e.code === 'auth/email-already-in-use' ? 'Este email já é um administrador.' : 'Erro ao criar conta.';
-      Alert.alert('Erro', msg);
-    } finally {
-      setLoading(false);
+
+  try {
+    setLoading(true);
+
+    const { user } = await auth().createUserWithEmailAndPassword(cEmail, cSenha);
+
+    await user.updateProfile({
+      displayName: cNome,
+    });
+
+    await firestore().collection('admins').doc(user.uid).set({
+      nome: cNome,
+      email: cEmail,
+      telefone: cTel || '',
+      cargo: 'Admin',
+      ativo: true,
+      criadoEm: firestore.FieldValue.serverTimestamp(),
+    });
+
+    Alert.alert('Sucesso! 🎉', 'Sua conta foi criada!', [
+      { text: 'Ir para Login', onPress: () => setTela('login') },
+    ]);
+
+  } catch (e: any) {
+    let msg = 'Erro ao criar conta.';
+
+    if (e.code === 'auth/email-already-in-use') {
+      msg = 'Este email já está em uso.';
+    } else if (e.code === 'auth/invalid-email') {
+      msg = 'Email inválido.';
+    } else if (e.code === 'auth/weak-password') {
+      msg = 'Senha muito fraca.';
     }
-  };
+
+    Alert.alert('Erro', msg);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const fazerRecuperar = async () => {
     if (!rEmail) { Alert.alert('Atenção', 'Informe seu email.'); return; }

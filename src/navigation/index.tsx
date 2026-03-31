@@ -6,7 +6,7 @@ import { Text, View, ActivityIndicator } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { configurarAberturaPorNotificacao } from '../services/notificacaoService';
 
-// Telas Cliente
+// --- TELAS CLIENTE ---
 import HomeScreen from '../screens/HomeScreen';
 import DetalheScreen from '../screens/DetalheScreen';
 import AgendamentosScreen from '../screens/AgendamentosScreen';
@@ -14,16 +14,22 @@ import ClienteLoginScreen from '../screens/ClienteLoginScreen';
 import AvaliarScreen from '../screens/AvaliarScreen';
 import NotificacoesCliente from '../screens/NotificacoesCliente';
 import StoryView from '../screens/StoryView';
-// Telas Admin
+
+// --- TELAS ADMIN ---
 import AdminLoginScreen from '../screens/AdminLoginScreen';
 import AdminDashScreen from '../screens/AdminDashScreen';
 import AdminEstabScreen from '../screens/AdminEstabScreen';
 import AdminNotifScreen from '../screens/AdminNotifScreen';
 import PostarStory from '../screens/PostarStory';
+import AssinaturaScreen from '../screens/AssinaturaScreen'; // ✅ Importação Adicionada
+import CheckoutPagamentoScreen from '../screens/CheckoutPagamentoScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
+/**
+ * Navegação por Tabs (Rodapé) para Clientes
+ */
 function HomeTabs() {
   return (
     <Tab.Navigator
@@ -60,18 +66,20 @@ function HomeTabs() {
   );
 }
 
+/**
+ * Gerenciador de Navegação Principal
+ */
 export default function Navigation() {
   const { loading, isAdmin, isResolvingAdmin } = useAuth();
 
-  // ✅ Ref para navegar de fora do contexto de navegação (ex: notificação)
+  // Ref para navegação externa (Notificações Push)
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
 
-  // ✅ Configura navegação ao tocar em notificação push
+  // Configuração de Notificações
   useEffect(() => {
     configurarAberturaPorNotificacao((data) => {
       if (!navigationRef.current) return;
 
-      // Navega com base nos dados enviados no payload da notificação
       switch (data.tela) {
         case 'agendamento':
           navigationRef.current.navigate('Agendamentos');
@@ -90,34 +98,39 @@ export default function Navigation() {
           if (isAdmin) navigationRef.current.navigate('AdminDash');
           break;
         default:
-          // Sem tela definida no payload — não navega
           break;
       }
     });
   }, [isAdmin]);
 
+  // Tela de Loading Inicial
   if (loading || isResolvingAdmin) {
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
-      <ActivityIndicator size="large" color="#C9A96E" />
-    </View>
-  );
-}
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <ActivityIndicator size="large" color="#C9A96E" />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {isAdmin ? (
+          /* --- FLUXO ADMINISTRADOR --- */
           <>
             <Stack.Screen name="AdminDash" component={AdminDashScreen} />
-            <Stack.Screen name="HomeTabs" component={HomeTabs} />
+            <Stack.Screen name="AssinaturaScreen" component={AssinaturaScreen} /> 
             <Stack.Screen name="AdminEstab" component={AdminEstabScreen} />
             <Stack.Screen name="AdminNotif" component={AdminNotifScreen} />
             <Stack.Screen name="PostarStory" component={PostarStory} />
             <Stack.Screen name="StoryView" component={StoryView} />
             <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
+			<Stack.Screen name="CheckoutPagamentoScreen" component={CheckoutPagamentoScreen} />
+            {/* Permite o Admin visualizar a visão do cliente se necessário */}
+            <Stack.Screen name="HomeTabs" component={HomeTabs} />
           </>
         ) : (
+          /* --- FLUXO CLIENTE --- */
           <>
             <Stack.Screen name="HomeTabs" component={HomeTabs} />
             <Stack.Screen name="Detalhe" component={DetalheScreen} />

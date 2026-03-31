@@ -8,6 +8,7 @@ import functions from '@react-native-firebase/functions';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { BarChart } from 'react-native-chart-kit';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { Estabelecimento, Agendamento } from '../types';
 
 const { width } = Dimensions.get('window');
@@ -38,76 +39,90 @@ export default function AdminDashScreen() {
   const [loading, setLoading] = useState(true);
   const [notifNaoLidas, setNotifNaoLidas] = useState(0);
 
-  // ESTABELECIMENTOS
+  // ESTADO DA ASSINATURA/TRIAL
+  const [dadosPlano, setDadosPlano] = useState<any>(null);
+
+  // MONITORAR PLANO E TRIAL E CALCULAR DIAS RESTANTES
+  const diasRestantesTrial = useMemo(() => {
+    if (!dadosPlano?.criadoEm) return 0;
+    const dataCriacao = dadosPlano.criadoEm.toDate ? dadosPlano.criadoEm.toDate() : new Date(dadosPlano.criadoEm);
+    const hoje = new Date();
+    const diffTempo = hoje.getTime() - dataCriacao.getTime();
+    const diffDias = Math.floor(diffTempo / (1000 * 60 * 60 * 24));
+    const restantes = 7 - diffDias;
+    return restantes > 0 ? restantes : 0;
+  }, [dadosPlano]);
+
   useEffect(() => {
     if (!admin?.id) return;
+    const unsub = firestore()
+      .collection('estabelecimentos')
+      .where('adminId', '==', admin.id)
+      .limit(1)
+      .onSnapshot(snap => {
+        if (snap && !snap.empty) {
+          setDadosPlano(snap.docs[0].data());
+        }
+      });
+    return unsub;
+  }, [admin?.id]);
 
+  useEffect(() => {
+    if (!admin?.id) return;
     const unsub = firestore()
       .collection('estabelecimentos')
       .where('adminId', '==', admin.id)
       .onSnapshot(snap => {
+        if (!snap) return;
         const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
         setEstabs(lista);
+        if (lista.length === 0) setLoading(false);
       });
-
     return unsub;
   }, [admin?.id]);
 
-  // AGENDAMENTOS
   useEffect(() => {
-    if (!estabs.length) return;
-
+    if (estabs.length === 0) return;
     const ids = estabs.map(e => e.id).slice(0, 10);
-
     const unsub = firestore()
       .collection('agendamentos')
       .where('estabelecimentoId', 'in', ids)
       .orderBy('criadoEm', 'desc')
       .limit(100)
       .onSnapshot(snap => {
-        setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
+        if (snap) {
+          setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
+        }
+        setLoading(false);
+      }, err => {
         setLoading(false);
       });
-
     return unsub;
   }, [estabs]);
 
-  // STORIES
   useEffect(() => {
     if (!admin?.id) return;
-
     const unsub = firestore()
       .collection('stories')
       .where('adminId', '==', admin.id)
       .onSnapshot(snap => {
-        const storiesData = snap.docs.map(d => ({
-          id: d.id,
-          ...d.data()
-        })) as any[];
-
+        if (!snap) return;
+        const storiesData = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
         storiesData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-
         setMeusStories(storiesData);
-
-        const likes = storiesData.reduce((acc, curr: any) => acc + (curr.likesCount || 0), 0);
+        const likes = storiesData.reduce((acc, curr) => acc + (curr.likesCount || 0), 0);
         setTotalLikes(likes);
-      }, err => {
-        console.error("Erro na consulta de stories:", err);
       });
-
     return unsub;
   }, [admin?.id]);
 
-  // NOTIFICAÇÕES
   useEffect(() => {
     if (!admin?.id) return;
-
     const unsubNotif = firestore()
       .collection('notificacoes')
       .where('adminId', '==', admin.id)
       .where('lida', '==', false)
-      .onSnapshot(snap => setNotifNaoLidas(snap.docs.length));
-
+      .onSnapshot(snap => snap && setNotifNaoLidas(snap.docs.length));
     return unsubNotif;
   }, [admin?.id]);
 
@@ -126,16 +141,14 @@ export default function AdminDashScreen() {
         onPress: async () => {
           try {
             if (novoStatus === 'concluido') {
-              await functions().httpsCallable('concluirAgendamento')({
-                agendamentoId: id
-              });
+              await functions().httpsCallable('concluirAgendamento')({ agendamentoId: id });
             } else {
-              await firestore()
-                .collection('agendamentos')
-                .doc(id)
-                .update({ status: 'cancelado' });
+              await firestore().collection('agendamentos').doc(id).update({ 
+                status: 'cancelado',
+                atualizadoEm: firestore.FieldValue.serverTimestamp()
+              });
             }
-          } catch {
+          } catch (err) {
             Alert.alert('Erro', 'Não foi possível atualizar o status');
           }
         }
@@ -152,7 +165,7 @@ export default function AdminDashScreen() {
 
   const receitaTotal = useMemo(() =>
     agends.filter(a => a.status === 'confirmado' || a.status === 'concluido')
-      .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
+      .reduce((acc, a) => acc + (Number(a.servicoPreco) || 0), 0)
     , [agends]);
 
   const chartData = useMemo(() => {
@@ -161,8 +174,9 @@ export default function AdminDashScreen() {
       const d = new Date(); d.setDate(hoje.getDate() - i);
       labels.push(d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
       const ds = d.toLocaleDateString('pt-BR');
-      valores.push(agends.filter(a => a.data === ds && (a.status === 'confirmado' || a.status === 'concluido'))
-        .reduce((acc, a) => acc + (a.servicoPreco || 0), 0));
+      const soma = agends.filter(a => a.data === ds && (a.status === 'confirmado' || a.status === 'concluido'))
+        .reduce((acc, a) => acc + (Number(a.servicoPreco) || 0), 0);
+      valores.push(soma || 0);
     }
     return { labels, datasets: [{ data: valores }] };
   }, [agends]);
@@ -170,185 +184,221 @@ export default function AdminDashScreen() {
   if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#C9A96E" /></View>;
 
   return (
-    <View style={s.container}>
-      <StatusBar barStyle="light-content" />
-      
-      <View style={s.header}>
-        <View>
-          <Text style={s.headerSub}>PAINEL ADMINISTRATIVO</Text>
-          <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]} 👋</Text>
-        </View>
-        <View style={s.headerAcoes}>
-          <TouchableOpacity onPress={() => navigation.navigate('AdminNotif')} style={s.sinoBtn}>
-            <Text style={s.sinoIcon}>🔔</Text>
-            {notifNaoLidas > 0 && <View style={s.badge}><Text style={s.badgeText}>{notifNaoLidas}</Text></View>}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleLogout} style={s.sairBtn}>
-            <Text style={s.sairText}>Sair</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={s.abasContainer}>
-        <View style={s.abasInner}>
-          {[
-            ['dash', '📊 Dash'], 
-            ['agends', '📅 Agenda'], 
-            ['stories', '🎬 Posts'],
-            ['estabs', '🏪 Locais']
-          ].map(([k, l]) => (
-            <TouchableOpacity key={k} onPress={() => setAba(k as any)} style={[s.aba, aba === k && s.abaAtiva]}>
-              <Text style={[s.abaText, aba === k && s.abaTextAtiva]}>{l}</Text>
+    <View style={{ flex: 1 }}>
+      <View style={s.container}>
+        <StatusBar barStyle="light-content" />
+        
+        <View style={s.header}>
+          <View>
+            <Text style={s.headerSub}>PAINEL ADMINISTRATIVO</Text>
+            <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]} 👋</Text>
+          </View>
+          <View style={s.headerAcoes}>
+            <TouchableOpacity onPress={() => navigation.navigate('AdminNotif')} style={s.sinoBtn}>
+              <Text style={s.sinoIcon}>🔔</Text>
+              {notifNaoLidas > 0 && <View style={s.badge}><Text style={s.badgeText}>{notifNaoLidas}</Text></View>}
             </TouchableOpacity>
-          ))}
+            <TouchableOpacity onPress={handleLogout} style={s.sairBtn}>
+              <Text style={s.sairText}>Sair</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
 
-      {aba === 'dash' && (
-        <ScrollView contentContainerStyle={s.lista} showsVerticalScrollIndicator={false}>
-          <View style={s.financeiroCardDash}>
-            <Text style={s.financeiroTitulo}>RESUMO DE FATURAMENTO</Text>
-            <View style={s.periodoRow}>
-              {['dia', 'semana', 'mes'].map((p) => {
-                const hoje = new Date();
-                const valor = agends.filter(a => (a.status === 'concluido' || a.status === 'confirmado')).filter(a => {
-                   const dParts = a.data.split('/');
-                   const dAgend = new Date(Number(dParts[2]), Number(dParts[1]) - 1, Number(dParts[0]));
-                   const diff = (hoje.getTime() - dAgend.getTime()) / (1000 * 60 * 60 * 24);
-                   return p === 'dia' ? diff <= 1 : p === 'semana' ? diff <= 7 : diff <= 30;
-                }).reduce((acc, curr) => acc + (curr.servicoPreco || 0), 0);
-                return (
-                  <View key={p} style={s.periodoItem}>
-                    <Text style={s.periodoLabel}>{p === 'dia' ? 'HOJE' : p === 'semana' ? '7 DIAS' : '30 DIAS'}</Text>
-                    <Text style={s.periodoValor}>R$ {valor.toLocaleString('pt-BR')}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          <View style={s.chartWrapper}>
-            <View style={s.chartHeader}>
-              <Text style={s.chartTitle}>Faturamento 6 dias</Text>
-              <Text style={s.chartTotal}>Total: R$ {receitaTotal.toLocaleString('pt-BR')}</Text>
-            </View>
-            <BarChart
-              data={chartData} width={width - 40} height={180} yAxisLabel="R$"
-              chartConfig={{ ...chartConfig, fillShadowGradient: "#C9A96E", fillShadowGradientOpacity: 1 }}
-              fromZero withInnerLines={false} style={s.chartStyle} flatColor showValuesOnTopOfBars
-            />
-          </View>
-
-          <TouchableOpacity style={s.storyBtnPremium} activeOpacity={0.8} onPress={() => navigation.navigate('PostarStory')}>
-            <View style={s.storyGradientBorder}>
-               <View style={s.storyIconInner}><Text style={s.storyEmoji}>📸</Text></View>
-            </View>
-            <View style={s.storyTextContent}>
-              <Text style={s.storyTitlePremium}>Postar novo Story</Text>
-              <Text style={s.storySubPremium}>Divulgue novidades para os clientes</Text>
-            </View>
-            <View style={s.storyBadge}><Text style={s.storyBadgeText}>NOVO</Text></View>
-          </TouchableOpacity>
-
-          <View style={s.statsRow}>
-            <View style={[s.statCard, { backgroundColor: '#1A1A1A' }]}>
-              <Text style={[s.statIc, { color: '#C9A96E' }]}>❤️</Text>
-              <Text style={[s.statV, { color: '#FFF' }]}>{totalLikes}</Text>
-              <Text style={s.statL}>Curtidas</Text>
-            </View>
-            <View style={s.statCard}>
-              <Text style={s.statIc}>📅</Text>
-              <Text style={s.statV}>{agends.length}</Text>
-              <Text style={s.statL}>Total Agend.</Text>
-            </View>
-            <View style={s.statCard}>
-              <Text style={s.statIc}>📉</Text>
-              <Text style={s.statV}>{estabs.reduce((a, e) => a + (e.avaliacoesNegativas || 0), 0)}</Text>
-              <Text style={s.statL}>Negativas</Text>
-            </View>
-          </View>
-        </ScrollView>
-      )}
-
-      {aba === 'stories' && (
-        <FlatList
-          data={meusStories}
-          keyExtractor={item => item.id}
-          contentContainerStyle={s.lista}
-          ListHeaderComponent={<Text style={s.secTitulo}>Gerenciar Minhas Postagens</Text>}
-          renderItem={({ item }) => (
-            <View style={s.storyManageCard}>
-              <Image source={{ uri: item.url }} style={s.storyMiniatura} />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={s.storyInfoText}>Postado em {new Date(item.timestamp?.seconds * 1000).toLocaleDateString('pt-BR')}</Text>
-                <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas • 👁️ {item.views || 0}</Text>
-              </View>
-              <TouchableOpacity style={s.btnLixo} onPress={() => deletarStory(item.id)}>
-                <Text style={{ fontSize: 18 }}>🗑️</Text>
+        <View style={s.abasContainer}>
+          <View style={s.abasInner}>
+            {[
+              ['dash', '📊 Dash'], 
+              ['agends', '📅 Agenda'], 
+              ['stories', '🎬 Posts'],
+              ['estabs', '🏪 Locais']
+            ].map(([k, l]) => (
+              <TouchableOpacity key={k} onPress={() => setAba(k as any)} style={[s.aba, aba === k && s.abaAtiva]}>
+                <Text style={[s.abaText, aba === k && s.abaTextAtiva]}>{l}</Text>
               </TouchableOpacity>
-            </View>
-          )}
-          ListEmptyComponent={<Text style={s.emptyText}>Você ainda não postou stories.</Text>}
-        />
-      )}
+            ))}
+          </View>
+        </View>
 
-      {aba === 'agends' && (
-        <FlatList
-          data={agends}
-          keyExtractor={a => a.id}
-          contentContainerStyle={s.lista}
-          ListHeaderComponent={<Text style={s.secTitulo}>Gerenciar Agendamentos</Text>}
-          renderItem={({ item }) => (
-            <View style={s.agendCard}>
-              <View style={s.agendTop}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.agendNome}>{item.clienteNome}</Text>
-                  <Text style={s.agendSub}>{item.servicoNome} • {item.estabelecimentoNome}</Text>
-                  <Text style={s.agendData}>{item.data} às {item.horario}</Text>
+        {aba === 'dash' && (
+          <ScrollView contentContainerStyle={s.lista} showsVerticalScrollIndicator={false}>
+            
+            {/* CARD DE TRIAL/ASSINATURA NO TOPO */}
+            {!dadosPlano?.assinaturaAtiva && (
+              <TouchableOpacity 
+                style={s.trialCardDash} 
+                onPress={() => navigation.navigate('AssinaturaScreen')}
+              >
+                <View style={s.trialInfo}>
+                  <Text style={s.trialTag}>PLANO: {dadosPlano?.plano?.toUpperCase() || 'GRATUITO'}</Text>
+                  <Text style={s.trialTitulo}>
+                    {diasRestantesTrial > 0 ? `Restam ${diasRestantesTrial} dias de teste` : 'Período de teste encerrado'}
+                  </Text>
+                  <Text style={s.trialSub}>Assine para continuar com recursos ilimitados e destaque no ranking.</Text>
                 </View>
-                <Text style={s.agendPreco}>R$ {item.servicoPreco}</Text>
+                <Icon name="chevron-right" size={24} color="#C9A96E" />
+              </TouchableOpacity>
+            )}
+
+            <View style={s.financeiroCardDash}>
+              <Text style={s.financeiroTitulo}>RESUMO DE FATURAMENTO</Text>
+              <View style={s.periodoRow}>
+                {['dia', 'semana', 'mes'].map((p) => {
+                  const hoje = new Date();
+                  const valor = agends.filter(a => (a.status === 'concluido' || a.status === 'confirmado')).filter(a => {
+                     if (!a.data) return false;
+                     const dParts = a.data.split('/');
+                     const dAgend = new Date(Number(dParts[2]), Number(dParts[1]) - 1, Number(dParts[0]));
+                     const diff = (hoje.getTime() - dAgend.getTime()) / (1000 * 60 * 60 * 24);
+                     return p === 'dia' ? diff < 1 : p === 'semana' ? diff <= 7 : diff <= 30;
+                  }).reduce((acc, curr) => acc + (Number(curr.servicoPreco) || 0), 0);
+                  return (
+                    <View key={p} style={s.periodoItem}>
+                      <Text style={s.periodoLabel}>{p === 'dia' ? 'HOJE' : p === 'semana' ? '7 DIAS' : '30 DIAS'}</Text>
+                      <Text style={s.periodoValor}>R$ {valor.toLocaleString('pt-BR')}</Text>
+                    </View>
+                  );
+                })}
               </View>
-              <View style={[s.statusBadge, item.status === 'confirmado' ? s.bgConfirmado : item.status === 'cancelado' ? s.bgCancelado : s.bgConcluido]}>
-                <Text style={[s.statusText, item.status === 'confirmado' ? s.txtConfirmado : item.status === 'cancelado' ? s.txtCancelado : s.txtConcluido]}>
-                  {item.status?.toUpperCase()}
-                </Text>
+            </View>
+
+            <View style={s.chartWrapper}>
+              <View style={s.chartHeader}>
+                <Text style={s.chartTitle}>Faturamento 6 dias</Text>
+                <Text style={s.chartTotal}>Total: R$ {receitaTotal.toLocaleString('pt-BR')}</Text>
               </View>
-              {item.status === 'confirmado' && (
-                <View style={s.acoesWrap}>
-                  <TouchableOpacity style={s.btnConcluir} onPress={() => atualizarStatusAgendamento(item.id, 'concluido')}>
-                    <Text style={s.btnConcluirText}>Concluir</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={s.btnCancelar} onPress={() => atualizarStatusAgendamento(item.id, 'cancelado')}>
-                    <Text style={s.btnCancelarText}>Cancelar</Text>
-                  </TouchableOpacity>
-                </View>
+              {chartData.datasets[0].data.some(v => v > 0) ? (
+                  <BarChart
+                  data={chartData} width={width - 40} height={180} yAxisLabel="R$"
+                  chartConfig={{ ...chartConfig, fillShadowGradient: "#C9A96E", fillShadowGradientOpacity: 1 }}
+                  fromZero withInnerLines={false} style={s.chartStyle} flatColor showValuesOnTopOfBars
+                  />
+              ) : (
+                  <View style={{height: 180, justifyContent: 'center', alignItems: 'center'}}><Text style={{color: '#666'}}>Sem dados para o gráfico</Text></View>
               )}
             </View>
-          )}
-        />
-      )}
 
-      {aba === 'estabs' && (
-        <FlatList
-          data={estabs}
-          keyExtractor={e => e.id}
-          contentContainerStyle={s.lista}
-          ListHeaderComponent={
-            <TouchableOpacity style={s.novoBtn} onPress={() => navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' })}>
-              <Text style={s.novoBtnText}>＋ Novo Estabelecimento</Text>
-            </TouchableOpacity>
-          }
-          renderItem={({ item }) => (
-            <TouchableOpacity style={[s.estabCard, { borderLeftColor: item.cor || '#C9A96E' }]} onPress={() => navigation.navigate('AdminEstab', { estabelecimentoId: item.id })}>
-              <EstabImage item={item} />
-              <View style={s.estabInfo}>
-                <Text style={s.estabNome}>{item.nome}</Text>
-                <Text style={s.estabTipo}>{item.tipo} • ⭐ {item.avaliacao?.toFixed(1)}</Text>
+            <TouchableOpacity style={s.storyBtnPremium} activeOpacity={0.8} onPress={() => navigation.navigate('PostarStory')}>
+              <View style={s.storyGradientBorder}>
+                 <View style={s.storyIconInner}><Text style={s.storyEmoji}>📸</Text></View>
               </View>
-              <Text style={s.arrow}>﹥</Text>
+              <View style={s.storyTextContent}>
+                <Text style={s.storyTitlePremium}>Postar novo Story</Text>
+                <Text style={s.storySubPremium}>Divulgue novidades para os clientes</Text>
+              </View>
+              <View style={s.storyBadge}><Text style={s.storyBadgeText}>NOVO</Text></View>
             </TouchableOpacity>
-          )}
-        />
+
+            <View style={s.statsRow}>
+              <View style={[s.statCard, { backgroundColor: '#1A1A1A' }]}>
+                <Text style={[s.statIc, { color: '#C9A96E' }]}>❤️</Text>
+                <Text style={[s.statV, { color: '#FFF' }]}>{totalLikes}</Text>
+                <Text style={s.statL}>Curtidas</Text>
+              </View>
+              <View style={s.statCard}>
+                <Text style={s.statIc}>📅</Text>
+                <Text style={s.statV}>{agends.length}</Text>
+                <Text style={s.statL}>Total Agend.</Text>
+              </View>
+              <View style={s.statCard}>
+                <Text style={s.statIc}>📉</Text>
+                <Text style={s.statV}>{estabs.reduce((a, e) => a + (e.avaliacoesNegativas || 0), 0)}</Text>
+                <Text style={s.statL}>Negativas</Text>
+              </View>
+            </View>
+          </ScrollView>
+        )}
+
+        {aba === 'stories' && (
+          <FlatList
+            data={meusStories}
+            keyExtractor={item => item.id}
+            contentContainerStyle={s.lista}
+            ListHeaderComponent={<Text style={s.secTitulo}>Gerenciar Minhas Postagens</Text>}
+            renderItem={({ item }) => (
+              <View style={s.storyManageCard}>
+                <Image source={{ uri: item.url }} style={s.storyMiniatura} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={s.storyInfoText}>Postado em {new Date(item.timestamp?.seconds * 1000).toLocaleDateString('pt-BR')}</Text>
+                  <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas • 👁️ {item.views || 0}</Text>
+                </View>
+                <TouchableOpacity style={s.btnLixo} onPress={() => deletarStory(item.id)}>
+                  <Text style={{ fontSize: 18 }}>🗑️</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            ListEmptyComponent={<Text style={s.emptyText}>Você ainda não postou stories.</Text>}
+          />
+        )}
+
+        {aba === 'agends' && (
+          <FlatList
+            data={agends}
+            keyExtractor={a => a.id}
+            contentContainerStyle={s.lista}
+            ListHeaderComponent={<Text style={s.secTitulo}>Gerenciar Agendamentos</Text>}
+            renderItem={({ item }) => (
+              <View style={s.agendCard}>
+                <View style={s.agendTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.agendNome}>{item.clienteNome}</Text>
+                    <Text style={s.agendSub}>{item.servicoNome} • {item.estabelecimentoNome}</Text>
+                    <Text style={s.agendData}>{item.data} às {item.horario}</Text>
+                  </View>
+                  <Text style={s.agendPreco}>R$ {item.servicoPreco}</Text>
+                </View>
+                <View style={[s.statusBadge, item.status === 'confirmado' ? s.bgConfirmado : item.status === 'cancelado' ? s.bgCancelado : s.bgConcluido]}>
+                  <Text style={[s.statusText, item.status === 'confirmado' ? s.txtConfirmado : item.status === 'cancelado' ? s.txtCancelado : s.txtConcluido]}>
+                    {item.status?.toUpperCase()}
+                  </Text>
+                </View>
+                {item.status === 'confirmado' && (
+                  <View style={s.acoesWrap}>
+                    <TouchableOpacity style={s.btnConcluir} onPress={() => atualizarStatusAgendamento(item.id, 'concluido')}>
+                      <Text style={s.btnConcluirText}>Concluir</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.btnCancelar} onPress={() => atualizarStatusAgendamento(item.id, 'cancelado')}>
+                      <Text style={s.btnCancelarText}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+          />
+        )}
+
+        {aba === 'estabs' && (
+          <FlatList
+            data={estabs}
+            keyExtractor={e => e.id}
+            contentContainerStyle={s.lista}
+            ListHeaderComponent={
+              <TouchableOpacity style={s.novoBtn} onPress={() => navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' })}>
+                <Text style={s.novoBtnText}>＋ Novo Estabelecimento</Text>
+              </TouchableOpacity>
+            }
+            renderItem={({ item }) => (
+              <TouchableOpacity style={[s.estabCard, { borderLeftColor: item.cor || '#C9A96E' }]} onPress={() => navigation.navigate('AdminEstab', { estabelecimentoId: item.id })}>
+                <EstabImage item={item} />
+                <View style={s.estabInfo}>
+                  <Text style={s.estabNome}>{item.nome}</Text>
+                  <Text style={s.estabTipo}>{item.tipo} • ⭐ {item.avaliacao?.toFixed(1)}</Text>
+                </View>
+                <Text style={s.arrow}>﹥</Text>
+              </TouchableOpacity>
+            )}
+          />
+        )}
+      </View>
+
+      {/* BOTÃO FLUTUANTE (FAB) - APARECE EM TODAS AS ABAS SE NÃO FOR ASSINANTE */}
+      {!dadosPlano?.assinaturaAtiva && (
+        <TouchableOpacity 
+          style={s.fab} 
+          onPress={() => navigation.navigate('AssinaturaScreen')}
+        >
+          <Icon name="crown" size={24} color="#000" />
+          <Text style={s.fabText}>ASSINAR</Text>
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -380,21 +430,28 @@ const s = StyleSheet.create({
   abaAtiva: { backgroundColor: '#1A1A1A' },
   abaText: { color: '#999', fontSize: 13, fontWeight: '600' },
   abaTextAtiva: { color: '#C9A96E', fontWeight: '800' },
-  lista: { padding: 20, paddingBottom: 40 },
+  lista: { padding: 20, paddingBottom: 100 },
   
+  trialCardDash: { backgroundColor: '#1A1A1A', borderRadius: 20, padding: 15, marginBottom: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#C9A96E30' },
+  trialInfo: { flex: 1 },
+  trialTag: { color: '#C9A96E', fontSize: 9, fontWeight: '900', letterSpacing: 1, marginBottom: 4 },
+  trialTitulo: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+  trialSub: { color: '#666', fontSize: 11, marginTop: 2 },
+
+  fab: { position: 'absolute', bottom: 30, right: 20, backgroundColor: '#C9A96E', borderRadius: 30, paddingHorizontal: 20, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 5 },
+  fabText: { color: '#000', fontWeight: '900', marginLeft: 8, fontSize: 14 },
+
   financeiroCardDash: { backgroundColor: '#FFF', borderRadius: 24, padding: 20, marginBottom: 15, elevation: 3 },
   financeiroTitulo: { color: '#AAA', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 15, textAlign: 'center' },
   periodoRow: { flexDirection: 'row', justifyContent: 'space-between' },
   periodoItem: { alignItems: 'center', flex: 1 },
   periodoLabel: { color: '#C9A96E', fontSize: 10, fontWeight: '700', marginBottom: 4 },
   periodoValor: { color: '#1A1A1A', fontSize: 15, fontWeight: '800' },
-
   chartWrapper: { backgroundColor: '#1A1A1A', borderRadius: 24, padding: 20, marginBottom: 20 },
   chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 },
   chartTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
   chartTotal: { color: '#C9A96E', fontSize: 14, fontWeight: '600' },
   chartStyle: { marginLeft: -20, borderRadius: 16 },
-
   storyBtnPremium: { backgroundColor: '#1A1A1A', borderRadius: 24, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   storyGradientBorder: { width: 58, height: 58, borderRadius: 29, padding: 3, backgroundColor: '#C9A96E', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   storyIconInner: { width: '100%', height: '100%', borderRadius: 29, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center' },
@@ -404,13 +461,11 @@ const s = StyleSheet.create({
   storySubPremium: { color: '#C9A96E', fontSize: 12, opacity: 0.8 },
   storyBadge: { backgroundColor: '#FF3B30', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, position: 'absolute', top: 12, right: 12 },
   storyBadgeText: { color: '#FFF', fontSize: 9, fontWeight: '900' },
-
   statsRow: { flexDirection: 'row', gap: 10 },
   statCard: { flex: 1, backgroundColor: '#FFF', borderRadius: 18, padding: 12, alignItems: 'center', elevation: 2 },
   statIc: { fontSize: 18, marginBottom: 4 },
   statV: { color: '#1A1A1A', fontSize: 16, fontWeight: '800' },
   statL: { color: '#AAA', fontSize: 9, fontWeight: '600' },
-
   secTitulo: { color: '#1A1A1A', fontSize: 18, fontWeight: '800', marginBottom: 15 },
   storyManageCard: { backgroundColor: '#FFF', borderRadius: 18, padding: 12, flexDirection: 'row', alignItems: 'center', marginBottom: 10, elevation: 1 },
   storyMiniatura: { width: 50, height: 70, borderRadius: 10, backgroundColor: '#EEE' },
@@ -418,7 +473,6 @@ const s = StyleSheet.create({
   storyInfoSub: { color: '#C9A96E', fontSize: 12, fontWeight: '600' },
   btnLixo: { backgroundColor: '#FFF0F0', width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   emptyText: { textAlign: 'center', color: '#AAA', marginTop: 30, fontSize: 14 },
-
   agendCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 16, marginBottom: 12 },
   agendTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   agendNome: { color: '#1A1A1A', fontSize: 15, fontWeight: '700' },
@@ -435,7 +489,6 @@ const s = StyleSheet.create({
   btnConcluirText: { color: '#C9A96E', fontSize: 13, fontWeight: '700' },
   btnCancelar: { flex: 1, backgroundColor: '#F5F5F5', borderRadius: 12, padding: 12, alignItems: 'center' },
   btnCancelarText: { color: '#999', fontSize: 13, fontWeight: '700' },
-
   novoBtn: { backgroundColor: '#C9A96E', borderRadius: 16, padding: 18, alignItems: 'center', marginVertical: 20 },
   novoBtnText: { color: '#1A1A1A', fontSize: 15, fontWeight: '800' },
   estabCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 12, flexDirection: 'row', alignItems: 'center', borderLeftWidth: 6 },

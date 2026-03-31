@@ -71,13 +71,10 @@ export default function AdminLoginScreen() {
 
   try {
     setLoading(true);
-
     const { user } = await auth().createUserWithEmailAndPassword(cEmail, cSenha);
+    await user.updateProfile({ displayName: cNome });
 
-    await user.updateProfile({
-      displayName: cNome,
-    });
-
+    // ✅ Aguarda o Firestore salvar antes de continuar
     await firestore().collection('admins').doc(user.uid).set({
       nome: cNome,
       email: cEmail,
@@ -87,21 +84,29 @@ export default function AdminLoginScreen() {
       criadoEm: firestore.FieldValue.serverTimestamp(),
     });
 
-    Alert.alert('Sucesso! 🎉', 'Sua conta foi criada!', [
-      { text: 'Ir para Login', onPress: () => setTela('login') },
+    // ✅ Faz logout imediatamente após criar
+    // Isso evita o onAuthStateChanged pegar o user antes do doc existir
+    await auth().signOut();
+
+    Alert.alert('Conta criada! 🎉', 'Agora faça login com suas credenciais.', [
+      {
+        text: 'Fazer Login',
+        onPress: () => {
+          setTela('login');
+          setEmail(cEmail); // ✅ Preenche o email automaticamente
+          setSenha('');
+          setCNome('');
+          setCEmail('');
+          setCTel('');
+          setCSenha('');
+          setCConfirm('');
+        },
+      },
     ]);
-
   } catch (e: any) {
-    let msg = 'Erro ao criar conta.';
-
-    if (e.code === 'auth/email-already-in-use') {
-      msg = 'Este email já está em uso.';
-    } else if (e.code === 'auth/invalid-email') {
-      msg = 'Email inválido.';
-    } else if (e.code === 'auth/weak-password') {
-      msg = 'Senha muito fraca.';
-    }
-
+    const msg = e.code === 'auth/email-already-in-use'
+      ? 'Este email já está cadastrado.'
+      : 'Erro ao criar conta. Tente novamente.';
     Alert.alert('Erro', msg);
   } finally {
     setLoading(false);

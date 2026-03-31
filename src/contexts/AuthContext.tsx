@@ -12,15 +12,27 @@ interface AuthContextData {
   loading: boolean;
   isAdmin: boolean;
   isCliente: boolean;
+  isSuperAdmin: boolean;
   isResolvingAdmin: boolean;
   signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextData | null>(null);
+const AuthContext = createContext<AuthContextData>({
+  user: null,
+  admin: null,
+  cliente: null,
+  loading: true,
+  isAdmin: false,
+  isCliente: false,
+  isSuperAdmin: false,
+  isResolvingAdmin: true,
+  signOut: async () => {},
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
   const [admin, setAdmin] = useState<Admin | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // ✅ estado próprio
   const [loading, setLoading] = useState(true);
   const [isResolvingAdmin, setIsResolvingAdmin] = useState(true);
 
@@ -37,7 +49,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (enabled) {
           const token = await messaging().getToken();
-          
           if (token) {
             const colecao = admin ? 'admins' : 'clientes';
             await firestore()
@@ -57,11 +68,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     configurarNotificacoes();
 
+    // ✅ Foreground — filtra mensagens de avaliação para admin
     const unsubscribeMessaging = messaging().onMessage(async remoteMessage => {
-      Alert.alert(
-        remoteMessage.notification?.title || 'Notificação',
-        remoteMessage.notification?.body
-      );
+      const titulo = remoteMessage.notification?.title || 'Notificação';
+      const corpo = remoteMessage.notification?.body || '';
+      const tipo = remoteMessage.data?.tipo || '';
+
+      if (admin && (
+        corpo.includes('Avalie') ||
+        corpo.includes('avaliação') ||
+        tipo === 'concluido' ||
+        tipo === 'cancelado'
+      )) {
+        console.log('Push de cliente ignorado para admin:', titulo);
+        return;
+      }
+
+      Alert.alert(titulo, corpo);
     });
 
     return unsubscribeMessaging;
@@ -70,8 +93,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // --- MONITORAMENTO DE AUTH ---
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(async firebaseUser => {
-      setIsResolvingAdmin(true);
       setUser(firebaseUser);
+      setIsResolvingAdmin(true);
 
       if (firebaseUser) {
         try {
@@ -81,16 +104,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .get();
 
           if (snap.exists && snap.data()?.ativo) {
-            setAdmin({ id: firebaseUser.uid, ...snap.data() } as Admin);
+            const dados = snap.data()!;
+            setAdmin({ id: firebaseUser.uid, ...dados } as Admin);
+            // ✅ isSuperAdmin definido como estado separado
+            setIsSuperAdmin(dados.cargo === 'Super Admin');
           } else {
             setAdmin(null);
+            setIsSuperAdmin(false);
           }
         } catch (e) {
-          console.log("Erro ao buscar admin:", e);
+          console.log('Erro ao buscar admin:', e);
           setAdmin(null);
+          setIsSuperAdmin(false);
         }
       } else {
         setAdmin(null);
+        setIsSuperAdmin(false);
       }
 
       setLoading(false);
@@ -100,6 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe;
   }, []);
 
+  // --- LOGOUT ---
   const signOut = async () => {
     if (user && admin) {
       try {
@@ -108,9 +138,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('Erro ao desinscrever do tópico:', e);
       }
     }
-    
-    setAdmin(null);
-    setUser(null);
     try {
       await auth().signOut();
     } catch (e) {
@@ -120,12 +147,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, 
-      admin, 
+      user,
+      admin,
       cliente: admin ? null : user,
       loading,
       isAdmin: !!admin,
       isCliente: !!user && !admin,
+      isSuperAdmin,
       isResolvingAdmin,
       signOut,
     }}>
@@ -134,13 +162,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Hook com trava de segurança para evitar erro de "useContext of null"
 export function useAuth() {
-  const context = useContext(AuthContext);
-
-  if (context === null) {
-    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
-  }
-
-  return context;
+  return useContext(AuthContext);
 }

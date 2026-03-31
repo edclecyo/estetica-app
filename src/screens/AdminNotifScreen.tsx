@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, Alert,
+  StyleSheet, Alert, Platform, StatusBar,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
@@ -9,11 +9,14 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface Notif {
   id: string;
-  clienteNome: string;
-  servicoNome: string;
-  data: string;
-  horario: string;
-  status: string;
+  clienteNome?: string;
+  servicoNome?: string;
+  data?: string;
+  horario?: string;
+  status?: string;
+  titulo?: string;
+  msg?: string;
+  tipo?: string;
   lida: boolean;
   apagada?: boolean;
   criadoEm: any;
@@ -34,7 +37,7 @@ export default function AdminNotifScreen() {
       .collection('notificacoes')
       .where('adminId', '==', admin.id)
       .orderBy('criadoEm', 'desc')
-      .limit(30)
+      .limit(50)
       .onSnapshot(
         snap => {
           if (!snap || !snap.docs) return;
@@ -53,11 +56,9 @@ export default function AdminNotifScreen() {
   const naoLidas = notifs.filter(n => !n.lida).length;
 
   const marcarLida = (id: string) => {
-  // Atualiza local imediatamente
-  setNotifs(prev => prev.map(n => n.id === id ? { ...n, lida: true } : n));
-  // Depois sincroniza com Firestore
-  firestore().collection('notificacoes').doc(id).update({ lida: true });
-};
+    setNotifs(prev => prev.map(n => n.id === id ? { ...n, lida: true } : n));
+    firestore().collection('notificacoes').doc(id).update({ lida: true });
+  };
 
   const toggleSelecao = (id: string) => {
     setSelecionados(prev =>
@@ -104,21 +105,28 @@ export default function AdminNotifScreen() {
     setModoSelecao(false);
   };
 
-  const getStatusInfo = (status: string) => {
-    switch (status) {
+  // ✅ Suporta agendamentos E comunicados do Super Admin
+  const getInfo = (item: Notif) => {
+    if (item.tipo === 'comunicado') {
+      return { emoji: '📢', cor: '#9C27B0', label: 'Comunicado', bg: '#F3E5F5' };
+    }
+    switch (item.status) {
       case 'confirmado': return { emoji: '📅', cor: '#4CAF50', label: 'Confirmado', bg: '#E8F5E9' };
-      case 'cancelado': return { emoji: '❌', cor: '#F44336', label: 'Cancelado', bg: '#FFEBEE' };
-      case 'concluido': return { emoji: '✅', cor: '#2196F3', label: 'Concluído', bg: '#E3F2FD' };
-      default: return { emoji: '📋', cor: '#999', label: status, bg: '#F5F5F5' };
+      case 'cancelado':  return { emoji: '❌', cor: '#F44336', label: 'Cancelado',  bg: '#FFEBEE' };
+      case 'concluido':  return { emoji: '✅', cor: '#2196F3', label: 'Concluído',  bg: '#E3F2FD' };
+      default:           return { emoji: '📋', cor: '#999',    label: 'Notificação', bg: '#F5F5F5' };
     }
   };
 
   return (
     <View style={s.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#1A1A1A" />
+
       <View style={s.header}>
         <TouchableOpacity
           onPress={modoSelecao ? cancelarSelecao : () => navigation.goBack()}
-          style={s.voltarBtn}>
+          style={s.voltarBtn}
+        >
           <Text style={s.voltarText}>{modoSelecao ? '✕' : '←'}</Text>
         </TouchableOpacity>
 
@@ -127,7 +135,7 @@ export default function AdminNotifScreen() {
             {modoSelecao ? `${selecionados.length} selecionada(s)` : '🔔 Notificações'}
           </Text>
           {!modoSelecao && naoLidas > 0 && (
-            <Text style={s.headerSub}>{naoLidas} não lidas</Text>
+            <Text style={s.headerSub}>{naoLidas} não lida(s)</Text>
           )}
         </View>
 
@@ -162,12 +170,13 @@ export default function AdminNotifScreen() {
           <View style={s.vazio}>
             <Text style={s.vazioEmoji}>🔕</Text>
             <Text style={s.vazioText}>Nenhuma notificação</Text>
-            <Text style={s.vazioSub}>Quando houver agendamentos, aparecerão aqui</Text>
+            <Text style={s.vazioSub}>Agendamentos e comunicados aparecerão aqui</Text>
           </View>
         }
         renderItem={({ item }) => {
-          const info = getStatusInfo(item.status);
+          const info = getInfo(item);
           const selecionado = selecionados.includes(item.id);
+          const isComunicado = item.tipo === 'comunicado';
 
           return (
             <TouchableOpacity
@@ -189,8 +198,9 @@ export default function AdminNotifScreen() {
                 s.notifCard,
                 !item.lida && s.notifNaoLida,
                 selecionado && s.notifSelecionada,
-              ]}>
-
+                isComunicado && s.notifComunicado,
+              ]}
+            >
               {modoSelecao && (
                 <View style={[s.checkbox, selecionado && s.checkboxAtivo]}>
                   {selecionado && <Text style={s.checkboxCheck}>✓</Text>}
@@ -206,22 +216,56 @@ export default function AdminNotifScreen() {
                   {!item.lida && <View style={s.ponto} />}
                 </View>
 
-                <Text style={s.clienteNome}>{item.clienteNome}</Text>
+                {/* ✅ Comunicado do Super Admin */}
+                {isComunicado ? (
+                  <>
+                    <Text style={s.clienteNome}>{item.titulo || 'Comunicado'}</Text>
+                    <Text style={s.comunicadoMsg}>{item.msg}</Text>
+                  </>
+                ) : (
+                  <>
+                    {/* ✅ Notificação de agendamento */}
+                    <Text style={s.clienteNome}>
+                      {item.clienteNome || item.titulo || 'Notificação'}
+                    </Text>
 
-                <View style={s.detalhesRow}>
-                  <View style={s.detalheItem}>
-                    <Text style={s.detalheIc}>💆</Text>
-                    <Text style={s.detalheTxt}>{item.servicoNome}</Text>
-                  </View>
-                  <View style={s.detalheItem}>
-                    <Text style={s.detalheIc}>📅</Text>
-                    <Text style={s.detalheTxt}>{item.data}</Text>
-                  </View>
-                  <View style={s.detalheItem}>
-                    <Text style={s.detalheIc}>⏰</Text>
-                    <Text style={s.detalheTxt}>{item.horario}</Text>
-                  </View>
-                </View>
+                    {(item.servicoNome || item.data || item.horario) && (
+                      <View style={s.detalhesRow}>
+                        {item.servicoNome && (
+                          <View style={s.detalheItem}>
+                            <Text style={s.detalheIc}>💆</Text>
+                            <Text style={s.detalheTxt}>{item.servicoNome}</Text>
+                          </View>
+                        )}
+                        {item.data && (
+                          <View style={s.detalheItem}>
+                            <Text style={s.detalheIc}>📅</Text>
+                            <Text style={s.detalheTxt}>{item.data}</Text>
+                          </View>
+                        )}
+                        {item.horario && (
+                          <View style={s.detalheItem}>
+                            <Text style={s.detalheIc}>⏰</Text>
+                            <Text style={s.detalheTxt}>{item.horario}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {item.msg && (
+                      <Text style={s.comunicadoMsg}>{item.msg}</Text>
+                    )}
+                  </>
+                )}
+
+                <Text style={s.dataTexto}>
+                  {item.criadoEm?.toDate
+                    ? item.criadoEm.toDate().toLocaleString('pt-BR', {
+                        day: '2-digit', month: '2-digit',
+                        hour: '2-digit', minute: '2-digit',
+                      })
+                    : 'Processando...'}
+                </Text>
 
                 {!modoSelecao && (
                   <View style={s.cardRodape}>
@@ -241,7 +285,18 @@ export default function AdminNotifScreen() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
-  header: { backgroundColor: '#1A1A1A', paddingHorizontal: 20, paddingTop: 52, paddingBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+
+  header: {
+    backgroundColor: '#1A1A1A',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 12 : 52,
+    paddingBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
   voltarBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
   voltarText: { color: '#fff', fontSize: 18 },
   headerTitulo: { color: '#FAF7F4', fontSize: 18, fontWeight: '700' },
@@ -250,26 +305,42 @@ const s = StyleSheet.create({
   headerBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 },
   headerBtnPerigo: { backgroundColor: '#2A1A1A' },
   headerBtnText: { color: '#C9A96E', fontSize: 11, fontWeight: '600' },
+
   lista: { padding: 16, paddingBottom: 40 },
-  notifCard: { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10, elevation: 2, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+
+  notifCard: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 14,
+    marginBottom: 10, elevation: 2,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+  },
   notifNaoLida: { borderLeftWidth: 3, borderLeftColor: '#C9A96E' },
   notifSelecionada: { backgroundColor: '#F0EDE8', borderColor: '#C9A96E', borderWidth: 1.5 },
+  // ✅ Estilo especial para comunicados do Super Admin
+  notifComunicado: { borderLeftWidth: 3, borderLeftColor: '#9C27B0', backgroundColor: '#FDF5FF' },
+
   checkbox: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#ccc', justifyContent: 'center', alignItems: 'center', marginTop: 2 },
   checkboxAtivo: { backgroundColor: '#C9A96E', borderColor: '#C9A96E' },
   checkboxCheck: { color: '#fff', fontSize: 12, fontWeight: '700' },
+
   cardTopo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   statusEmoji: { fontSize: 12 },
   statusLabel: { fontSize: 11, fontWeight: '700' },
   ponto: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#C9A96E' },
-  clienteNome: { fontSize: 15, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
+
+  clienteNome: { fontSize: 15, fontWeight: '700', color: '#1A1A1A', marginBottom: 6 },
+  comunicadoMsg: { fontSize: 13, color: '#555', lineHeight: 18, marginBottom: 8 },
+  dataTexto: { fontSize: 10, color: '#AAA', fontWeight: '600', marginBottom: 4 },
+
   detalhesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   detalheItem: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F5F5F5', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   detalheIc: { fontSize: 11 },
   detalheTxt: { fontSize: 11, color: '#555', fontWeight: '500' },
+
   cardRodape: { flexDirection: 'row', justifyContent: 'flex-end' },
   btnApagarInline: { paddingHorizontal: 10, paddingVertical: 4 },
   btnApagarInlineText: { color: '#F44336', fontSize: 11, fontWeight: '600' },
+
   vazio: { alignItems: 'center', paddingVertical: 80 },
   vazioEmoji: { fontSize: 48, marginBottom: 12 },
   vazioText: { color: '#1A1A1A', fontSize: 15, fontWeight: '600', marginBottom: 4 },

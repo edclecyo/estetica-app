@@ -1,20 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  TextInput,
-  StyleSheet,
-  ActivityIndicator,
-  StatusBar,
-  ScrollView,
-  Alert,
-  Image,
-  PermissionsAndroid,
-  Platform,
+  View, Text, FlatList, TouchableOpacity, TextInput,
+  StyleSheet, ActivityIndicator, StatusBar, ScrollView,
+  Alert, Image, PermissionsAndroid, Platform, Animated,
 } from 'react-native';
-
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
@@ -28,47 +17,83 @@ const TIPOS = [
   'Terapia Capilar', 'Estúdio de Maquiagem', 'Design de Sobrancelhas', 'Extensão de Cílios',
   'Micropigmentação', 'Depilação a Laser', 'Depilação com Cera', 'Estúdio de Tatuagem',
   'Body Piercing', 'Massoterapia', 'Bronzeamento Artificial', 'Podologia',
-  'Harmonização Facial', 'Estúdio de Yoga', 'Centro Holístico'
+  'Harmonização Facial', 'Estúdio de Yoga', 'Centro Holístico',
 ];
 
 const TIPO_ICONS: Record<string, string> = {
-  'Todos': '✦',
-  'Salão de Beleza': '✂️',
-  'Barbearia Premium': '💈',
-  'Espaço de Unhas': '💅',
-  'Manicure & Pedicure': '🎨',
-  'Clínica de Estética': '🏥',
-  'Estética Avançada': '🧬',
-  'Spa & Relaxamento': '🧖‍♀️',
-  'Especialista em Cabelos': '💇‍♀️',
-  'Terapia Capilar': '🧴',
-  'Estúdio de Maquiagem': '💄',
-  'Design de Sobrancelhas': '📐',
-  'Extensão de Cílios': '👁️',
-  'Micropigmentação': '✒️',
-  'Depilação a Laser': '⚡',
-  'Depilação com Cera': '🍯',
-  'Estúdio de Tatuagem': '🎨',
-  'Body Piercing': '💎',
-  'Massoterapia': '💆‍♂️',
-  'Bronzeamento Artificial': '☀️',
-  'Podologia': '👣',
-  'Harmonização Facial': '✨',
-  'Estúdio de Yoga': '🧘',
-  'Centro Holístico': '🌿',
+  'Todos': '✦', 'Salão de Beleza': '✂️', 'Barbearia Premium': '💈',
+  'Espaço de Unhas': '💅', 'Manicure & Pedicure': '🎨', 'Clínica de Estética': '🏥',
+  'Estética Avançada': '🧬', 'Spa & Relaxamento': '🧖‍♀️', 'Especialista em Cabelos': '💇‍♀️',
+  'Terapia Capilar': '🧴', 'Estúdio de Maquiagem': '💄', 'Design de Sobrancelhas': '📐',
+  'Extensão de Cílios': '👁️', 'Micropigmentação': '✒️', 'Depilação a Laser': '⚡',
+  'Depilação com Cera': '🍯', 'Estúdio de Tatuagem': '🎨', 'Body Piercing': '💎',
+  'Massoterapia': '💆‍♂️', 'Bronzeamento Artificial': '☀️', 'Podologia': '👣',
+  'Harmonização Facial': '✨', 'Estúdio de Yoga': '🧘', 'Centro Holístico': '🌿',
 };
 
+const GOLD = '#C9A96E';
+const GOLD2 = '#F0D080';
+const GOLD3 = '#A07040';
+
+function SeloVerificado({ size = 20 }: { size?: number }) {
+  return (
+    <Image
+      source={require('../assets/selo_verificado.png')}
+      style={{ width: size, height: size, tintColor: GOLD }}
+      resizeMode="contain"
+    />
+  );
+}
+
+function FotoVerificada({ uri, emoji, size = 68 }: { uri?: string | null; emoji?: string; size?: number }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 1500, useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 0, duration: 1500, useNativeDriver: false }),
+      ])
+    ).start();
+  }, []);
+
+  const borderColor = anim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [GOLD3, GOLD2, GOLD],
+  });
+
+  const borderWidth = anim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [2, 4, 2],
+  });
+
+  return (
+    <Animated.View style={{
+      width: size + 8, height: size + 8,
+      borderRadius: (size + 8) / 2,
+      borderWidth,
+      borderColor,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#1A1A1A',
+    }}>
+      {uri
+        ? <Image source={{ uri }} style={{ width: size, height: size, borderRadius: size / 2 }} />
+        : <Text style={{ fontSize: size * 0.4 }}>{emoji || '🏢'}</Text>
+      }
+    </Animated.View>
+  );
+}
+
 function calcularDistancia(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  if ([lat1, lng1, lat2, lng2].some((v) => v === null || v === undefined || Number.isNaN(v))) return 9999;
+  if (!lat1 || !lng1 || !lat2 || !lng2) return 9999;
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -77,17 +102,24 @@ function formatarDistancia(km: number): string {
   return `${Math.round(km * 1000)} m`;
 }
 
-function normalizarTexto(valor?: string): string {
-  return (valor || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-function estaAberto(horario?: string): boolean {
+function estaAberto(horario?: string, diasFuncionamento?: string[]): boolean {
   if (!horario || !horario.includes('-')) return false;
   const agora = new Date();
+  const diaSemana = agora.getDay();
+  const DIAS_MAP: Record<string, number> = {
+    'Dom': 0, 'Domingo': 0,
+    'Seg': 1, 'Segunda': 1, 'Segunda-feira': 1,
+    'Ter': 2, 'Terça': 2, 'Terça-feira': 2,
+    'Qua': 3, 'Quarta': 3, 'Quarta-feira': 3,
+    'Qui': 4, 'Quinta': 4, 'Quinta-feira': 4,
+    'Sex': 5, 'Sexta': 5, 'Sexta-feira': 5,
+    'Sáb': 6, 'Sábado': 6,
+  };
+  if (diasFuncionamento && diasFuncionamento.length > 0) {
+    if (!diasFuncionamento.some(d => DIAS_MAP[d] === diaSemana)) return false;
+  } else {
+    if (diaSemana === 0) return false;
+  }
   const atual = agora.getHours() * 60 + agora.getMinutes();
   const [inicio, fim] = horario.split('-');
   const toMin = (h: string) => {
@@ -97,9 +129,118 @@ function estaAberto(horario?: string): boolean {
   return atual >= toMin(inicio) && atual < toMin(fim);
 }
 
+function VerificadosSection({ navigation, user }: { navigation: any; user: any }) {
+  const [verificados, setVerificados] = useState<any[]>([]);
+  const scrollRef = useRef<ScrollView>(null);
+  const [autoIdx, setAutoIdx] = useState(0);
+
+  useEffect(() => {
+    const unsub = firestore()
+      .collection('estabelecimentos')
+      .where('verificado', '==', true)
+      .where('ativo', '==', true)
+      .limit(20)
+      .onSnapshot(
+        snap => { if (snap) setVerificados(snap.docs.map(d => ({ id: d.id, ...d.data() }))); },
+        () => {}
+      );
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (verificados.length === 0) return;
+    const interval = setInterval(() => {
+      setAutoIdx(prev => {
+        const next = (prev + 1) % verificados.length;
+        scrollRef.current?.scrollTo({ x: next * 162, animated: true });
+        return next;
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [verificados.length]);
+
+  if (verificados.length === 0) return null;
+
+  return (
+    <View style={sv.container}>
+      <View style={sv.tituloRow}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <SeloVerificado size={18} />
+          <Text style={sv.titulo}>Verificados</Text>
+        </View>
+        <Text style={sv.subtitulo}>Estabelecimentos de confiança</Text>
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={sv.scroll}
+        decelerationRate="fast"
+        snapToInterval={162}
+        snapToAlignment="start"
+        scrollEventThrottle={16}
+      >
+        {verificados.map((item) => {
+          const imagemUri = item.fotoPerfil || (item.img?.startsWith('http') ? item.img : null);
+          const aberto = estaAberto(item.horarioFuncionamento, item.diasFuncionamento);
+
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={sv.card}
+              activeOpacity={0.85}
+              onPress={() =>
+                navigation.navigate(user ? 'Detalhe' : 'ClienteLogin', { estabelecimentoId: item.id })
+              }
+            >
+              <View style={sv.fotoContainer}>
+                <FotoVerificada uri={imagemUri} emoji={item.img} size={68} />
+                <View style={sv.seloWrap}>
+                  <SeloVerificado size={18} />
+                </View>
+              </View>
+
+              <Text style={sv.nome} numberOfLines={1}>{item.nome}</Text>
+              <Text style={sv.tipo} numberOfLines={1}>{item.tipo}</Text>
+
+              <View style={[sv.statusPill, {
+                backgroundColor: aberto ? 'rgba(76,175,80,0.15)' : 'rgba(244,67,54,0.1)',
+              }]}>
+                <View style={[sv.statusDot, { backgroundColor: aberto ? '#4CAF50' : '#F44336' }]} />
+                <Text style={[sv.statusTxt, { color: aberto ? '#4CAF50' : '#F44336' }]}>
+                  {aberto ? 'Aberto' : 'Fechado'}
+                </Text>
+              </View>
+
+              {item.avaliacao > 0 && (
+                <View style={sv.ratingRow}>
+                  <Text style={sv.ratingStar}>★</Text>
+                  <Text style={sv.ratingVal}>{item.avaliacao.toFixed(1)}</Text>
+                </View>
+              )}
+
+              {item.plano === 'elite' && (
+                <View style={sv.eliteBadge}>
+                  <Text style={sv.eliteText}>👑 Elite</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      <View style={sv.dots}>
+        {verificados.map((_, idx) => (
+          <View key={idx} style={[sv.dot, { backgroundColor: idx === autoIdx ? GOLD : '#333' }]} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
-
   const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>([]);
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('Todos');
@@ -109,19 +250,17 @@ export default function HomeScreen() {
   const [notificacoesNaoLidas, setNotificacoesNaoLidas] = useState(0);
 
   useEffect(() => {
-    if (!user) {
-        setNotificacoesNaoLidas(0);
-        return;
-    }
+    if (!user?.uid) { setNotificacoesNaoLidas(0); return; }
     const unsub = firestore()
       .collection('notificacoes')
       .where('clienteId', '==', user.uid)
       .where('lida', '==', false)
-      .onSnapshot(snap => {
-        setNotificacoesNaoLidas(snap?.size || 0);
-      });
+      .onSnapshot(
+        snap => setNotificacoesNaoLidas(snap?.size || 0),
+        err => { console.log('Notif badge erro:', err.code); setNotificacoesNaoLidas(0); }
+      );
     return unsub;
-  }, [user]);
+  }, [user?.uid]);
 
   useEffect(() => {
     const obter = async () => {
@@ -134,21 +273,17 @@ export default function HomeScreen() {
       try {
         // @ts-ignore
         navigator.geolocation?.getCurrentPosition(
-          (pos: any) => {
-            setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          },
-          (err: any) => {
-            console.log('GPS erro:', err);
-          },
+          (pos: any) => setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          (err: any) => console.log('GPS erro:', err),
           { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
         );
-      } catch { }
+      } catch {}
     };
     obter();
   }, []);
 
   useEffect(() => {
-    const unsub = auth().onAuthStateChanged((u) => setUser(u));
+    const unsub = auth().onAuthStateChanged(u => setUser(u));
     return unsub;
   }, []);
 
@@ -156,33 +291,30 @@ export default function HomeScreen() {
     const unsub = firestore()
       .collection('estabelecimentos')
       .where('ativo', '==', true)
-      .where('assinaturaAtiva', '==', true) // 🔥 Sincronizado com Functions
-      .onSnapshot((snap) => {
-        const lista = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Estabelecimento[];
-        setEstabelecimentos(lista);
-        setLoading(false);
-      }, (err) => {
-        console.log("Erro Firestore:", err);
+      .onSnapshot(snap => {
+        setEstabelecimentos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estabelecimento[]);
         setLoading(false);
       });
     return unsub;
   }, []);
 
   const filtrados = estabelecimentos
-    .filter((e) => {
-      const nome = normalizarTexto(e.nome);
-      const buscaNormalizada = normalizarTexto(busca);
-      const mb = nome.includes(buscaNormalizada);
-      const mt = filtro === 'Todos' || normalizarTexto(e.tipo) === normalizarTexto(filtro);
+    .filter(e => {
+      const mb = e.nome?.toLowerCase().includes(busca.toLowerCase());
+      const mt = filtro === 'Todos' || e.tipo === filtro;
       return mb && mt;
     })
-    .map((e) => {
-      const lat = (e as any).coords?.lat ?? (e as any).lat;
-      const lng = (e as any).coords?.lng ?? (e as any).lng;
+    .map(e => {
+      const lat = e.coords?.lat ?? e.lat;
+      const lng = e.coords?.lng ?? e.lng;
       const dist = localizacao && lat && lng
         ? calcularDistancia(localizacao.lat, localizacao.lng, lat, lng)
         : 9999;
-      return { ...e, _dist: dist, _aberto: estaAberto(e.horarioFuncionamento) };
+      return {
+        ...e,
+        _dist: dist,
+        _aberto: estaAberto((e as any).horarioFuncionamento, (e as any).diasFuncionamento),
+      };
     })
     .sort((a, b) => {
       if (a._aberto && !b._aberto) return -1;
@@ -190,24 +322,18 @@ export default function HomeScreen() {
       return a._dist - b._dist;
     });
 
-  const renderStars = (rating: number) => {
-    return (
-      <View style={s.starsRow}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Text key={star} style={[s.starIcon, { color: star <= Math.round(rating || 5) ? '#C9A96E' : '#444' }]}>
-            ★
-          </Text>
-        ))}
-      </View>
-    );
-  };
+  const renderStars = (rating: number) => (
+    <View style={s.starsRow}>
+      {[1, 2, 3, 4, 5].map(star => (
+        <Text key={star} style={[s.starIcon, {
+          color: star <= Math.round(rating || 5) ? GOLD : '#444',
+        }]}>★</Text>
+      ))}
+    </View>
+  );
 
   if (loading) {
-    return (
-      <View style={[s.loadingWrap, { backgroundColor: '#000' }]}>
-        <ActivityIndicator size="large" color="#C9A96E" />
-      </View>
-    );
+    return <View style={s.loadingWrap}><ActivityIndicator size="large" color={GOLD} /></View>;
   }
 
   return (
@@ -227,14 +353,17 @@ export default function HomeScreen() {
 
           <View style={s.headerAcoes}>
             {user && (
-              <TouchableOpacity 
-                style={s.notifBtn} 
+              <TouchableOpacity
+                style={s.notifBtn}
                 onPress={() => navigation.navigate('NotificacoesCliente')}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Text style={s.notifIcon}>🔔</Text>
                 {notificacoesNaoLidas > 0 && (
                   <View style={s.notifBadge}>
-                    <Text style={s.notifBadgeText}>{notificacoesNaoLidas}</Text>
+                    <Text style={s.notifBadgeText}>
+                      {notificacoesNaoLidas > 9 ? '9+' : notificacoesNaoLidas}
+                    </Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -247,8 +376,7 @@ export default function HomeScreen() {
                   Alert.alert('Sair', 'Deseja sair da sua conta?', [
                     { text: 'Cancelar', style: 'cancel' },
                     {
-                      text: 'Sair',
-                      style: 'destructive',
+                      text: 'Sair', style: 'destructive',
                       onPress: async () => {
                         await auth().signOut();
                         try { await GoogleSignin.signOut(); } catch {}
@@ -281,14 +409,14 @@ export default function HomeScreen() {
 
       <FlatList
         data={filtrados}
-        keyExtractor={(e) => e.id}
+        keyExtractor={e => e.id}
         contentContainerStyle={s.lista}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <>
             <View style={s.filtroWrap}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
-                {TIPOS.map((t) => (
+                {TIPOS.map(t => (
                   <TouchableOpacity
                     key={t}
                     onPress={() => setFiltro(t)}
@@ -301,67 +429,78 @@ export default function HomeScreen() {
               </ScrollView>
             </View>
             <StoriesHeader />
+            <VerificadosSection navigation={navigation} user={user} />
           </>
         }
         renderItem={({ item }) => {
           const aberto = item._aberto;
           const dist = item._dist < 9999 ? item._dist : null;
-          const imagemUri = (item as any).fotoPerfil || (item.img?.startsWith('http') ? item.img : null);
+          const imagemUri = item.fotoPerfil || (item.img?.startsWith('http') ? item.img : null);
+          const verificado = (item as any).verificado;
 
           return (
+            // ✅ SOLUÇÃO DEFINITIVA: Pressable nativo via onPress no View externo
+            // Sem nenhum elemento absolute com zIndex dentro do card
             <TouchableOpacity
-              style={s.card}
               activeOpacity={0.9}
               onPress={() =>
                 navigation.navigate(user ? 'Detalhe' : 'ClienteLogin', { estabelecimentoId: item.id })
               }
             >
-              {dist !== null && (
-                <View style={s.distBadge}>
-                  <Text style={s.distBadgeText}>📍 {formatarDistancia(dist)}</Text>
-                </View>
-              )}
+              <View style={s.card}>
 
-              <View style={s.cardHeaderCircular}>
-                <View style={[s.imageContainer, { borderColor: item.cor || '#C9A96E' }]}>
-                  {imagemUri ? (
-                    <Image source={{ uri: imagemUri }} style={s.circleImage} />
-                  ) : (
-                    <Text style={s.cardEmojiLarge}>{item.img || '🏢'}</Text>
-                  )}
-                </View>
-              </View>
-
-              <View style={s.cardBodyCentral}>
-                <View style={s.nomeIconRow}>
-                  <Text style={s.cardNome}>{item.nome}</Text>
-                  <Text style={s.miniIcon}>{TIPO_ICONS[item.tipo] || '✨'}</Text>
-                </View>
-
-                <Text style={[s.cardTipo, { color: item.cor || '#C9A96E' }]}>{item.tipo}</Text>
-
-                <View style={s.statusRowCentral}>
-                  <View style={[s.dot, { backgroundColor: aberto ? '#4CAF50' : '#F44336' }]} />
-                  <Text style={[s.statusText, { color: aberto ? '#4CAF50' : '#F44336' }]}>
-                    {aberto ? 'Aberto agora' : 'Fechado no momento'}
-                  </Text>
-                  {item.horarioFuncionamento && (
-                    <Text style={s.horarioTexto}> • {item.horarioFuncionamento}</Text>
-                  )}
-                </View>
-
+                {/* ✅ Distância SEM position absolute — renderizada no topo do card normalmente */}
                 {dist !== null && (
-                  <Text style={s.distanciaInfoSub}>A {formatarDistancia(dist)} de você</Text>
+                  <View style={s.distRow}>
+                    <Text style={s.distBadgeText}>📍 {formatarDistancia(dist)}</Text>
+                  </View>
                 )}
 
-                <View style={s.ratingRow}>
-                  {renderStars(item.avaliacao || 5)}
-                  <Text style={s.avaliacaoNumero}>({item.avaliacao ? item.avaliacao.toFixed(1) : '5.0'})</Text>
+                <View style={s.cardHeaderCircular}>
+                  {/* ✅ Borda dourada grossa se verificado, sem badge flutuante */}
+                  <View style={[s.imageContainer, {
+                    borderColor: verificado ? GOLD : (item.cor || GOLD),
+                    borderWidth: verificado ? 4 : 2,
+                  }]}>
+                    {imagemUri
+                      ? <Image source={{ uri: imagemUri }} style={s.circleImage} />
+                      : <Text style={s.cardEmojiLarge}>{item.img || '🏢'}</Text>
+                    }
+                  </View>
                 </View>
-              </View>
 
-              <View style={[s.cardBtn, { backgroundColor: item.cor || '#C9A96E' }]}>
-                <Text style={[s.cardBtnText, { color: '#000' }]}>Agendar Horário →</Text>
+                <View style={s.cardBodyCentral}>
+                  {/* ✅ Nome + selo inline (não absolute) */}
+                  <View style={s.nomeIconRow}>
+                    <Text style={s.cardNome} numberOfLines={1}>{item.nome}</Text>
+                    {verificado && <SeloVerificado size={18} />}
+                    <Text style={s.miniIcon}>{TIPO_ICONS[item.tipo] || '✨'}</Text>
+                  </View>
+                  <Text style={[s.cardTipo, { color: item.cor || GOLD }]}>{item.tipo}</Text>
+                  <View style={s.statusRowCentral}>
+                    <View style={[s.dot, { backgroundColor: aberto ? '#4CAF50' : '#F44336' }]} />
+                    <Text style={[s.statusText, { color: aberto ? '#4CAF50' : '#F44336' }]}>
+                      {aberto ? 'Aberto agora' : 'Fechado no momento'}
+                    </Text>
+                    {item.horarioFuncionamento && (
+                      <Text style={s.horarioTexto}> • {item.horarioFuncionamento}</Text>
+                    )}
+                  </View>
+                  {dist !== null && (
+                    <Text style={s.distanciaInfoSub}>A {formatarDistancia(dist)} de você</Text>
+                  )}
+                  <View style={s.ratingRow}>
+                    {renderStars(item.avaliacao || 5)}
+                    <Text style={s.avaliacaoNumero}>
+                      ({item.avaliacao ? item.avaliacao.toFixed(1) : '5.0'})
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[s.cardBtn, { backgroundColor: item.cor || GOLD }]}>
+                  <Text style={[s.cardBtnText, { color: '#000' }]}>Agendar Horário →</Text>
+                </View>
+
               </View>
             </TouchableOpacity>
           );
@@ -371,54 +510,151 @@ export default function HomeScreen() {
   );
 }
 
+const sv = StyleSheet.create({
+  container: { marginBottom: 16 },
+  tituloRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 12, paddingHorizontal: 4,
+  },
+  titulo: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+  subtitulo: { color: '#555', fontSize: 11 },
+  scroll: { gap: 12, paddingRight: 4 },
+  card: {
+    width: 148, backgroundColor: '#111', borderRadius: 20,
+    padding: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: '#222',
+  },
+  fotoContainer: {
+    position: 'relative', marginBottom: 10,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  seloWrap: {
+    position: 'absolute', bottom: -4, right: -4,
+    backgroundColor: '#111', borderRadius: 14,
+    padding: 2, borderWidth: 1.5, borderColor: '#111',
+  },
+  nome: { color: '#FFF', fontSize: 13, fontWeight: '700', textAlign: 'center', marginBottom: 3 },
+  tipo: { color: '#555', fontSize: 10, textAlign: 'center', marginBottom: 8 },
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, marginBottom: 8,
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusTxt: { fontSize: 10, fontWeight: '700' },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  ratingStar: { color: GOLD, fontSize: 12 },
+  ratingVal: { color: GOLD, fontSize: 11, fontWeight: '700' },
+  eliteBadge: {
+    backgroundColor: 'rgba(156,39,176,0.15)',
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, marginTop: 4,
+  },
+  eliteText: { color: '#9C27B0', fontSize: 9, fontWeight: '800' },
+  dots: { flexDirection: 'row', justifyContent: 'center', gap: 5, marginTop: 10 },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+});
+
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { backgroundColor: '#000', paddingHorizontal: 20, paddingTop: 52, paddingBottom: 20 },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  headerSub: { color: '#C9A96E', fontSize: 12 },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
+  header: {
+    backgroundColor: '#000',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 12 : 52,
+    paddingBottom: 20,
+  },
+  headerTop: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 16,
+  },
+  headerSub: { color: GOLD, fontSize: 12 },
   headerTitulo: { color: '#FFF', fontSize: 22, fontWeight: '700' },
-  headerAcoes: { flexDirection: 'row', alignItems: 'center' },
-  notifBtn: { marginRight: 15, position: 'relative', padding: 5 },
+  headerAcoes: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  notifBtn: { position: 'relative', padding: 5 },
   notifIcon: { fontSize: 22 },
-  notifBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#F44336', borderRadius: 10, width: 18, height: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#000' },
-  notifBadgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
-  loginBtn: { backgroundColor: '#C9A96E', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  notifBadge: {
+    position: 'absolute', top: 0, right: 0,
+    backgroundColor: '#F44336', borderRadius: 10,
+    minWidth: 18, height: 18,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1.5, borderColor: '#000', paddingHorizontal: 3,
+  },
+  notifBadgeText: { color: '#FFF', fontSize: 9, fontWeight: '900' },
+  loginBtn: { backgroundColor: GOLD, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   loginBtnText: { color: '#000', fontWeight: '700' },
   sairBtn: { backgroundColor: '#1A1A1A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  sairBtnText: { color: '#C9A96E' },
-  buscaWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 14 },
+  sairBtnText: { color: GOLD },
+  buscaWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 14,
+  },
   buscaInput: { flex: 1, color: '#fff', paddingVertical: 10 },
   buscaIcon: { marginRight: 8 },
   filtroWrap: { backgroundColor: '#000', paddingVertical: 12 },
   filtroScroll: { paddingHorizontal: 0 },
-  chip: { flexDirection: 'row', alignItems: 'center', marginRight: 10, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, backgroundColor: '#1A1A1A' },
-  chipAtivo: { backgroundColor: '#C9A96E' },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', marginRight: 10,
+    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, backgroundColor: '#1A1A1A',
+  },
+  chipAtivo: { backgroundColor: GOLD },
   chipIcon: { marginRight: 6 },
   chipText: { color: '#888' },
   chipTextAtivo: { color: '#000', fontWeight: '700' },
   lista: { paddingHorizontal: 16, paddingBottom: 32 },
-  card: { backgroundColor: '#111', borderRadius: 28, marginBottom: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#222', paddingBottom: 8, position: 'relative' },
-  distBadge: { position: 'absolute', top: 14, right: 14, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(201,169,110,0.4)' },
-  distBadgeText: { color: '#C9A96E', fontSize: 11, fontWeight: '800' },
-  cardHeaderCircular: { alignItems: 'center', paddingTop: 24, paddingBottom: 8 },
-  imageContainer: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', borderWidth: 2, overflow: 'hidden' },
+
+  // ✅ card sem overflow nem position — toque livre
+  card: {
+    backgroundColor: '#111', borderRadius: 28, marginBottom: 24,
+    borderWidth: 1, borderColor: '#222',
+    paddingBottom: 8,
+  },
+
+  // ✅ distância no topo do card SEM position absolute
+  distRow: {
+    alignSelf: 'flex-end',
+    marginTop: 12,
+    marginRight: 14,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.4)',
+  },
+  distBadgeText: { color: GOLD, fontSize: 11, fontWeight: '800' },
+
+  cardHeaderCircular: { alignItems: 'center', paddingTop: 12, paddingBottom: 8 },
+  imageContainer: {
+    width: 110, height: 110, borderRadius: 55,
+    backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, overflow: 'hidden',
+  },
   circleImage: { width: '100%', height: '100%' },
   cardEmojiLarge: { fontSize: 45 },
-  cardBodyCentral: { padding: 16, alignItems: 'center' },
-  nomeIconRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  cardNome: { fontSize: 22, fontWeight: '800', color: '#FFF', textAlign: 'center' },
-  miniIcon: { fontSize: 18, marginLeft: 10 },
-  cardTipo: { fontSize: 12, marginTop: 2, textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: '600' },
-  statusRowCentral: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+
+  cardBodyCentral: { paddingHorizontal: 16, paddingBottom: 8, alignItems: 'center' },
+  nomeIconRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap',
+  },
+  cardNome: { fontSize: 20, fontWeight: '800', color: '#FFF', textAlign: 'center', flexShrink: 1 },
+  miniIcon: { fontSize: 18 },
+  cardTipo: {
+    fontSize: 12, marginTop: 2,
+    textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: '600',
+  },
+  statusRowCentral: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 10, flexWrap: 'wrap', justifyContent: 'center',
+  },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
   statusText: { fontSize: 13, fontWeight: '600' },
-  horarioTexto: { fontSize: 13, color: '#666' },
+  horarioTexto: { fontSize: 12, color: '#666' },
   distanciaInfoSub: { fontSize: 12, color: '#888', marginTop: 6, fontWeight: '500' },
   ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
   starsRow: { flexDirection: 'row' },
   starIcon: { fontSize: 16, marginHorizontal: 1 },
   avaliacaoNumero: { color: '#888', fontSize: 13, marginLeft: 8, fontWeight: '700' },
-  cardBtn: { marginHorizontal: 24, marginBottom: 20, marginTop: 12, borderRadius: 16, padding: 16, alignItems: 'center' },
+  cardBtn: {
+    marginHorizontal: 24, marginBottom: 20, marginTop: 12,
+    borderRadius: 16, padding: 16, alignItems: 'center',
+  },
   cardBtnText: { fontWeight: '800', fontSize: 15, textTransform: 'uppercase', letterSpacing: 0.5 },
 });

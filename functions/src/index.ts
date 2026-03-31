@@ -553,6 +553,193 @@ export const iniciarTrial = functions.onCall(async (req) => {
   return { ok: true };
 });
 
+// ─── 10. VERIFICAÇÃO AUTOMÁTICA ─────────
+export const verificarSeloAutomatico = onSchedule("every 24 hours", async () => {
+  const snap = await db.collection('estabelecimentos').get();
+
+  const promessas = snap.docs.map(async (doc) => {
+    const e = doc.data();
+
+    // ✅ Elite — selo automático sem precisar solicitar
+    if (e.plano === 'elite' && e.assinaturaAtiva) {
+      if (!e.verificado) {
+        await doc.ref.update({
+          verificado: true,
+          verificadoAutomatico: true,
+          verificadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          motivoVerificacao: 'Plano Elite — verificação automática',
+        });
+        console.log('✅ Selo automático Elite:', doc.id);
+      }
+      return;
+    }
+
+    // ✅ Remove selo se perdeu os critérios (cancelou plano, etc)
+    if (e.verificado && e.verificadoAutomatico) {
+      const perdeuCriterios =
+        !e.assinaturaAtiva ||
+        (e.plano !== 'elite' && e.plano !== 'pro') ||
+        (e.avaliacoesNegativas || 0) >= 10;
+
+      if (perdeuCriterios) {
+        await doc.ref.update({
+          verificado: false,
+          verificadoAutomatico: false,
+          motivoRemocaoSelo: 'Critérios não atendidos',
+          seloRemovidoEm: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log('❌ Selo removido por critérios:', doc.id);
+      }
+    }
+  });
+
+  await Promise.all(promessas);
+});
+
+// ─── 11. SOLICITAR SELO (plano Pro) ─────────
+export const solicitarSelo = functions.onCall(async (request) => {
+  if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
+
+  const { estabelecimentoId } = request.data;
+  const adminId = request.auth.uid;
+
+  const estSnap = await db.collection('estabelecimentos').doc(estabelecimentoId).get();
+  const est = estSnap.data();
+
+  if (!est) throw new functions.HttpsError('not-found', 'Estabelecimento não encontrado');
+  if (est.adminId !== adminId) throw new functions.HttpsError('permission-denied', 'Sem permissão');
+
+  // ✅ Verifica critérios
+  const totalAgends = (est.quantidadeAvaliacoes || 0);
+  const negativas = (est.avaliacoesNegativas || 0);
+  const plano = est.plano;
+
+  if (plano !== 'pro') {
+    throw new functions.HttpsError('failed-precondition', 'Necessário plano Pro ou Elite');
+  }
+  if (totalAgends < 1000) {
+    throw new functions.HttpsError('failed-precondition', `Necessário 1000 atendimentos. Você tem ${totalAgends}.`);
+  }
+  if (negativas > 0) {
+    throw new functions.HttpsError('failed-precondition', 'Nenhuma avaliação negativa é permitida');
+  }
+  if (est.verificado) {
+    throw new functions.HttpsError('already-exists', 'Já possui o selo verificado');
+  }
+  if (est.solicitacaoSeloStatus === 'pendente') {
+    throw new functions.HttpsError('already-exists', 'Solicitação já em análise');
+  }
+
+  // ✅ Cria solicitação
+  await db.collection('solicitacoesSelo').add({
+    estabelecimentoId,
+    estabelecimentoNome: est.nome,
+    adminId,
+    plano,
+    totalAtendimentos: totalAgends,
+    avaliacoesNegativas: negativas,
+    avaliacao: est.avaliacao || 0,
+    status: 'pendente',
+    pagamentoNecessario: true, // R$ 14,90 para plano Pro
+    valorTaxa: 14.90,
+    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // ✅ Atualiza status no estabelecimento
+  await db.collection('estabelecimentos').doc(estabelecimentoId).update({
+    solicitacaoSeloStatus: 'pendente',
+    solicitacaoSeloEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // ✅ Notifica Super Admins
+  const superAdminsSnap = await db.collection('admins')
+    .where('cargo', '==', 'Super Admin')
+    .where('ativo', '==', true)
+    .get();
+
+  for (const superAdmin of superAdminsSnap.docs) {
+    await db.collection('notificacoes').add({
+      adminId: superAdmin.id,
+      titulo: '🔔 Nova solicitação de selo',
+      msg: `${est.nome} solicitou o selo verificado (Plano Pro).`,
+      tipo: 'solicitacao_selo',
+      estabelecimentoId,
+      lida: false,
+      apagada: false,
+      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const tokenSuperAdmin = await getTokenAdmin(superAdmin.id);
+    if (tokenSuperAdmin) {
+      await enviarPush(
+        tokenSuperAdmin,
+        '🔔 Nova solicitação de selo',
+        `${est.nome} solicitou o selo verificado.`,
+        { tela: 'dash' }
+      );
+    }
+  }
+
+  return { ok: true };
+});
+
+// ─── 12. APROVAR/REJEITAR SELO (Super Admin) ─────────
+export const responderSolicitacaoSelo = functions.onCall(async (request) => {
+  if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
+
+  const { solicitacaoId, aprovado, motivo } = request.data;
+
+  // ✅ Verifica se é Super Admin
+  const adminSnap = await db.collection('admins').doc(request.auth.uid).get();
+  if (adminSnap.data()?.cargo !== 'Super Admin') {
+    throw new functions.HttpsError('permission-denied', 'Apenas Super Admin pode aprovar selos');
+  }
+
+  const solSnap = await db.collection('solicitacoesSelo').doc(solicitacaoId).get();
+  const sol = solSnap.data();
+  if (!sol) throw new functions.HttpsError('not-found', 'Solicitação não encontrada');
+
+  const novoStatus = aprovado ? 'aprovado' : 'rejeitado';
+
+  // ✅ Atualiza solicitação
+  await db.collection('solicitacoesSelo').doc(solicitacaoId).update({
+    status: novoStatus,
+    motivo: motivo || '',
+    respondidoEm: admin.firestore.FieldValue.serverTimestamp(),
+    respondidoPor: request.auth.uid,
+  });
+
+  // ✅ Atualiza estabelecimento
+  await db.collection('estabelecimentos').doc(sol.estabelecimentoId).update({
+    verificado: aprovado,
+    solicitacaoSeloStatus: novoStatus,
+    verificadoEm: aprovado ? admin.firestore.FieldValue.serverTimestamp() : null,
+    motivoVerificacao: aprovado ? 'Aprovado pelo Super Admin' : null,
+  });
+
+  // ✅ Notifica o admin do estabelecimento
+  const titulo = aprovado ? '✅ Selo Verificado Aprovado!' : '❌ Solicitação de Selo Rejeitada';
+  const msg = aprovado
+    ? `Parabéns! ${sol.estabelecimentoNome} agora tem o selo verificado ✅`
+    : `Sua solicitação foi rejeitada. ${motivo ? `Motivo: ${motivo}` : ''}`;
+
+  await db.collection('notificacoes').add({
+    adminId: sol.adminId,
+    titulo,
+    msg,
+    tipo: 'resposta_selo',
+    lida: false,
+    apagada: false,
+    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  const tokenAdmin = await getTokenAdmin(sol.adminId);
+  if (tokenAdmin) {
+    await enviarPush(tokenAdmin, titulo, msg, { tela: 'dash' });
+  }
+
+  return { ok: true };
+});
 export const webhookMercadoPago = functions.onRequest(async (req, res) => {
   const segredoWebhook = process.env.MP_WEBHOOK_SECRET;
   const tokenWebhook = process.env.MP_WEBHOOK_TOKEN;

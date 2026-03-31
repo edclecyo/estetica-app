@@ -10,17 +10,15 @@ export default function NotificacoesClienteScreen() {
   const [errorPermission, setErrorPermission] = useState(false);
 
   useEffect(() => {
-    // 1. Verifica se o usuário está realmente logado antes de tentar o Firestore
     if (!user?.uid) {
       setLoading(false);
       return;
     }
 
-    // 2. Listener em tempo real
     const unsub = firestore()
       .collection('notificacoes')
       .where('clienteId', '==', user.uid)
-      .orderBy('criadoEm', 'desc') // Nota: Isso requer um Índice Composto no Firebase
+      .orderBy('criadoEm', 'desc')
       .onSnapshot(
         (snap) => {
           if (snap) {
@@ -28,24 +26,34 @@ export default function NotificacoesClienteScreen() {
               id: d.id,
               ...d.data(),
             }));
-            setNotificacoes(data);
+
+            // ✅ evita re-render desnecessário
+            setNotificacoes(prev => {
+              const same = JSON.stringify(prev) === JSON.stringify(data);
+              return same ? prev : data;
+            });
+
             setErrorPermission(false);
           }
           setLoading(false);
         },
         (error) => {
-  console.log("Erro Firestore Notificações:", error.message);
+          console.log("Erro Firestore Notificações:", error.message);
 
-  // Só mostra erro se NÃO tiver dados ainda
-  setNotificacoes(prev => {
-    if (prev.length === 0) {
-      setErrorPermission(true);
-    }
-    return prev;
-  });
+          // ✅ log específico de índice (ajuda MUITO em produção)
+          if (error.code === 'failed-precondition') {
+            console.log('Índice necessário para notificações (clienteId + criadoEm)');
+          }
 
-  setLoading(false);
-}
+          setNotificacoes(prev => {
+            if (prev.length === 0) {
+              setErrorPermission(true);
+            }
+            return prev;
+          });
+
+          setLoading(false);
+        }
       );
 
     return () => unsub();
@@ -53,6 +61,12 @@ export default function NotificacoesClienteScreen() {
 
   const marcarComoLida = async (id: string, lida: boolean) => {
     if (lida) return;
+
+    // ✅ atualização otimista (UX mais rápido)
+    setNotificacoes(prev =>
+      prev.map(n => n.id === id ? { ...n, lida: true } : n)
+    );
+
     try {
       await firestore().collection('notificacoes').doc(id).update({ lida: true });
     } catch (e) {

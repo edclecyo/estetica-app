@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Servico, Agendamento } from '../types';
 import { launchImageLibrary } from "react-native-image-picker";
 import storage from "@react-native-firebase/storage";
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const { width } = Dimensions.get('window');
 
@@ -82,8 +83,7 @@ export default function AdminEstabScreen() {
   const [gInicio, setGInicio] = useState('08:00');
   const [gFim, setGFim] = useState('18:00');
   const [gIntervalo, setGIntervalo] = useState('60');
-  
-  // States para Novo Serviço
+
   const [nsNome, setNsNome] = useState('');
   const [nsPreco, setNsPreco] = useState('');
   const [nsDuracao, setNsDuracao] = useState('');
@@ -275,11 +275,10 @@ export default function AdminEstabScreen() {
     } catch { Alert.alert("Erro", "Falha no upload."); } finally { setSalvando(false); }
   };
 
-  // Função para escolher foto do serviço
   const escolherFotoServico = async () => {
     const res = await launchImageLibrary({ mediaType: "photo", quality: 0.4 });
     if (!res.assets || !res.assets[0]) return;
-    
+
     if (isNovo) {
       setNsFoto(res.assets[0].uri!);
       return;
@@ -288,7 +287,7 @@ export default function AdminEstabScreen() {
     const uri = res.assets[0].uri;
     const path = `estabelecimentos/${estabelecimentoId}/servicos/${Date.now()}.jpg`;
     const reference = storage().ref(path);
-    
+
     try {
       setSubindoFotoServico(true);
       await reference.putFile(uri!);
@@ -305,17 +304,23 @@ export default function AdminEstabScreen() {
 
   return (
     <View style={s.container}>
+      {/* HEADER */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}><Text style={s.backIcon}>✕</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+          <Icon name="close" size={20} color="#888" />
+        </TouchableOpacity>
         <View style={s.headerTitleContainer}>
           <Text style={[s.headerLabel, { color: cor }]}>{isNovo ? 'NOVO LOCAL' : tipo.toUpperCase()}</Text>
           <Text style={s.headerTitle} numberOfLines={1}>{isNovo ? 'Criar Cadastro' : nome}</Text>
         </View>
         <TouchableOpacity onPress={salvar} disabled={salvando} style={[s.saveBtn, { backgroundColor: cor }]}>
-          {salvando ? <ActivityIndicator size="small" color="#111" /> : <Text style={s.saveBtnText}>Salvar</Text>}
+          {salvando
+            ? <ActivityIndicator size="small" color="#111" />
+            : <Text style={s.saveBtnText}>Salvar</Text>}
         </TouchableOpacity>
       </View>
 
+      {/* STATS */}
       {!isNovo && (
         <View style={s.statsContainer}>
           <View style={s.statsInner}>
@@ -337,6 +342,7 @@ export default function AdminEstabScreen() {
         </View>
       )}
 
+      {/* ABAS */}
       <View style={s.tabsWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsContent}>
           {([['info','Informações'],['servicos','Serviços'],['horarios','Horários'],['agenda','Agenda']] as const)
@@ -350,6 +356,8 @@ export default function AdminEstabScreen() {
       </View>
 
       <ScrollView style={s.body} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+
+        {/* ─── ABA INFO ─── */}
         {aba === 'info' && (
           <View>
             <Text style={s.sectionTitle}>Aparência & Identidade</Text>
@@ -359,7 +367,8 @@ export default function AdminEstabScreen() {
                   <Text style={s.inputLabel}>ÍCONE PRINCIPAL</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.emojiList}>
                     {EMOJIS.map((e, i) => (
-                      <TouchableOpacity key={`${e}-${i}`} onPress={() => setImg(e)} style={[s.emojiBtn, img === e && { borderColor: cor, backgroundColor: cor + '44', borderWidth: 2 }]}>
+                      <TouchableOpacity key={`${e}-${i}`} onPress={() => setImg(e)}
+                        style={[s.emojiBtn, img === e && { borderColor: cor, backgroundColor: cor + '44', borderWidth: 2 }]}>
                         <Text style={s.emojiTxt}>{e}</Text>
                       </TouchableOpacity>
                     ))}
@@ -373,7 +382,8 @@ export default function AdminEstabScreen() {
                 {[['R', r, setR, '#FF4444'], ['G', g, setG, '#4CAF50'], ['B', b, setB, '#2196F3']].map(([l, val, setVal, color]: any) => (
                   <View key={l} style={s.mixerRow}>
                     <Text style={[s.mixerLabel, { color }]}>{l}</Text>
-                    <Slider style={{ flex: 1, height: 40 }} minimumValue={0} maximumValue={255} value={val} minimumTrackTintColor={color}
+                    <Slider style={{ flex: 1, height: 40 }} minimumValue={0} maximumValue={255} value={val}
+                      minimumTrackTintColor={color}
                       onValueChange={(v) => { setVal(v); updateHex(l === 'R' ? v : r, l === 'G' ? v : g, l === 'B' ? v : b); }} />
                     <Text style={s.mixerValue}>{Math.round(val)}</Text>
                   </View>
@@ -382,19 +392,29 @@ export default function AdminEstabScreen() {
 
               <View style={s.colorGrid}>
                 {PRESETS_CORES.map(c => (
-                  <TouchableOpacity key={c} onPress={() => { setCor(c); setR(parseInt(c.slice(1,3),16)); setG(parseInt(c.slice(3,5),16)); setB(parseInt(c.slice(5,7),16)); }}
+                  <TouchableOpacity key={c}
+                    onPress={() => { setCor(c); setR(parseInt(c.slice(1,3),16)); setG(parseInt(c.slice(3,5),16)); setB(parseInt(c.slice(5,7),16)); }}
                     style={[s.colorCircle, { backgroundColor: c }, cor === c && s.colorActive]} />
                 ))}
               </View>
             </View>
 
+            {/* LOGOMARCA */}
             <Text style={s.sectionTitle}>Logomarca</Text>
             <View style={s.photoRow}>
               <TouchableOpacity onPress={() => escolherImagem('perfil')} style={s.photoBox}>
-                {fotoPerfil ? <Image source={{ uri: fotoPerfil }} style={s.imgFill} /> : <Text style={s.photoAdd}>＋ Logomarca</Text>}
+                {fotoPerfil
+                  ? <Image source={{ uri: fotoPerfil }} style={s.imgFill} />
+                  : (
+                    <View style={s.photoAddContainer}>
+                      <Icon name="image-plus" size={28} color="#555" />
+                      <Text style={s.photoAdd}>Logomarca</Text>
+                    </View>
+                  )}
               </TouchableOpacity>
             </View>
 
+            {/* DADOS GERAIS */}
             <Text style={s.sectionTitle}>Dados Gerais</Text>
             <View style={s.card}>
               <View style={s.inputBox}>
@@ -405,7 +425,8 @@ export default function AdminEstabScreen() {
               <Text style={s.inputLabel}>TIPO</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.typeList}>
                 {TIPOS.map(t => (
-                  <TouchableOpacity key={t} onPress={() => setTipo(t)} style={[s.typeChip, tipo === t && { borderColor: cor, backgroundColor: cor + '22' }]}>
+                  <TouchableOpacity key={t} onPress={() => setTipo(t)}
+                    style={[s.typeChip, tipo === t && { borderColor: cor, backgroundColor: cor + '22' }]}>
                     <Text style={[s.typeChipTxt, tipo === t && { color: cor, fontWeight: '900' }]}>{t}</Text>
                   </TouchableOpacity>
                 ))}
@@ -490,8 +511,9 @@ export default function AdminEstabScreen() {
                   </MapView>
                 ) : (
                   <View style={s.mapPlaceholder}>
+                    <Icon name="map-search" size={32} color="#333" />
                     <Text style={s.mapPlaceholderText}>
-                      {buscandoEnd ? '🔍 Buscando localização...' : '📍 Digite o endereço para ver no mapa'}
+                      {buscandoEnd ? 'Buscando localização...' : 'Digite o endereço para ver no mapa'}
                     </Text>
                   </View>
                 )}
@@ -511,40 +533,30 @@ export default function AdminEstabScreen() {
                   }}
                   style={[s.btnMinhaLoc, { borderColor: cor }]}
                 >
-                  <Text style={[s.btnMinhaLocText, { color: cor }]}>📍 Usar minha localização atual</Text>
+                  <Icon name="crosshairs-gps" size={16} color={cor} style={{ marginRight: 8 }} />
+                  <Text style={[s.btnMinhaLocText, { color: cor }]}>Usar minha localização atual</Text>
                 </TouchableOpacity>
               )}
             </View>
           </View>
         )}
 
+        {/* ─── ABA SERVIÇOS ─── */}
         {aba === 'servicos' && (
           <View>
             <Text style={s.sectionTitle}>Novo Serviço</Text>
             <View style={s.card}>
               <View style={s.row}>
-                {/* Seleção de Foto do Serviço */}
-                <TouchableOpacity 
-                  onPress={escolherFotoServico} 
-                  style={[s.nsFotoBox, { borderColor: cor + '44' }]}
-                >
-                  {subindoFotoServico ? (
-                    <ActivityIndicator size="small" color={cor} />
-                  ) : nsFoto ? (
-                    <Image source={{ uri: nsFoto }} style={s.imgFill} />
-                  ) : (
-                    <Text style={s.nsFotoAdd}>📸</Text>
-                  )}
+                <TouchableOpacity onPress={escolherFotoServico} style={[s.nsFotoBox, { borderColor: cor + '44' }]}>
+                  {subindoFotoServico
+                    ? <ActivityIndicator size="small" color={cor} />
+                    : nsFoto
+                      ? <Image source={{ uri: nsFoto }} style={s.imgFill} />
+                      : <Icon name="camera-plus" size={28} color="#555" />}
                 </TouchableOpacity>
 
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <TextInput 
-                    style={s.input} 
-                    value={nsNome} 
-                    onChangeText={setNsNome} 
-                    placeholder="Nome do serviço" 
-                    placeholderTextColor="#444" 
-                  />
+                  <TextInput style={s.input} value={nsNome} onChangeText={setNsNome} placeholder="Nome do serviço" placeholderTextColor="#444" />
                   <View style={[s.row, { marginTop: 10 }]}>
                     <TextInput style={[s.input, { flex: 1, marginRight: 8 }]} value={nsPreco} onChangeText={setNsPreco} placeholder="R$" keyboardType="numeric" placeholderTextColor="#444" />
                     <TextInput style={[s.input, { flex: 1 }]} value={nsDuracao} onChangeText={setNsDuracao} placeholder="Min" keyboardType="numeric" placeholderTextColor="#444" />
@@ -555,73 +567,88 @@ export default function AdminEstabScreen() {
               <TouchableOpacity
                 onPress={() => {
                   if (!nsNome || !nsPreco) return;
-                  setServicos([...servicos, { 
-                    id: Date.now().toString(), 
-                    nome: nsNome, 
-                    preco: Number(nsPreco), 
-                    duracao: Number(nsDuracao) || 30, 
+                  setServicos([...servicos, {
+                    id: Date.now().toString(),
+                    nome: nsNome,
+                    preco: Number(nsPreco),
+                    duracao: Number(nsDuracao) || 30,
                     ativo: true,
-                    foto: nsFoto // Adiciona a foto ao objeto do serviço
+                    foto: nsFoto,
                   }]);
                   setNsNome(''); setNsPreco(''); setNsDuracao(''); setNsFoto('');
                 }}
                 style={[s.btnAdd, { borderColor: cor, marginTop: 15 }]}
               >
+                <Icon name="plus-circle-outline" size={18} color={cor} style={{ marginRight: 8 }} />
                 <Text style={[s.btnAddText, { color: cor }]}>Adicionar à Lista</Text>
               </TouchableOpacity>
             </View>
 
             {servicos.map(item => (
               <View key={item.id} style={s.itemCard}>
-                {item.foto ? (
-                  <Image source={{ uri: item.foto }} style={s.itemThumb} />
-                ) : (
-                  <View style={[s.itemThumb, { backgroundColor: '#222', justifyContent: 'center', alignItems: 'center' }]}>
-                    <Text style={{ fontSize: 18 }}>{img.length < 3 ? img : '✨'}</Text>
-                  </View>
-                )}
-                
+                {item.foto
+                  ? <Image source={{ uri: item.foto }} style={s.itemThumb} />
+                  : (
+                    <View style={[s.itemThumb, { backgroundColor: '#222', justifyContent: 'center', alignItems: 'center' }]}>
+                      <Icon name="scissors-cutting" size={22} color="#555" />
+                    </View>
+                  )}
+
                 <View style={s.itemInfo}>
                   <Text style={s.itemTitle}>{item.nome}</Text>
                   <Text style={s.itemSub}>R$ {item.preco} • {item.duracao} min</Text>
                 </View>
 
-                <Switch 
-                  value={item.ativo} 
-                  onValueChange={() => setServicos(servicos.map(x => x.id === item.id ? { ...x, ativo: !x.ativo } : x))} 
+                <Switch
+                  value={item.ativo}
+                  onValueChange={() => setServicos(servicos.map(x => x.id === item.id ? { ...x, ativo: !x.ativo } : x))}
                   trackColor={{ false: '#333', true: cor + '66' }}
-                  thumbColor={item.ativo ? cor : '#666'} 
+                  thumbColor={item.ativo ? cor : '#666'}
                 />
-                
+
                 <TouchableOpacity onPress={() => setServicos(servicos.filter(x => x.id !== item.id))} style={s.itemRemove}>
-                  <Text style={{ color: '#FF4444', fontSize: 18 }}>✕</Text>
+                  <Icon name="trash-can-outline" size={20} color="#FF4444" />
                 </TouchableOpacity>
               </View>
             ))}
           </View>
         )}
 
+        {/* ─── ABA HORÁRIOS ─── */}
         {aba === 'horarios' && (
           <View>
             <Text style={s.sectionTitle}>Grade Automática</Text>
             <View style={s.card}>
               <View style={s.row}>
-                <View style={{ flex: 1, marginRight: 8 }}><Text style={s.miniLabel}>INÍCIO</Text><TextInput style={s.input} value={gInicio} onChangeText={setGInicio} placeholderTextColor="#444" /></View>
-                <View style={{ flex: 1, marginRight: 8 }}><Text style={s.miniLabel}>FIM</Text><TextInput style={s.input} value={gFim} onChangeText={setGFim} placeholderTextColor="#444" /></View>
-                <View style={{ flex: 1 }}><Text style={s.miniLabel}>MINS</Text><TextInput style={s.input} value={gIntervalo} onChangeText={setGIntervalo} keyboardType="numeric" placeholderTextColor="#444" /></View>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={s.miniLabel}>INÍCIO</Text>
+                  <TextInput style={s.input} value={gInicio} onChangeText={setGInicio} placeholderTextColor="#444" />
+                </View>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={s.miniLabel}>FIM</Text>
+                  <TextInput style={s.input} value={gFim} onChangeText={setGFim} placeholderTextColor="#444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.miniLabel}>MINS</Text>
+                  <TextInput style={s.input} value={gIntervalo} onChangeText={setGIntervalo} keyboardType="numeric" placeholderTextColor="#444" />
+                </View>
               </View>
               <TouchableOpacity onPress={gerarGradeHorarios} style={[s.btnAdd, { backgroundColor: cor, marginTop: 15 }]}>
+                <Icon name="clock-time-four-outline" size={18} color="#111" style={{ marginRight: 8 }} />
                 <Text style={[s.btnAddText, { color: '#111' }]}>Gerar Horários</Text>
               </TouchableOpacity>
             </View>
+
             <View style={s.horariosGrid}>
               {horarios.map(h => {
                 const ocupado = agends.some(a => a.horario === h && a.status === 'confirmado');
                 return (
-                  <TouchableOpacity key={h} onPress={() => ocupado ? Alert.alert("Ocupado") : setHorarios(horarios.filter(x => x !== h))}
+                  <TouchableOpacity key={h}
+                    onPress={() => ocupado ? Alert.alert("Ocupado") : setHorarios(horarios.filter(x => x !== h))}
                     style={[s.timeChip, { borderColor: ocupado ? '#FF4444' : cor + '44', backgroundColor: ocupado ? '#FF444422' : 'transparent' }]}>
                     <Text style={[s.timeText, ocupado && { color: '#FF4444' }]}>{h}</Text>
-                    {!ocupado && <Text style={s.timeRemove}>✕</Text>}
+                    {!ocupado && <Icon name="close" size={12} color="#666" style={{ marginLeft: 6 }} />}
+                    {ocupado && <Icon name="lock" size={12} color="#FF4444" style={{ marginLeft: 6 }} />}
                   </TouchableOpacity>
                 );
               })}
@@ -629,33 +656,52 @@ export default function AdminEstabScreen() {
           </View>
         )}
 
+        {/* ─── ABA AGENDA ─── */}
         {aba === 'agenda' && (
           <View>
-            {agends.length === 0 ? <Text style={s.emptyText}>Nenhum agendamento.</Text> : agends.map(ag => (
-              <View key={ag.id} style={s.agendCard}>
-                <View style={s.agendHeader}>
-                  <Text style={s.agendClient}>{ag.clienteNome}</Text>
-                  <Text style={[s.agendPrice, { color: cor }]}>R$ {ag.servicoPreco}</Text>
+            {agends.length === 0
+              ? (
+                <View style={s.emptyContainer}>
+                  <Icon name="calendar-blank-outline" size={48} color="#333" />
+                  <Text style={s.emptyText}>Nenhum agendamento.</Text>
                 </View>
-                <Text style={s.agendServ}>{ag.servicoNome}</Text>
-                <View style={s.agendMeta}>
-                  <Text style={s.agendDate}>📅 {ag.data} - {ag.horario}</Text>
-                  <div style={[s.statusBadge, { backgroundColor: ag.status === 'concluido' ? '#4CAF50' : '#222' }]}>
-                    <Text style={s.statusTxt}>{ag.status?.toUpperCase()}</Text>
-                  </div>
-                </View>
-                {ag.status === 'confirmado' && (
-                  <View style={[s.row, { gap: 10, marginTop: 15 }]}>
-                    <TouchableOpacity onPress={() => fn.httpsCallable('concluirAgendamento')({ agendamentoId: ag.id })} style={[s.actionBtn, { borderColor: '#4CAF50' }]}>
-                      <Text style={{ color: '#4CAF50', fontWeight: '900' }}>CONCLUIR</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => fn.httpsCallable('cancelarAgendamento')({ agendamentoId: ag.id })} style={[s.actionBtn, { borderColor: '#FF4444' }]}>
-                      <Text style={{ color: '#FF4444', fontWeight: '900' }}>CANCELAR</Text>
-                    </TouchableOpacity>
+              )
+              : agends.map(ag => (
+                <View key={ag.id} style={s.agendCard}>
+                  <View style={s.agendHeader}>
+                    <Text style={s.agendClient}>{ag.clienteNome}</Text>
+                    <Text style={[s.agendPrice, { color: cor }]}>R$ {ag.servicoPreco}</Text>
                   </View>
-                )}
-              </View>
-            ))}
+                  <Text style={s.agendServ}>{ag.servicoNome}</Text>
+                  <View style={s.agendMeta}>
+                    <View style={s.agendDateRow}>
+                      <Icon name="calendar" size={13} color="#666" style={{ marginRight: 5 }} />
+                      <Text style={s.agendDate}>{ag.data} - {ag.horario}</Text>
+                    </View>
+                    <View style={[s.statusBadge, { backgroundColor: ag.status === 'concluido' ? '#4CAF50' : ag.status === 'cancelado' ? '#FF4444' : '#333' }]}>
+                      <Text style={s.statusTxt}>{ag.status?.toUpperCase()}</Text>
+                    </View>
+                  </View>
+                  {ag.status === 'confirmado' && (
+                    <View style={[s.row, { gap: 10, marginTop: 15 }]}>
+                      <TouchableOpacity
+                        onPress={() => fn.httpsCallable('concluirAgendamento')({ agendamentoId: ag.id })}
+                        style={[s.actionBtn, { borderColor: '#4CAF50' }]}
+                      >
+                        <Icon name="check-circle-outline" size={16} color="#4CAF50" style={{ marginRight: 6 }} />
+                        <Text style={{ color: '#4CAF50', fontWeight: '900' }}>CONCLUIR</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => fn.httpsCallable('cancelarAgendamento')({ agendamentoId: ag.id })}
+                        style={[s.actionBtn, { borderColor: '#FF4444' }]}
+                      >
+                        <Icon name="close-circle-outline" size={16} color="#FF4444" style={{ marginRight: 6 }} />
+                        <Text style={{ color: '#FF4444', fontWeight: '900' }}>CANCELAR</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              ))}
           </View>
         )}
       </ScrollView>
@@ -668,7 +714,6 @@ const s = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A0A' },
   header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: '#121212', borderBottomWidth: 1, borderBottomColor: '#222' },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#222', justifyContent: 'center', alignItems: 'center' },
-  backIcon: { color: '#888', fontSize: 18 },
   headerTitleContainer: { flex: 1, paddingHorizontal: 15 },
   headerLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   headerTitle: { color: '#FFF', fontSize: 18, fontWeight: '800' },
@@ -706,19 +751,20 @@ const s = StyleSheet.create({
   mixerValue: { width: 30, color: '#FFF', textAlign: 'right', fontSize: 12 },
   photoRow: { flexDirection: 'row', marginBottom: 20 },
   photoBox: { width: 100, height: 100, borderRadius: 20, backgroundColor: '#121212', borderWidth: 1, borderColor: '#222', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  photoAddContainer: { alignItems: 'center', gap: 4 },
   imgFill: { width: '100%', height: '100%' },
-  photoAdd: { color: '#666', fontSize: 12, fontWeight: '700' },
+  photoAdd: { color: '#555', fontSize: 10, fontWeight: '700' },
   typeList: { marginBottom: 20 },
   typeChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#222', marginRight: 8 },
   typeChipTxt: { color: '#666', fontSize: 12 },
   mapHint: { color: '#444', fontSize: 11, marginBottom: 10 },
   mapCard: { height: 200, borderRadius: 20, overflow: 'hidden', backgroundColor: '#111', borderWidth: 1, borderColor: '#222' },
   map: { flex: 1 },
-  mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
   mapPlaceholderText: { color: '#444', fontSize: 12 },
-  btnMinhaLoc: { marginTop: 10, padding: 12, borderRadius: 15, borderWidth: 1, alignItems: 'center' },
+  btnMinhaLoc: { marginTop: 10, padding: 12, borderRadius: 15, borderWidth: 1, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
   btnMinhaLocText: { fontWeight: '700', fontSize: 12 },
-  btnAdd: { padding: 15, borderRadius: 15, borderWidth: 1, alignItems: 'center' },
+  btnAdd: { padding: 15, borderRadius: 15, borderWidth: 1, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
   btnAddText: { fontWeight: '800' },
   itemCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#121212', borderRadius: 20, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#1A1A1A' },
   itemThumb: { width: 50, height: 50, borderRadius: 12, marginRight: 12, overflow: 'hidden' },
@@ -729,19 +775,19 @@ const s = StyleSheet.create({
   horariosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
   timeText: { color: '#FFF', fontWeight: '700', fontSize: 13 },
-  timeRemove: { color: '#666', marginLeft: 8, fontSize: 10 },
   miniLabel: { color: '#444', fontSize: 9, fontWeight: '800', marginBottom: 4 },
-  emptyText: { color: '#444', textAlign: 'center', marginTop: 40 },
+  emptyContainer: { alignItems: 'center', marginTop: 60, gap: 12 },
+  emptyText: { color: '#444', textAlign: 'center', fontSize: 14 },
   agendCard: { backgroundColor: '#121212', borderRadius: 20, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: '#222' },
   agendHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
   agendClient: { color: '#FFF', fontWeight: '800', fontSize: 16 },
   agendPrice: { fontWeight: '800' },
   agendServ: { color: '#888', fontSize: 14, marginBottom: 12 },
   agendMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  agendDateRow: { flexDirection: 'row', alignItems: 'center' },
   agendDate: { color: '#666', fontSize: 12, fontWeight: '600' },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   statusTxt: { color: '#FFF', fontSize: 9, fontWeight: '900' },
-  actionBtn: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
+  actionBtn: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
   nsFotoBox: { width: 80, height: 80, borderRadius: 15, backgroundColor: '#000', borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  nsFotoAdd: { fontSize: 24 }
 });

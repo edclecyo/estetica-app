@@ -9,6 +9,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { BarChart } from 'react-native-chart-kit';
 import functions from '@react-native-firebase/functions';
+import Share from 'react-native-share';
 import type { Estabelecimento, Agendamento } from '../types';
 
 const { width } = Dimensions.get('window');
@@ -62,10 +63,8 @@ export default function AdminDashScreen() {
           setEstabPrincipalId(principal.id);
           setSolicitacaoStatus(principal.solicitacaoSeloStatus || null);
 
-          const ids = lista.map(e => e.id);
-
           firestore().collection('agendamentos')
-            .where('estabelecimentoId', 'in', ids)
+            .where('adminId', '==', admin.id)
             .orderBy('criadoEm', 'desc')
             .limit(100)
             .onSnapshot(snapA => {
@@ -102,6 +101,42 @@ export default function AdminDashScreen() {
       .onSnapshot(snap => snap && setNotifNaoLidas(snap.docs.length));
     return unsubNotif;
   }, [admin?.id]);
+
+ const gerarRelatorioPDF = async () => {
+  try {
+    const linhas = agends.map(a =>
+      `📅 ${a.data} às ${a.horario}\n👤 ${a.clienteNome}\n✂️ ${a.servicoNome}\n💰 R$ ${a.servicoPreco}\n📌 ${a.status?.toUpperCase()}\n`
+    ).join('\n─────────────────────\n');
+
+    const receitaConf = agends
+      .filter(a => a.status === 'confirmado' || a.status === 'concluido')
+      .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
+
+    const conteudo =
+`══════════════════════════
+  RELATÓRIO - BeautyHub
+══════════════════════════
+Admin: ${admin?.nome}
+Data: ${new Date().toLocaleDateString('pt-BR')}
+Total agendamentos: ${agends.length}
+Receita confirmada: R$ ${receitaConf.toLocaleString('pt-BR')}
+══════════════════════════
+
+${linhas}
+
+Gerado pelo BeautyHub`;
+
+    await Share.open({
+      title: 'Relatório de Agendamentos',
+      message: conteudo,
+      type: 'text/plain',
+    });
+  } catch (error: any) {
+    if (error?.message !== 'User did not share') {
+      Alert.alert('Erro', 'Não foi possível gerar o relatório.');
+    }
+  }
+};
 
   const deletarStory = (id: string) => {
     Alert.alert('Apagar Postagem', 'Deseja excluir este story permanentemente?', [
@@ -169,7 +204,6 @@ export default function AdminDashScreen() {
     return { label: 'FREE', cor: '#666', bg: 'rgba(100,100,100,0.12)' };
   };
 
-  // ✅ Label do card de selo baseado no status atual
   const seloInfo = () => {
     if (verificado) return { emoji: '✅', titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado ✅', cor: '#4CAF50' };
     if (solicitacaoStatus === 'pendente') return { emoji: '⏳', titulo: 'Solicitação em Análise', sub: 'Aguardando aprovação do BeautyHub', cor: '#FF9800' };
@@ -251,7 +285,7 @@ export default function AdminDashScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* ✅ CARD DE SELO — só aparece para planos Pro e Elite */}
+          {/* ✅ CARD DE SELO */}
           {mostrarCardSelo && (
             <TouchableOpacity
               style={[s.seloCard, { borderLeftColor: selo.cor }]}
@@ -291,6 +325,11 @@ export default function AdminDashScreen() {
                 );
               })}
             </View>
+
+            {/* BOTÃO GERAR RELATÓRIO MENSAL */}
+            <TouchableOpacity style={s.btnRelatorioFaturamento} onPress={gerarRelatorioPDF} activeOpacity={0.8}>
+              <Text style={s.btnRelatorioFaturamentoText}>📊 Gerar relatório mensal</Text>
+            </TouchableOpacity>
           </View>
 
           {/* GRÁFICO */}
@@ -377,7 +416,14 @@ export default function AdminDashScreen() {
           data={agends}
           keyExtractor={a => a.id}
           contentContainerStyle={s.lista}
-          ListHeaderComponent={<Text style={s.secTitulo}>Gerenciar Agendamentos</Text>}
+          ListHeaderComponent={
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <Text style={[s.secTitulo, { marginBottom: 0 }]}>Gerenciar Agendamentos</Text>
+              <TouchableOpacity style={s.btnPdf} onPress={gerarRelatorioPDF}>
+                <Text style={s.btnPdfText}>📄 PDF</Text>
+              </TouchableOpacity>
+            </View>
+          }
           renderItem={({ item }) => (
             <View style={s.agendCard}>
               <View style={s.agendTop}>
@@ -446,17 +492,30 @@ export default function AdminDashScreen() {
         />
       )}
 
-      {/* FAB */}
-      {!assinaturaAtiva && (
-        <TouchableOpacity
-          style={s.fab}
-          onPress={() => navigation.navigate('Assinatura')}
-          activeOpacity={0.9}
-        >
-          <Text style={s.fabIcon}>⚡</Text>
-          <Text style={s.fabText}>Ativar Plano</Text>
-        </TouchableOpacity>
-      )}
+{/* FAB - ASSINAR/UPGRADE */}
+{(planoAtual !== 'pro' && planoAtual !== 'elite') && (
+  <TouchableOpacity
+    style={s.fab}
+    onPress={() => navigation.navigate('Assinatura')}
+    activeOpacity={0.88}
+  >
+    <View style={s.fabGlow} />
+    <Text style={s.fabIcon}>
+      {planoAtual === 'essencial' ? '🚀' : '⭐'}
+    </Text>
+    <View>
+      <Text style={s.fabText}>
+        {planoAtual === 'essencial' ? 'Fazer upgrade' : 'Assinar agora'}
+      </Text>
+      <Text style={s.fabSub}>
+        {planoAtual === 'essencial'
+          ? 'Desbloqueie recursos Pro e Elite'
+          : 'Apareça para mais clientes'}
+      </Text>
+    </View>
+    <Text style={s.fabArrow}>→</Text>
+  </TouchableOpacity>
+)}
     </View>
   );
 }
@@ -503,7 +562,7 @@ const s = StyleSheet.create({
   abaText: { color: '#999', fontSize: 13, fontWeight: '600' },
   abaTextAtiva: { color: GOLD, fontWeight: '800' },
 
-  lista: { padding: 20, paddingBottom: 100 },
+  lista: { padding: 20, paddingBottom: 120 },
 
   planoCard: {
     borderRadius: 18, borderWidth: 1.5, padding: 16,
@@ -518,7 +577,6 @@ const s = StyleSheet.create({
   upgradePill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
   upgradePillText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
 
-  // ✅ Card de selo
   seloCard: {
     backgroundColor: '#FFF', borderRadius: 16, padding: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -535,6 +593,21 @@ const s = StyleSheet.create({
   periodoItem: { alignItems: 'center', flex: 1 },
   periodoLabel: { color: GOLD, fontSize: 10, fontWeight: '700', marginBottom: 4 },
   periodoValor: { color: '#1A1A1A', fontSize: 15, fontWeight: '800' },
+
+  // Botão Relatório no Faturamento
+  btnRelatorioFaturamento: {
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    paddingTop: 15,
+    alignItems: 'center',
+    backgroundColor: 'rgba(201,169,110,0.08)',
+    borderRadius: 12,
+    paddingVertical: 13,
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.25)',
+  },
+  btnRelatorioFaturamentoText: { color: GOLD, fontWeight: '800', fontSize: 13, letterSpacing: 0.3 },
 
   chartWrapper: { backgroundColor: '#1A1A1A', borderRadius: 24, padding: 20, marginBottom: 20 },
   chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 },
@@ -594,15 +667,39 @@ const s = StyleSheet.create({
   estabIcon: { borderRadius: 14, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   estabEmoji: { fontSize: 24 },
 
+  // FAB CHAMATIVO
   fab: {
-    position: 'absolute', bottom: 24, right: 20,
-    backgroundColor: GOLD, borderRadius: 30,
-    paddingHorizontal: 20, paddingVertical: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    elevation: 8, shadowColor: GOLD,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4, shadowRadius: 12,
+    position: 'absolute',
+    bottom: 28,
+    left: 20,
+    right: 20,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    elevation: 16,
+    shadowColor: GOLD,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.55,
+    shadowRadius: 20,
+    borderWidth: 1.5,
+    borderColor: GOLD,
   },
-  fabIcon: { fontSize: 16 },
-  fabText: { color: '#000', fontWeight: '900', fontSize: 14 },
+  fabGlow: {
+    position: 'absolute',
+    top: -3, left: -3, right: -3, bottom: -3,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.3)',
+  },
+  fabIcon: { fontSize: 22 },
+  fabText: { color: GOLD, fontWeight: '900', fontSize: 15, letterSpacing: 0.4 },
+  fabSub: { color: 'rgba(201,169,110,0.6)', fontSize: 10, fontWeight: '600', marginTop: 1 },
+  fabArrow: { color: GOLD, fontSize: 20, fontWeight: '800', marginLeft: 'auto' },
+
+  btnPdf: { backgroundColor: '#1A1A1A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: GOLD },
+  btnPdfText: { color: GOLD, fontSize: 12, fontWeight: '800' },
 });

@@ -969,6 +969,21 @@ if (!['authorized', 'paused', 'cancelled', 'pending'].includes(resp.data.status)
     res.sendStatus(500);
   }
 });
+
+export const cancelarAgendamento = functions.onCall(async (req) => {
+  if (!req.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
+
+  const { agendamentoId } = req.data;
+  const agendRef = db.collection('agendamentos').doc(agendamentoId);
+  const snap = await agendRef.get();
+
+  if (!snap.exists) throw new functions.HttpsError('not-found', 'Não encontrado');
+  if (snap.data()?.adminId !== req.auth.uid) throw new functions.HttpsError('permission-denied', 'Sem permissão');
+
+  await agendRef.update({ status: 'cancelado' });
+  return { ok: true };
+});
+
 // ─── LIMPEZA DE DADOS (CLEANUP) ──────────────────
 
 export const limpezaHardDelete = onSchedule("every day 05:00", async () => {

@@ -19,6 +19,10 @@ const db = admin.firestore();
 const messaging = admin.messaging();
 const REGION = "southamerica-east1";
 
+function getCollectionAgendamentos(dataBr: string): string {
+  const [dia, mes, ano] = dataBr.split("/");
+  return `agendamentos_${ano}_${mes.padStart(2, "0")}`;
+}
 function parseDataHoraBR(data: string, horario: string): Date {
   const dataStr = String(data || "").trim();
   const horarioStr = String(horario || "").trim();
@@ -106,89 +110,116 @@ async function enviarPush(token: string, titulo: string, corpo: string, data?: a
 
 // ─── 1. LEMBRETE OTIMIZADO ─────────
 export const lembreteAgendamento = onSchedule(
-  { region: REGION, schedule: "every 15 minutes" }, // 🔥 melhor que 1h
+  { region: REGION, schedule: "every 30 minutes" },
   async () => {
 
     const MAX_LOOPS = 20;
     const LIMIT = 200;
     const MAX_PUSH = 100;
 
-    let lastDoc = null;
-    let loops = 0;
+    // 🔥 pega coleções recentes (mês atual + anterior)
+    function getUltimasColecoes() {
+      const agora = new Date();
 
-    while (true) {
-      if (loops >= MAX_LOOPS) break;
-      loops++;
+      const atual = `${agora.getFullYear()}_${String(agora.getMonth() + 1).padStart(2, "0")}`;
 
-      let query = db.collection('agendamentos')
-        .where('notificarEm', '<=', admin.firestore.Timestamp.now())
-        .where('notificado', '==', false)
-        .limit(LIMIT);
+      const anteriorDate = new Date(agora.getFullYear(), agora.getMonth() - 1);
+      const anterior = `${anteriorDate.getFullYear()}_${String(anteriorDate.getMonth() + 1).padStart(2, "0")}`;
 
-      if (lastDoc) query = query.startAfter(lastDoc);
+      return [
+        `agendamentos_${atual}`,
+        `agendamentos_${anterior}`,
+      ];
+    }
 
-      const snap = await query.get();
+    const colecoes = getUltimasColecoes();
 
-      console.log(`📦 Loop ${loops} | Docs: ${snap.size}`);
+    for (const nomeColecao of colecoes) {
 
-      if (snap.empty) break;
+      let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+      let loops = 0;
 
-      const batch = db.batch();
-      const pushPromises: Promise<any>[] = [];
+      console.log(`📂 Processando coleção: ${nomeColecao}`);
 
-      for (const doc of snap.docs) {
-        const agend = doc.data();
+      while (true) {
+        if (loops >= MAX_LOOPS) break;
+        loops++;
 
-        const expira = new Date();
-        expira.setDate(expira.getDate() + 30);
+        let query = db.collection(nomeColecao)
+          .where('notificarEm', '<=', admin.firestore.Timestamp.now())
+          .where('notificado', '==', false)
+          .limit(LIMIT);
 
-        // 🔔 salvar notificação
-        const notifRef = db.collection('notificacoes').doc();
-        batch.set(notifRef, {
-  clienteId: agend.clienteUid,
-  titulo: '⏰ Seu horário está chegando!',
-  mensagem: `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
-  agendamentoId: doc.id, // Adicionado
-  lida: false,
-  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-  expiraEm: admin.firestore.Timestamp.fromDate(expira)
-});
+        if (lastDoc) query = query.startAfter(lastDoc);
 
-        // 📲 push
-        if (agend.fcmTokenCliente) {
-          pushPromises.push(
-            messaging.send({
-              token: agend.fcmTokenCliente,
-              notification: {
-                title: '⏰ Seu horário está chegando!',
-                body: 'Confira seu agendamento no app'
-              },
-              data: { tela: 'agendamento' }
-            })
-          );
+        const snap = await query.get();
+
+        console.log(`📦 [${nomeColecao}] Loop ${loops} | Docs: ${snap.size}`);
+
+        if (snap.empty) break;
+
+        const batch = db.batch();
+        const pushPromises: Promise<any>[] = [];
+
+        for (const doc of snap.docs) {
+          const agend = doc.data();
+
+          const expira = new Date();
+          expira.setDate(expira.getDate() + 30);
+
+          // 🔔 salvar notificação
+          const notifRef = db.collection('notificacoes').doc();
+          batch.set(notifRef, {
+            clienteId: agend.clienteUid,
+            titulo: '⏰ Seu horário está chegando!',
+            mensagem: `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
+            agendamentoId: doc.id,
+            collection: nomeColecao, // 🔥 MUITO IMPORTANTE
+            lida: false,
+            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            expiraEm: admin.firestore.Timestamp.fromDate(expira)
+          });
+
+          // 📲 push
+          if (agend.fcmTokenCliente) {
+            pushPromises.push(
+              messaging.send({
+                token: agend.fcmTokenCliente,
+                notification: {
+                  title: '⏰ Seu horário está chegando!',
+                  body: 'Confira seu agendamento no app'
+                },
+                data: {
+                  tela: 'agendamento',
+                  agendamentoId: doc.id,
+                  collection: nomeColecao // 🔥 essencial pro app abrir certo
+                }
+              })
+            );
+          }
+
+          // 🔁 controle de lote de push
+          if (pushPromises.length >= MAX_PUSH) {
+            await Promise.allSettled(pushPromises);
+            pushPromises.length = 0;
+          }
+
+          // ✅ marca como notificado
+          batch.update(doc.ref, { notificado: true });
         }
 
-        // 🔁 controle de lote de push
-        if (pushPromises.length >= MAX_PUSH) {
+        // 💾 salva tudo
+        await batch.commit();
+
+        // 🚀 envia restante dos push
+        if (pushPromises.length) {
           await Promise.allSettled(pushPromises);
-          pushPromises.length = 0;
         }
 
-        // ✅ marca como notificado
-        batch.update(doc.ref, { notificado: true });
+        // ⛔ paginação
+        if (snap.size < LIMIT) break;
+        lastDoc = snap.docs[snap.size - 1];
       }
-
-      // 💾 salva tudo
-      await batch.commit();
-
-      // 🚀 envia restante dos push
-      if (pushPromises.length) {
-        await Promise.allSettled(pushPromises);
-      }
-
-      // ⛔ paginação
-      if (snap.size < LIMIT) break;
-      lastDoc = snap.docs[snap.size - 1];
     }
 
     console.log("✅ Lembretes finalizados");
@@ -196,8 +227,11 @@ export const lembreteAgendamento = onSchedule(
 );
 // ─── 2. STATUS + RANKING JUNTO ─────────
 export const onAgendamentoUpdate = onDocumentUpdated(
-  { document: "agendamentos/{docId}", region: REGION },
+  { document: "{collectionId}/{docId}", region: REGION },
   async (event) => {
+
+    if (!event.params.collectionId.startsWith("agendamentos_")) return;
+
     const antes = event.data?.before.data();
     const depois = event.data?.after.data();
 
@@ -327,7 +361,7 @@ export const salvarEstabelecimento = functions.onCall(async (request) => {
   await estRef.set(payload, { merge: true });
   return { id: docId, ok: true };
 });
-// ─── 4. CRIAR AGENDAMENTO OTIMIZADO ─────────
+
 // ─── 4. CRIAR AGENDAMENTO OTIMIZADO ─────────
 export const criarAgendamento = functions.onCall(async (request) => {
 
@@ -341,7 +375,7 @@ export const criarAgendamento = functions.onCall(async (request) => {
   const clienteNome = String(data.clienteNome || "").trim();
   const dataBr = String(data.data || "").trim();
   const horario = String(data.horario || "").trim();
-
+const collectionName = getCollectionAgendamentos(dataBr);
   if (clienteNome.length > 100) {
     throw new functions.HttpsError('invalid-argument', 'Nome muito grande');
   }
@@ -355,12 +389,12 @@ export const criarAgendamento = functions.onCall(async (request) => {
   }
 
   // 🚨 ANTI-SPAM CLIENTE
-  const existe = await db.collection('agendamentos')
-    .where('clienteUid', '==', clienteUid)
-    .where('data', '==', dataBr)
-    .where('horario', '==', horario)
-    .limit(1)
-    .get();
+  const existe = await db.collection(collectionName)
+  .where('clienteUid', '==', clienteUid)
+  .where('data', '==', dataBr)
+  .where('horario', '==', horario)
+  .limit(1)
+  .get();
 
   if (!existe.empty) {
     throw new functions.HttpsError('already-exists', 'Você já tem um agendamento nesse horário');
@@ -391,12 +425,12 @@ export const criarAgendamento = functions.onCall(async (request) => {
   }
 
   // 🔥 NOVO: evita conflito no estabelecimento (leve e seguro)
-  const conflito = await db.collection('agendamentos')
-    .where('estabelecimentoId', '==', estabelecimentoId)
-    .where('data', '==', dataBr)
-    .where('horario', '==', horario)
-    .limit(1)
-    .get();
+  const conflito = await db.collection(collectionName)
+  .where('estabelecimentoId', '==', estabelecimentoId)
+  .where('data', '==', dataBr)
+  .where('horario', '==', horario)
+  .limit(1)
+  .get();
 
   if (!conflito.empty) {
     throw new functions.HttpsError('already-exists', 'Horário já ocupado');
@@ -408,7 +442,8 @@ export const criarAgendamento = functions.onCall(async (request) => {
   const notificarEm = admin.firestore.Timestamp.fromDate(notificarEmDate);
   const fcmTokenCliente = await getTokenCliente(clienteUid);
 
-  const agendRef = await db.collection('agendamentos').add({
+
+  const agendRef = await db.collection(collectionName).add({
     estabelecimentoId,
     estabelecimentoNome: est.nome || "Estabelecimento",
     adminId: est.adminId || null,
@@ -430,22 +465,42 @@ export const criarAgendamento = functions.onCall(async (request) => {
 });
 // ─── 5. STATUS MANUAL ─────────
 export const concluirAgendamento = functions.onCall(async (request) => {
-  if (!request.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
+  if (!request.auth) {
+    throw new functions.HttpsError('unauthenticated', 'Acesso negado');
+  }
 
-  const { agendamentoId } = request.data;
-  const agendRef = db.collection('agendamentos').doc(agendamentoId);
+  const { agendamentoId, data } = request.data;
+
+  if (!agendamentoId || !data) {
+    throw new functions.HttpsError('invalid-argument', 'Dados inválidos');
+  }
+
+  // 🔥 coleção dinâmica
+  const collectionName = getCollectionAgendamentos(data);
+  const agendRef = db.collection(collectionName).doc(agendamentoId);
+
   const snap = await agendRef.get();
 
   if (!snap.exists) {
     throw new functions.HttpsError('not-found', 'Agendamento não encontrado');
   }
 
-  // Validação: apenas o admin do estabelecimento pode concluir
-  if (snap.data()?.adminId !== request.auth.uid) {
-    throw new functions.HttpsError('permission-denied', 'Você não tem permissão');
+  const agend = snap.data();
+
+  // 🔒 só admin do estabelecimento pode concluir
+  if (agend?.adminId !== request.auth.uid) {
+    throw new functions.HttpsError('permission-denied', 'Sem permissão');
   }
 
-  await agendRef.update({ status: 'concluido' });
+  if (agend.status === 'concluido') {
+    return { ok: true }; // já está concluído
+  }
+
+  await agendRef.update({
+    status: 'concluido',
+    concluidoEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
   return { ok: true };
 });
 
@@ -987,39 +1042,105 @@ if (!['authorized', 'paused', 'cancelled', 'pending'].includes(resp.data.status)
 });
 
 export const cancelarAgendamento = functions.onCall(async (req) => {
-  if (!req.auth) throw new functions.HttpsError('unauthenticated', 'Acesso negado');
+  if (!req.auth) {
+    throw new functions.HttpsError('unauthenticated', 'Acesso negado');
+  }
 
-  const { agendamentoId } = req.data;
-  const agendRef = db.collection('agendamentos').doc(agendamentoId);
+  const { agendamentoId, data } = req.data;
+
+  if (!agendamentoId || !data) {
+    throw new functions.HttpsError('invalid-argument', 'Dados inválidos');
+  }
+
+  const collectionName = getCollectionAgendamentos(data);
+  const agendRef = db.collection(collectionName).doc(agendamentoId);
+
   const snap = await agendRef.get();
 
-  if (!snap.exists) throw new functions.HttpsError('not-found', 'Não encontrado');
-  if (snap.data()?.adminId !== req.auth.uid) throw new functions.HttpsError('permission-denied', 'Sem permissão');
+  if (!snap.exists) {
+    throw new functions.HttpsError('not-found', 'Agendamento não encontrado');
+  }
 
-  await agendRef.update({ status: 'cancelado' });
+  const agend = snap.data();
+
+  // 🔒 Permissão: admin OU cliente dono
+  const isAdmin = agend?.adminId === req.auth.uid;
+  const isCliente = agend?.clienteUid === req.auth.uid;
+
+  if (!isAdmin && !isCliente) {
+    throw new functions.HttpsError('permission-denied', 'Sem permissão');
+  }
+
+  if (agend.status === 'concluido') {
+    throw new functions.HttpsError('failed-precondition', 'Não pode cancelar concluído');
+  }
+
+  if (agend.status === 'cancelado') {
+    return { ok: true };
+  }
+
+  await agendRef.update({
+    status: 'cancelado',
+    canceladoEm: admin.firestore.FieldValue.serverTimestamp(),
+    canceladoPor: req.auth.uid,
+  });
+
   return { ok: true };
 });
-
 // ─── LIMPEZA DE DADOS (CLEANUP) ──────────────────
 
-export const limpezaHardDelete = onSchedule("every day 05:00", async () => {
-  const limite = new Date();
-  limite.setDate(limite.getDate() - 90);
-let loops = 0;
-const MAX_LOOPS = 20;
+export const limpezaHardDelete = onSchedule(
+  { region: REGION, schedule: "every day 05:00" },
+  async () => {
 
-while (true) {
-  if (loops++ >= MAX_LOOPS) break;
-  const snap = await db.collection('agendamentos')
-    .where('deletado', '==', true)
-    .where('deletadoEm', '<', limite)
-    .limit(500)
-    .get();
+    const limite = new Date();
+    limite.setDate(limite.getDate() - 90);
 
-  if (snap.empty) break;
+    const agora = new Date();
 
-  const batch = db.batch();
-  snap.docs.forEach(doc => batch.delete(doc.ref));
-  await batch.commit();
-}
-});
+    // 🔥 pega últimos 4 meses (seguro e eficiente)
+    function getColecoesParaLimpeza() {
+      const lista: string[] = [];
+
+      for (let i = 0; i < 4; i++) {
+        const d = new Date(agora.getFullYear(), agora.getMonth() - i);
+        const nome = `agendamentos_${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, "0")}`;
+        lista.push(nome);
+      }
+
+      return lista;
+    }
+
+    const colecoes = getColecoesParaLimpeza();
+
+    for (const collectionName of colecoes) {
+
+      let loops = 0;
+      const MAX_LOOPS = 20;
+
+      while (true) {
+        if (loops++ >= MAX_LOOPS) break;
+
+        const snap = await db.collection(collectionName)
+          .where('deletado', '==', true)
+          .where('deletadoEm', '<', limite)
+          .limit(500)
+          .get();
+
+        if (snap.empty) break;
+
+        const batch = db.batch();
+
+        snap.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+
+        await batch.commit();
+
+        if (snap.size < 500) break;
+      }
+    }
+
+    console.log("🧹 Limpeza concluída");
+  }
+);

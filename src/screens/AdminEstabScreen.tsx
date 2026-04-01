@@ -475,68 +475,77 @@ export default function AdminEstabScreen() {
               </Text>
               <Text style={s.mapHint}>Arraste o pino para ajustar a posição exata</Text>
 
-              <View style={s.mapCard}>
-                {coordsOk ? (
-                  <MapView
-                    ref={mapRef}
-                    style={s.map}
-                    provider={PROVIDER_GOOGLE}
-                    showsUserLocation={false}
-                    showsMyLocationButton={false}
-                    customMapStyle={[{ elementType: 'labels', stylers: [{ languageOverride: 'pt-BR' }] }]}
-                    region={{
-                      latitude: coords.lat,
-                      longitude: coords.lng,
-                      latitudeDelta: 0.005,
-                      longitudeDelta: 0.005,
-                    }}
-                  >
-                    {userLocation && (
-                      <Marker
-                        coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
-                        title="Você está aqui"
-                        pinColor="#2196F3"
-                      />
-                    )}
-                    <Marker
-                      coordinate={{ latitude: coords.lat, longitude: coords.lng }}
-                      draggable
-                      onDragEnd={(e) => setCoords({
-                        lat: e.nativeEvent.coordinate.latitude,
-                        lng: e.nativeEvent.coordinate.longitude,
-                      })}
-                      pinColor={cor}
-                      title={nome || "Estabelecimento"}
-                    />
-                  </MapView>
-                ) : (
-                  <View style={s.mapPlaceholder}>
-                    <Icon name="map-search" size={32} color="#333" />
-                    <Text style={s.mapPlaceholderText}>
-                      {buscandoEnd ? 'Buscando localização...' : 'Digite o endereço para ver no mapa'}
-                    </Text>
-                  </View>
-                )}
-              </View>
+     <View style={s.mapCard}>
+  {coordsOk ? (
+    <MapView
+      // A key dinâmica força o mapa a resetar a View nativa se o ID mudar,
+      // prevenindo o erro de "child already has a parent" (addView)
+      key={`map-${estabelecimentoId}-${coords.lat}`}
+      ref={mapRef}
+      style={s.map}
+      provider={PROVIDER_GOOGLE}
+      showsUserLocation={false}
+      showsMyLocationButton={false}
+      customMapStyle={[{ elementType: 'labels', stylers: [{ languageOverride: 'pt-BR' }] }]}
+      initialRegion={{
+        latitude: coords.lat,
+        longitude: coords.lng,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      }}
+    >
+      {userLocation && (
+        <Marker
+          key="user-location"
+          coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
+          title="Você está aqui"
+          pinColor="#2196F3"
+        />
+      )}
+      
+      <Marker
+        key={`marker-${estabelecimentoId}`}
+        coordinate={{ latitude: coords.lat, longitude: coords.lng }}
+        draggable
+        onDragEnd={(e) => setCoords({
+          lat: e.nativeEvent.coordinate.latitude,
+          lng: e.nativeEvent.coordinate.longitude,
+        })}
+        pinColor={cor}
+        // No Android, evite passar títulos que mudam muito rápido (como o 'nome' do input)
+        // para não bugar a View do callout nativo.
+        title="Local do Estabelecimento"
+      />
+    </MapView>
+  ) : (
+    <View style={s.mapPlaceholder}>
+      <Icon name="map-search" size={32} color="#333" />
+      <Text style={s.mapPlaceholderText}>
+        {buscandoEnd ? 'Buscando localização...' : 'Digite o endereço para ver no mapa'}
+      </Text>
+    </View>
+  )}
+</View>
 
-              {userLocation && (
-                <TouchableOpacity
-                  onPress={() => {
-                    setCoords(userLocation);
-                    setCoordsOk(true);
-                    mapRef.current?.animateToRegion({
-                      latitude: userLocation.lat,
-                      longitude: userLocation.lng,
-                      latitudeDelta: 0.003,
-                      longitudeDelta: 0.003,
-                    }, 600);
-                  }}
-                  style={[s.btnMinhaLoc, { borderColor: cor }]}
-                >
-                  <Icon name="crosshairs-gps" size={16} color={cor} style={{ marginRight: 8 }} />
-                  <Text style={[s.btnMinhaLocText, { color: cor }]}>Usar minha localização atual</Text>
-                </TouchableOpacity>
-              )}
+{userLocation && (
+  <TouchableOpacity
+    onPress={() => {
+      const loc = { lat: userLocation.lat, lng: userLocation.lng };
+      setCoords(loc);
+      setCoordsOk(true);
+      // O animateToRegion é seguro aqui pois é disparado por um evento de clique
+      mapRef.current?.animateToRegion({
+        ...loc,
+        latitudeDelta: 0.003,
+        longitudeDelta: 0.003,
+      }, 600);
+    }}
+    style={[s.btnMinhaLoc, { borderColor: cor }]}
+  >
+    <Icon name="crosshairs-gps" size={16} color={cor} style={{ marginRight: 8 }} />
+    <Text style={[s.btnMinhaLocText, { color: cor }]}>Usar minha localização atual</Text>
+  </TouchableOpacity>
+)}
             </View>
           </View>
         )}
@@ -712,82 +721,99 @@ export default function AdminEstabScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A0A' },
-  header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: '#121212', borderBottomWidth: 1, borderBottomColor: '#222' },
+  header: {
+    flexDirection: 'row', alignItems: 'center', padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    backgroundColor: '#111', borderBottomWidth: 1, borderColor: '#222'
+  },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#222', justifyContent: 'center', alignItems: 'center' },
-  headerTitleContainer: { flex: 1, paddingHorizontal: 15 },
-  headerLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1 },
-  headerTitle: { color: '#FFF', fontSize: 18, fontWeight: '800' },
-  saveBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12 },
-  saveBtnText: { color: '#111', fontWeight: '800' },
-  statsContainer: { paddingHorizontal: 20, marginTop: -20 },
-  statsInner: { backgroundColor: '#1A1A1A', borderRadius: 20, padding: 15, elevation: 10 },
-  statLabel: { color: '#666', fontSize: 10, fontWeight: '800' },
-  statValue: { fontSize: 16, fontWeight: '800' },
-  barContainer: { height: 6, flexDirection: 'row', backgroundColor: '#000', borderRadius: 3, marginVertical: 8, overflow: 'hidden' },
+  headerTitleContainer: { flex: 1, marginLeft: 15 },
+  headerLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#FFF' },
+  saveBtn: { paddingHorizontal: 20, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  saveBtnText: { color: '#000', fontWeight: 'bold', fontSize: 14 },
+  
+  statsContainer: { padding: 20 },
+  statsInner: { backgroundColor: '#111', padding: 15, borderRadius: 16, borderWidth: 1, borderColor: '#222' },
+  statLabel: { color: '#888', fontSize: 12 },
+  statValue: { fontSize: 18, fontWeight: 'bold' },
+  barContainer: { height: 8, flexDirection: 'row', backgroundColor: '#222', borderRadius: 4, marginVertical: 10, overflow: 'hidden' },
   bar: { height: '100%' },
-  tabsWrapper: { paddingVertical: 20 },
-  tabsContent: { paddingHorizontal: 20, gap: 10 },
-  tabItem: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#222' },
-  tabText: { color: '#888', fontWeight: '700' },
+  miniLabel: { fontSize: 10, color: '#666', textTransform: 'uppercase' },
+  
+  tabsWrapper: { height: 50, marginBottom: 10 },
+  tabsContent: { paddingHorizontal: 20, alignItems: 'center' },
+  tabItem: { paddingHorizontal: 20, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#333', marginRight: 10, justifyContent: 'center' },
+  tabText: { color: '#888', fontSize: 13, fontWeight: '600' },
+  
   body: { flex: 1, paddingHorizontal: 20 },
-  sectionTitle: { color: '#FFF', fontSize: 16, fontWeight: '800', marginBottom: 15, marginTop: 10 },
-  card: { backgroundColor: '#121212', borderRadius: 24, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: '#222' },
-  inputBox: { marginBottom: 18 },
-  inputLabel: { color: '#555', fontSize: 10, fontWeight: '800', marginBottom: 8 },
-  input: { backgroundColor: '#000', borderRadius: 15, padding: 15, color: '#FFF', fontSize: 15, borderWidth: 1, borderColor: '#1A1A1A' },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#FFF', marginTop: 25, marginBottom: 15 },
+  card: { backgroundColor: '#111', padding: 15, borderRadius: 20, borderWidth: 1, borderColor: '#222' },
   row: { flexDirection: 'row', alignItems: 'center' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  
   emojiContainer: { flex: 1 },
   emojiList: { marginTop: 10 },
-  emojiBtn: { width: 50, height: 50, borderRadius: 15, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  emojiTxt: { fontSize: 24 },
-  colorPreview: { width: 45, height: 45, borderRadius: 22.5, borderWidth: 3, borderColor: '#FFF' },
-  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 15 },
-  colorCircle: { width: 35, height: 35, borderRadius: 10 },
-  colorActive: { borderWidth: 3, borderColor: '#FFF' },
-  mixerContainer: { backgroundColor: '#000', padding: 15, borderRadius: 15 },
+  emojiBtn: { width: 45, height: 45, borderRadius: 12, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', marginRight: 8 },
+  emojiTxt: { fontSize: 20 },
+  colorPreview: { width: 60, height: 60, borderRadius: 30, borderWidth: 4, borderColor: '#222' },
+  
+  mixerContainer: { marginTop: 15 },
   mixerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
-  mixerLabel: { width: 20, fontWeight: 'bold' },
-  mixerValue: { width: 30, color: '#FFF', textAlign: 'right', fontSize: 12 },
-  photoRow: { flexDirection: 'row', marginBottom: 20 },
-  photoBox: { width: 100, height: 100, borderRadius: 20, backgroundColor: '#121212', borderWidth: 1, borderColor: '#222', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  photoAddContainer: { alignItems: 'center', gap: 4 },
+  mixerLabel: { width: 20, fontWeight: 'bold', fontSize: 14 },
+  mixerValue: { width: 35, color: '#FFF', textAlign: 'right', fontSize: 12 },
+  
+  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 20, gap: 10 },
+  colorCircle: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: 'transparent' },
+  colorActive: { borderColor: '#FFF', scale: 1.1 },
+  
+  photoRow: { flexDirection: 'row', marginBottom: 10 },
+  photoBox: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#111', borderWidth: 1, borderColor: '#333', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
   imgFill: { width: '100%', height: '100%' },
-  photoAdd: { color: '#555', fontSize: 10, fontWeight: '700' },
+  photoAddContainer: { alignItems: 'center' },
+  photoAdd: { color: '#555', fontSize: 10, marginTop: 4, fontWeight: 'bold' },
+  
+  inputBox: { marginBottom: 15 },
+  inputLabel: { color: '#666', fontSize: 10, fontWeight: 'bold', marginBottom: 8, letterSpacing: 0.5 },
+  input: { backgroundColor: '#1A1A1A', borderRadius: 12, height: 50, paddingHorizontal: 15, color: '#FFF', fontSize: 15, borderWidth: 1, borderColor: '#222' },
+  
   typeList: { marginBottom: 20 },
-  typeChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#222', marginRight: 8 },
-  typeChipTxt: { color: '#666', fontSize: 12 },
-  mapHint: { color: '#444', fontSize: 11, marginBottom: 10 },
-  mapCard: { height: 200, borderRadius: 20, overflow: 'hidden', backgroundColor: '#111', borderWidth: 1, borderColor: '#222' },
-  map: { flex: 1 },
-  mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  mapPlaceholderText: { color: '#444', fontSize: 12 },
-  btnMinhaLoc: { marginTop: 10, padding: 12, borderRadius: 15, borderWidth: 1, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
-  btnMinhaLocText: { fontWeight: '700', fontSize: 12 },
-  btnAdd: { padding: 15, borderRadius: 15, borderWidth: 1, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
-  btnAddText: { fontWeight: '800' },
-  itemCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#121212', borderRadius: 20, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#1A1A1A' },
-  itemThumb: { width: 50, height: 50, borderRadius: 12, marginRight: 12, overflow: 'hidden' },
-  itemInfo: { flex: 1 },
-  itemTitle: { color: '#FFF', fontWeight: '700', fontSize: 15 },
+  typeChip: { paddingHorizontal: 15, height: 38, borderRadius: 19, borderWidth: 1, borderColor: '#333', marginRight: 8, justifyContent: 'center' },
+  typeChipTxt: { color: '#888', fontSize: 12 },
+  
+  mapCard: { height: 200, borderRadius: 20, overflow: 'hidden', backgroundColor: '#111', borderWidth: 1, borderColor: '#222', marginTop: 10 },
+  map: { width: '100%', height: '100%' },
+  mapHint: { color: '#555', fontSize: 11, marginBottom: 5 },
+  mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapPlaceholderText: { color: '#444', fontSize: 12, marginTop: 10 },
+  btnMinhaLoc: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 45, borderRadius: 12, borderWidth: 1, marginTop: 15 },
+  btnMinhaLocText: { fontWeight: 'bold', fontSize: 13 },
+  
+  nsFotoBox: { width: 80, height: 80, borderRadius: 15, backgroundColor: '#1A1A1A', borderWidth: 1, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  btnAdd: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 45, borderRadius: 12, borderWidth: 1 },
+  btnAddText: { fontWeight: 'bold', fontSize: 14 },
+  
+  itemCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111', padding: 12, borderRadius: 16, marginTop: 10, borderWidth: 1, borderColor: '#222' },
+  itemThumb: { width: 50, height: 50, borderRadius: 10 },
+  itemInfo: { flex: 1, marginLeft: 12 },
+  itemTitle: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
   itemSub: { color: '#666', fontSize: 12, marginTop: 2 },
-  itemRemove: { padding: 10, marginLeft: 5 },
-  horariosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
-  timeText: { color: '#FFF', fontWeight: '700', fontSize: 13 },
-  miniLabel: { color: '#444', fontSize: 9, fontWeight: '800', marginBottom: 4 },
-  emptyContainer: { alignItems: 'center', marginTop: 60, gap: 12 },
-  emptyText: { color: '#444', textAlign: 'center', fontSize: 14 },
-  agendCard: { backgroundColor: '#121212', borderRadius: 20, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: '#222' },
+  itemRemove: { padding: 8, marginLeft: 10 },
+  
+  horariosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 20 },
+  timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, height: 36, borderRadius: 10, borderWidth: 1 },
+  timeText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
+  
+  emptyContainer: { alignItems: 'center', marginTop: 100 },
+  emptyText: { color: '#444', marginTop: 15, fontSize: 14 },
+  agendCard: { backgroundColor: '#111', padding: 15, borderRadius: 20, marginBottom: 12, borderWidth: 1, borderColor: '#222' },
   agendHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
-  agendClient: { color: '#FFF', fontWeight: '800', fontSize: 16 },
-  agendPrice: { fontWeight: '800' },
-  agendServ: { color: '#888', fontSize: 14, marginBottom: 12 },
+  agendClient: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  agendPrice: { fontWeight: 'bold', fontSize: 16 },
+  agendServ: { color: '#888', fontSize: 14, marginBottom: 10 },
   agendMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   agendDateRow: { flexDirection: 'row', alignItems: 'center' },
-  agendDate: { color: '#666', fontSize: 12, fontWeight: '600' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  statusTxt: { color: '#FFF', fontSize: 9, fontWeight: '900' },
-  actionBtn: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
-  nsFotoBox: { width: 80, height: 80, borderRadius: 15, backgroundColor: '#000', borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  agendDate: { color: '#666', fontSize: 12 },
+  statusBadge: { paddingHorizontal: 10, height: 22, borderRadius: 11, justifyContent: 'center' },
+  statusTxt: { color: '#FFF', fontSize: 9, fontWeight: 'bold' },
+  actionBtn: { flex: 1, height: 40, borderRadius: 10, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }
 });

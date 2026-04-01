@@ -5,7 +5,7 @@ import {
   Dimensions, TextInput, ScrollView, FlatList,
   Animated, KeyboardAvoidingView, Platform
 } from "react-native";
-import { launchImageLibrary } from "react-native-image-picker";
+import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 import storage from "@react-native-firebase/storage";
 import firestore from "@react-native-firebase/firestore";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -63,6 +63,24 @@ export default function PostarStory() {
       useNativeDriver: false,
     }).start();
   }, [uploadProgress]);
+
+  const abrirCamera = async () => {
+    const res = await launchCamera({
+      mediaType: "mixed",
+      quality: 0.85,
+      videoQuality: 'high',
+      saveToPhotos: true,
+    });
+    if (res.assets && res.assets.length > 0) {
+      const nova: MediaItem = {
+        uri: res.assets[0].uri || '',
+        type: res.assets[0].type?.includes('video') ? 'video' : 'image',
+        caption: '',
+      };
+      setMidias(prev => [...prev, nova].slice(0, 10));
+      if (midias.length === 0) setIndexAtivo(0);
+    }
+  };
 
   const escolherMidias = async () => {
     const res = await launchImageLibrary({
@@ -148,7 +166,6 @@ export default function PostarStory() {
   const midiaAtiva = midias[indexAtivo];
 
   return (
-    // ✅ View simples com paddingTop manual — resolve o botão ✕ coberto
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A0A" />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -243,9 +260,17 @@ export default function PostarStory() {
                 </View>
                 <Text style={s.emptyTitle}>Adicionar mídia</Text>
                 <Text style={s.emptySub}>Fotos e vídeos da galeria</Text>
-                <View style={s.emptyBtn}>
-                  <Text style={s.emptyBtnText}>+ Selecionar</Text>
+                
+                {/* BOTÕES DE AÇÃO */}
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
+                  <TouchableOpacity style={s.emptyBtn} onPress={escolherMidias}>
+                    <Text style={s.emptyBtnText}>+ Galeria</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.emptyBtn, { backgroundColor: '#FFF' }]} onPress={abrirCamera}>
+                    <Text style={[s.emptyBtnText, { color: '#000' }]}>📸 Câmera</Text>
+                  </TouchableOpacity>
                 </View>
+
               </View>
             )}
           </TouchableOpacity>
@@ -345,7 +370,6 @@ const GOLD = '#C9A96E';
 const GREEN = '#4CAF50';
 
 const s = StyleSheet.create({
-  // ✅ paddingTop resolve o ✕ coberto pela StatusBar no Android
   container: {
     flex: 1,
     backgroundColor: "#0A0A0A",
@@ -396,7 +420,7 @@ const s = StyleSheet.create({
   emptyIconWrap: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   emptyTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', marginBottom: 6 },
   emptySub: { color: '#555', fontSize: 14, marginBottom: 20 },
-  emptyBtn: { backgroundColor: GOLD, paddingHorizontal: 28, paddingVertical: 14, borderRadius: 16 },
+  emptyBtn: { backgroundColor: GOLD, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 16 },
   emptyBtnText: { color: '#000', fontWeight: '800', fontSize: 15 },
   captionWrap: { marginHorizontal: 16, marginTop: 14 },
   captionLabel: { color: GOLD, fontSize: 10, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8 },

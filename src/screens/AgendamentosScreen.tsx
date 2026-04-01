@@ -38,9 +38,11 @@ export default function AgendamentosScreen() {
       .onSnapshot(
         snap => {
           if (!snap) { setLoading(false); return; }
-          const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[];
+          const lista = snap.docs
+  .map(d => ({ id: d.id, ...d.data() }))
+  .filter(d => !d.deletado) as Agendamento[]; // Ignora os marcados para exclusão
           lista.sort((a, b) => {
-            const da = (a.criadoEm as any)?.seconds || 0;
+            const da = a.criadoEm?.toDate?.().getTime() || 0;
             const db = (b.criadoEm as any)?.seconds || 0;
             return db - da;
           });
@@ -192,11 +194,19 @@ export default function AgendamentosScreen() {
 
           return (
             <View style={[s.card, { borderLeftColor: st.cor }]}>
-              <View style={s.cardConteudo}>
-                {/* Foto/Ícone à esquerda */}
-                <View style={s.cardImagemLateral}>
-                   <Text style={s.emojiLateral}>🏢</Text>
-                </View>
+  <View style={s.cardConteudo}>
+    {/* Foto Real ou Emoji de fallback */}
+    <View style={s.cardImagemLateral}>
+      {item.estabelecimentoFoto ? (
+        <Image 
+          source={{ uri: item.estabelecimentoFoto }} 
+          style={s.fotoReal} 
+          resizeMode="cover"
+        />
+      ) : (
+        <Text style={s.emojiLateral}>🏢</Text>
+      )}
+    </View>
 
                 {/* Info Central */}
                 <View style={s.cardCorpo}>
@@ -302,4 +312,30 @@ const s = StyleSheet.create({
   emptySub: { fontSize: 13, color: '#aaa', marginBottom: 4, textAlign: 'center' },
   btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 13, marginTop: 16 },
   btnPrimarioText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+cardImagemLateral: { 
+    width: 55, 
+    height: 55, 
+    borderRadius: 12, 
+    backgroundColor: '#F0F0F0', // Fundo neutro para fotos com transparência
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: 12,
+    overflow: 'hidden', // Importante para a imagem respeitar o borderRadidus
+    borderWidth: 1,
+    borderColor: '#EAEAEA'
+  },
+  fotoReal: {
+    width: '100%',
+    height: '100%',
+  },
+  emojiLateral: { 
+    fontSize: 26 
+  },
+  // Dica: Ajuste o dourado para um tom mais "Premium"
+  headerSub: { 
+    color: '#D4AF37', // Dourado Metálico clássico
+    fontSize: 10, 
+    letterSpacing: 1.5, 
+    fontWeight: '700' 
+  },
 });

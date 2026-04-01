@@ -14,6 +14,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Share from 'react-native-share';
 import Video from 'react-native-video';
 
+// Importação dos ícones (Certifique-se de ter instalado o react-native-vector-icons)
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import Feather from 'react-native-vector-icons/Feather';
+
 const { width, height } = Dimensions.get("window");
 
 export default function StoryView() {
@@ -42,26 +46,22 @@ export default function StoryView() {
   const isPaused = useRef(false);
   const pausedValue = useRef(0);
 
-  // Por isso — separa o checkIfLiked em useEffect próprio com story.id:
-// Por isso — separa o checkIfLiked em useEffect próprio com story.id:
-useEffect(() => {
-  if (!story) return;
-  progress.setValue(0);
-  pausedValue.current = 0;
-  registrarView();
-  onVisto?.(story.id);
-  if (story.type !== 'video') {
-    startAnimation(0, 5000);
-  }
-  return () => progress.stopAnimation();
-}, [index]);
+  useEffect(() => {
+    if (!story) return;
+    progress.setValue(0);
+    pausedValue.current = 0;
+    registrarView();
+    onVisto?.(story.id);
+    if (story.type !== 'video') {
+      startAnimation(0, 5000);
+    }
+    return () => progress.stopAnimation();
+  }, [index]);
 
-// ✅ useEffect separado — roda sempre que story.id mudar E ao montar
-useEffect(() => {
-  if (!story?.id || !user) return;
-  setIsLiked(false); // reseta antes de buscar
-  checkIfLiked();
-}, [story?.id, user?.uid]); // ✅ depende do id real, não do index
+  useEffect(() => {
+    if (!story?.id || !user) return;
+    checkIfLiked();
+  }, [story?.id, user?.uid]);
 
   function startAnimation(resumeValue = 0, duration = 5000) {
     progress.setValue(resumeValue);
@@ -92,35 +92,25 @@ useEffect(() => {
       const viewId = `${story.id}_${user.uid}`;
       const viewRef = doc(firestore(), "storyViews", viewId);
       const docView = await getDoc(viewRef);
-
       if (!docView.exists()) {
         await setDoc(viewRef, {
           storyId: story.id,
           userId: user.uid,
           timestamp: serverTimestamp()
         });
-        await updateDoc(doc(firestore(), "stories", story.id), {
-          views: increment(1),
-        });
+        await updateDoc(doc(firestore(), "stories", story.id), { views: increment(1) });
       }
-    } catch (e) {
-      console.log("Erro ao registrar view:", e);
-    }
+    } catch (e) { console.log("Erro view:", e); }
   }
 
   async function checkIfLiked() {
-  if (!story?.id || !user) return;
-  try {
-    const likeId = `${story.id}_${user.uid}`;
-    const likeRef = doc(firestore(), "storyLikes", likeId);
-    const snap = await getDoc(likeRef);
-    console.log('checkIfLiked:', likeId, 'existe:', snap.exists()); // ✅ debug
-    setIsLiked(snap.exists());
-  } catch (e) {
-    console.log("Erro ao checar like:", e);
-    setIsLiked(false);
+    if (!story?.id || !user) return;
+    try {
+      const likeId = `${story.id}_${user.uid}`;
+      const snap = await getDoc(doc(firestore(), "storyLikes", likeId));
+      setIsLiked(snap.exists());
+    } catch (e) { setIsLiked(false); }
   }
-}
 
   async function curtir() {
     if (!story?.id || !user) return;
@@ -133,7 +123,6 @@ useEffect(() => {
     ]).start();
 
     setIsLiked(novoEstado);
-
     const storyRef = doc(firestore(), "stories", story.id);
     const likeRef = doc(firestore(), "storyLikes", `${story.id}_${user.uid}`);
 
@@ -150,10 +139,7 @@ useEffect(() => {
         await deleteDoc(likeRef);
         await updateDoc(storyRef, { likesCount: increment(-1) });
       }
-    } catch (e) {
-      console.log("Erro ao processar like:", e);
-      setIsLiked(estavaCurtido);
-    }
+    } catch (e) { setIsLiked(estavaCurtido); }
   }
 
   async function compartilhar() {
@@ -164,7 +150,7 @@ useEffect(() => {
         url: story.url || story.imagem,
         message: `Olha o que vi no perfil de ${story.nome}!`
       });
-    } catch { console.log("Compartilhar cancelado"); }
+    } catch { console.log("Cancelado"); }
     handlePressOut();
   }
 
@@ -176,18 +162,10 @@ useEffect(() => {
     try {
       const storyData = await getDoc(doc(firestore(), "stories", story.id));
       setTotalViews(storyData.data()?.views || 0);
-
-      const likesSnap = await getDocs(
-        query(collection(firestore(), "storyLikes"), where("storyId", "==", story.id))
-      );
+      const likesSnap = await getDocs(query(collection(firestore(), "storyLikes"), where("storyId", "==", story.id)));
       setQuemCurtiu(likesSnap.docs.map(d => d.data()));
-
       Animated.spring(statsAnim, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
-    } catch (e) {
-      console.log("Erro stats:", e);
-    } finally {
-      setLoadingStats(false);
-    }
+    } catch (e) { console.log(e); } finally { setLoadingStats(false); }
   }
 
   function fecharStats() {
@@ -197,9 +175,19 @@ useEffect(() => {
     });
   }
 
+  // Correção do Erro de navegação:
+  function fecharStories() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      // Caso não tenha para onde voltar, redireciona para a Home ou tela principal
+      navigation.navigate("Home"); 
+    }
+  }
+
   function proximo() {
     if (index + 1 >= stories.length) {
-      navigation.goBack();
+      fecharStories();
     } else {
       setIndex(index + 1);
     }
@@ -240,11 +228,7 @@ useEffect(() => {
             <View key={i} style={s.progressBg}>
               <Animated.View style={[
                 s.progressFill,
-                {
-                  width: i === index
-                    ? progress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] })
-                    : i < index ? "100%" : "0%"
-                }
+                { width: i === index ? progress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }) : i < index ? "100%" : "0%" }
               ]} />
             </View>
           ))}
@@ -252,43 +236,35 @@ useEffect(() => {
         <View style={s.headerInfo}>
           <Image source={{ uri: story.avatar }} style={s.avatarImg} />
           <Text style={s.nomeEstab}>{story.nome}</Text>
-          <TouchableOpacity style={{ padding: 10 }} onPress={() => navigation.goBack()}>
-            <Text style={s.closeText}>✕</Text>
+          <TouchableOpacity style={{ padding: 10 }} onPress={fecharStories}>
+            <Ionicons name="close" size={30} color="#FFF" />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
 
-      {/* ✅ touchLayer não cobre o footer */}
       <View style={s.touchLayer}>
         <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut} onPress={voltar} style={s.touchSide} />
         <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut} onPress={proximo} onLongPress={abrirStats} style={s.touchSide} />
       </View>
 
-      {/* ✅ footer com elevation para Android */}
       <View style={s.footer}>
-        <TouchableOpacity
-          onPress={curtir}
-          style={s.likeBtn}
-          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-        >
-          <Animated.Text style={[
-            s.footerIcon,
-            { transform: [{ scale: likeAnim }], color: isLiked ? '#FF2D55' : '#FFF' }
-          ]}>
-            {isLiked ? '❤️' : '🤍'}
-          </Animated.Text>
+        <TouchableOpacity onPress={curtir} style={s.likeBtn} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}>
+          <Animated.View style={{ transform: [{ scale: likeAnim }] }}>
+            <Ionicons 
+                name={isLiked ? "heart" : "heart-outline"} 
+                size={32} 
+                color={isLiked ? '#FF2D55' : '#FFF'} 
+            />
+          </Animated.View>
         </TouchableOpacity>
-        <TouchableOpacity
-          onPress={compartilhar}
-          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-        >
-          <Text style={s.footerIcon}>✈️</Text>
+        <TouchableOpacity onPress={compartilhar} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}>
+          <Feather name="send" size={28} color="#FFF" style={{ marginLeft: 20 }} />
         </TouchableOpacity>
       </View>
 
       {isAdmin && (
         <TouchableOpacity style={s.swipeUpIndicator} onPress={abrirStats}>
-          <Text style={s.swipeText}>▲</Text>
+          <Ionicons name="chevron-up" size={18} color="#FFF" />
           <Text style={s.swipeLabel}>Atividade</Text>
         </TouchableOpacity>
       )}
@@ -302,7 +278,7 @@ useEffect(() => {
             <View style={s.statsHeader}>
               <View style={s.statBox}>
                 <Text style={s.statValue}>{totalViews}</Text>
-                <Text style={s.statLabel}>Visualizações 👁️</Text>
+                <Text style={s.statLabel}>Vistas 👁️</Text>
               </View>
               <View style={s.statBox}>
                 <Text style={s.statValue}>{quemCurtiu.length}</Text>
@@ -310,13 +286,13 @@ useEffect(() => {
               </View>
             </View>
             <ScrollView contentContainerStyle={{ padding: 20 }}>
-              <Text style={s.sectionTitle}>Pessoas que curtiram</Text>
+              <Text style={s.sectionTitle}>Interações</Text>
               {loadingStats ? <ActivityIndicator color="#C9A96E" /> : (
                 quemCurtiu.length === 0
-                  ? <Text style={s.emptyText}>Ninguém curtiu ainda.</Text>
+                  ? <Text style={s.emptyText}>Sem curtidas.</Text>
                   : quemCurtiu.map((item, i) => (
                     <View key={i} style={s.userRow}>
-                      <View style={s.userAvatar}><Text>👤</Text></View>
+                      <View style={s.userAvatar}><Feather name="user" size={18} color="#888" /></View>
                       <Text style={s.userName}>{item.userName || "Usuário"}</Text>
                     </View>
                   ))
@@ -340,35 +316,19 @@ const s = StyleSheet.create({
   headerInfo: { flexDirection: 'row', alignItems: 'center', padding: 15 },
   avatarImg: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#333' },
   nomeEstab: { color: '#fff', marginLeft: 10, fontWeight: '700', flex: 1 },
-  closeText: { color: '#fff', fontSize: 24, fontWeight: '300' },
-  // ✅ touchLayer para antes do footer
-  touchLayer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 100,
-    flexDirection: "row",
-    zIndex: 10,
-  },
+  touchLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 100, flexDirection: "row", zIndex: 10 },
   touchSide: { flex: 1 },
-  // ✅ footer com elevation para Android
   footer: {
     position: "absolute",
     bottom: 40,
     right: 20,
     flexDirection: 'row',
+    alignItems: 'center',
     zIndex: 50,
     elevation: 50,
   },
-  // ✅ botão de like com zIndex próprio
-  likeBtn: {
-    zIndex: 50,
-    elevation: 50,
-  },
-  footerIcon: { fontSize: 30, marginLeft: 20 },
+  likeBtn: { zIndex: 50, elevation: 50 },
   swipeUpIndicator: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center', zIndex: 30 },
-  swipeText: { color: '#fff', fontSize: 12 },
   swipeLabel: { color: '#fff', fontSize: 10, fontWeight: '700' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   statsSheet: { backgroundColor: '#1A1A1A', height: height * 0.65, borderTopLeftRadius: 20, borderTopRightRadius: 20 },

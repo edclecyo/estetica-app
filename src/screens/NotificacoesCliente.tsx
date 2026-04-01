@@ -1,154 +1,185 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, SafeAreaView } from 'react-native';
+import { 
+  View, Text, FlatList, StyleSheet, TouchableOpacity, 
+  ActivityIndicator, SafeAreaView, StatusBar 
+} from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 
 export default function NotificacoesClienteScreen() {
   const { user } = useAuth();
+  const navigation = useNavigation<any>();
   const [notificacoes, setNotificacoes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [errorPermission, setErrorPermission] = useState(false);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setLoading(false);
-      return;
-    }
+    if (!user?.uid) return;
 
     const unsub = firestore()
       .collection('notificacoes')
       .where('clienteId', '==', user.uid)
       .orderBy('criadoEm', 'desc')
-      .onSnapshot(
-        (snap) => {
-          if (snap) {
-            const data = snap.docs.map(d => ({
-              id: d.id,
-              ...d.data(),
-            }));
-
-            // ✅ evita re-render desnecessário
-            setNotificacoes(prev => {
-              const same = JSON.stringify(prev) === JSON.stringify(data);
-              return same ? prev : data;
-            });
-
-            setErrorPermission(false);
-          }
-          setLoading(false);
-        },
-        (error) => {
-          console.log("Erro Firestore Notificações:", error.message);
-
-          // ✅ log específico de índice (ajuda MUITO em produção)
-          if (error.code === 'failed-precondition') {
-            console.log('Índice necessário para notificações (clienteId + criadoEm)');
-          }
-
-          setNotificacoes(prev => {
-            if (prev.length === 0) {
-              setErrorPermission(true);
-            }
-            return prev;
-          });
-
-          setLoading(false);
+      .onSnapshot(snap => {
+        if (snap) {
+          const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setNotificacoes(data);
         }
-      );
+        setLoading(false);
+      }, () => setLoading(false));
 
     return () => unsub();
   }, [user]);
 
   const marcarComoLida = async (id: string, lida: boolean) => {
     if (lida) return;
-
-    // ✅ atualização otimista (UX mais rápido)
-    setNotificacoes(prev =>
-      prev.map(n => n.id === id ? { ...n, lida: true } : n)
-    );
-
     try {
       await firestore().collection('notificacoes').doc(id).update({ lida: true });
-    } catch (e) {
-      console.log("Erro ao atualizar status:", e);
-    }
+    } catch (e) { console.log(e); }
   };
 
-  if (loading) {
+  const renderItem = ({ item }: { item: any }) => {
+    // Lógica para identificar o tipo de notificação
+    const eConcluido = item.titulo?.toLowerCase().includes('concluído');
+    const eVaga = item.titulo?.toLowerCase().includes('vaga') || item.mensagem?.toLowerCase().includes('disponível');
+
     return (
-      <View style={[styles.container, { justifyContent: 'center' }]}>
-        <ActivityIndicator size="large" color="#C9A96E" />
-      </View>
+      <TouchableOpacity 
+        activeOpacity={0.9}
+        onPress={() => marcarComoLida(item.id, item.lida)}
+        style={[styles.card, !item.lida && styles.nLida]}
+      >
+        <View style={styles.cardHeader}>
+          <View style={styles.iconArea}>
+            <Text style={styles.iconText}>{eConcluido ? '⭐' : eVaga ? '📅' : '🔔'}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.notifTitulo}>{item.titulo}</Text>
+            <Text style={styles.notifData}>
+              {item.criadoEm?.toDate() ? item.criadoEm.toDate().toLocaleDateString('pt-BR') : 'Agora'}
+            </Text>
+          </View>
+          {!item.lida && <View style={styles.badgeNovo}><Text style={styles.badgeTexto}>NOVO</Text></View>}
+        </View>
+
+        <Text style={styles.notifMsg}>{item.mensagem}</Text>
+
+        {/* BOTÕES DE AÇÃO DINÂMICOS */}
+        <View style={styles.footerAcao}>
+          {eConcluido && (
+            <TouchableOpacity 
+              style={styles.btnAvaliar}
+              onPress={() => {
+                marcarComoLida(item.id, item.lida);
+                navigation.navigate('AvaliarScreen', { 
+                  agendamentoId: item.agendamentoId, // A Function deve salvar isso na notificação
+                  estabelecimentoNome: item.estabelecimentoNome 
+                });
+              }}
+            >
+              <Text style={styles.btnAvaliarText}>Avaliar Agora ⭐</Text>
+            </TouchableOpacity>
+          )}
+
+          {eVaga && (
+            <TouchableOpacity 
+              style={styles.btnAgendar}
+              onPress={() => {
+                marcarComoLida(item.id, item.lida);
+                navigation.navigate('HomeTabs', { screen: 'Explorar' });
+              }}
+            >
+              <Text style={styles.btnAgendarText}>Ver Horários Disponíveis 📅</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </TouchableOpacity>
     );
-  }
+  };
+
+  if (loading) return (
+    <View style={styles.center}><ActivityIndicator size="large" color="#D4AF37" /></View>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.titulo}>Suas Notificações</Text>
-      
-      {errorPermission && (
-        <View style={styles.errorBox}>
-          <Text style={styles.errorText}>
-            Opa! Ainda estamos configurando o acesso às suas notificações. 
-            Tente novamente em alguns minutos.
-          </Text>
-        </View>
-      )}
+      <StatusBar barStyle="dark-content" />
+      <View style={styles.header}>
+        <Text style={styles.titulo}>Notificações</Text>
+        <View style={styles.linhaDourada} />
+      </View>
 
       <FlatList
         data={notificacoes}
         keyExtractor={item => item.id}
-        contentContainerStyle={{ paddingBottom: 40 }}
-        showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => (
-          <TouchableOpacity 
-            activeOpacity={0.7}
-            onPress={() => marcarComoLida(item.id, item.lida)}
-            style={[styles.card, !item.lida && styles.nLida]}
-          >
-            <View style={styles.row}>
-              <Text style={styles.notifTitulo}>{item.titulo || 'Notificação'}</Text>
-              {!item.lida && <View style={styles.pontoLida} />}
-            </View>
-            
-            <Text style={styles.notifMsg}>{item.mensagem}</Text>
-            
-            <Text style={styles.notifData}>
-              {item.criadoEm?.toDate 
-                ? item.criadoEm.toDate().toLocaleString('pt-BR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })
-                : 'Processando...'}
-            </Text>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={!errorPermission && (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📭</Text>
-            <Text style={styles.empty}>Nenhuma notificação por enquanto.</Text>
-          </View>
-        )}
+        renderItem={renderItem}
+        contentContainerStyle={{ padding: 20 }}
+        ListEmptyComponent={<Text style={styles.empty}>Tudo limpo por aqui! 🕊️</Text>}
       />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA', paddingHorizontal: 20 },
-  titulo: { fontSize: 24, fontWeight: '800', color: '#1A1A1A', marginBottom: 20, marginTop: 20 },
-  card: { backgroundColor: '#FFF', padding: 16, borderRadius: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
-  nLida: { borderLeftWidth: 5, borderLeftColor: '#C9A96E', backgroundColor: '#FFFDF9' },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 },
-  notifTitulo: { fontWeight: '700', fontSize: 16, color: '#1A1A1A' },
-  pontoLida: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#C9A96E' },
-  notifMsg: { color: '#555', fontSize: 14, lineHeight: 20 },
-  notifData: { color: '#AAA', fontSize: 11, marginTop: 10, fontWeight: '600' },
-  emptyContainer: { alignItems: 'center', marginTop: 100 },
-  emptyIcon: { fontSize: 50, marginBottom: 10 },
-  empty: { textAlign: 'center', color: '#999', fontSize: 16 },
-  errorBox: { backgroundColor: '#FFEBEB', padding: 15, borderRadius: 12, marginBottom: 20 },
-  errorText: { color: '#D32F2F', fontSize: 13, textAlign: 'center' }
+  container: { flex: 1, backgroundColor: '#FBFBFC' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { paddingHorizontal: 25, marginTop: 20, marginBottom: 10 },
+  titulo: { fontSize: 28, fontWeight: '900', color: '#1A1A1A' },
+  linhaDourada: { width: 40, height: 4, backgroundColor: '#D4AF37', marginTop: 5, borderRadius: 2 },
+  
+  card: { 
+    backgroundColor: '#FFF', 
+    borderRadius: 20, 
+    padding: 18, 
+    marginBottom: 15, 
+    borderWidth: 1, 
+    borderColor: '#F0F0F0',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+  },
+  nLida: { 
+    borderColor: 'rgba(212, 175, 55, 0.3)',
+    backgroundColor: '#FFFDF9',
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  iconArea: { 
+    width: 45, 
+    height: 45, 
+    borderRadius: 14, 
+    backgroundColor: '#F8F8F8', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: 12 
+  },
+  iconText: { fontSize: 20 },
+  notifTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
+  notifData: { fontSize: 11, color: '#AAA', marginTop: 2 },
+  badgeNovo: { backgroundColor: '#D4AF37', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  badgeTexto: { color: '#FFF', fontSize: 9, fontWeight: '900' },
+  
+  notifMsg: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 15 },
+  
+  footerAcao: { borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingTop: 12 },
+  btnAvaliar: { 
+    backgroundColor: '#1A1A1A', 
+    paddingVertical: 12, 
+    borderRadius: 12, 
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center'
+  },
+  btnAvaliarText: { color: '#D4AF37', fontWeight: '800', fontSize: 14 },
+  
+  btnAgendar: { 
+    backgroundColor: '#D4AF37', 
+    paddingVertical: 12, 
+    borderRadius: 12, 
+    alignItems: 'center' 
+  },
+  btnAgendarText: { color: '#FFF', fontWeight: '800', fontSize: 14 },
+  
+  empty: { textAlign: 'center', marginTop: 100, color: '#999', fontSize: 16 }
 });

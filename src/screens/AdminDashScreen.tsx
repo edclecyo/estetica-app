@@ -12,6 +12,9 @@ import functions from '@react-native-firebase/functions';
 import Share from 'react-native-share';
 import type { Estabelecimento, Agendamento } from '../types';
 
+// IMPORTAÇÃO DO SELO LOCAL
+import SeloVerificado from '../assets/selo_verificado.png';
+
 const { width } = Dimensions.get('window');
 const GOLD = '#C9A96E';
 
@@ -102,17 +105,17 @@ export default function AdminDashScreen() {
     return unsubNotif;
   }, [admin?.id]);
 
- const gerarRelatorioPDF = async () => {
-  try {
-    const linhas = agends.map(a =>
-      `📅 ${a.data} às ${a.horario}\n👤 ${a.clienteNome}\n✂️ ${a.servicoNome}\n💰 R$ ${a.servicoPreco}\n📌 ${a.status?.toUpperCase()}\n`
-    ).join('\n─────────────────────\n');
+  const gerarRelatorioPDF = async () => {
+    try {
+      const linhas = agends.map(a =>
+        `📅 ${a.data} às ${a.horario}\n👤 ${a.clienteNome}\n✂️ ${a.servicoNome}\n💰 R$ ${a.servicoPreco}\n📌 ${a.status?.toUpperCase()}\n`
+      ).join('\n─────────────────────\n');
 
-    const receitaConf = agends
-      .filter(a => a.status === 'confirmado' || a.status === 'concluido')
-      .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
+      const receitaConf = agends
+        .filter(a => a.status === 'confirmado' || a.status === 'concluido')
+        .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
 
-    const conteudo =
+      const conteudo =
 `══════════════════════════
   RELATÓRIO - BeautyHub
 ══════════════════════════
@@ -126,17 +129,17 @@ ${linhas}
 
 Gerado pelo BeautyHub`;
 
-    await Share.open({
-      title: 'Relatório de Agendamentos',
-      message: conteudo,
-      type: 'text/plain',
-    });
-  } catch (error: any) {
-    if (error?.message !== 'User did not share') {
-      Alert.alert('Erro', 'Não foi possível gerar o relatório.');
+      await Share.open({
+        title: 'Relatório de Agendamentos',
+        message: conteudo,
+        type: 'text/plain',
+      });
+    } catch (error: any) {
+      if (error?.message !== 'User did not share') {
+        Alert.alert('Erro', 'Não foi possível gerar o relatório.');
+      }
     }
-  }
-};
+  };
 
   const deletarStory = (id: string) => {
     Alert.alert('Apagar Postagem', 'Deseja excluir este story permanentemente?', [
@@ -222,11 +225,19 @@ Gerado pelo BeautyHub`;
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1A1A1A" />
 
-      {/* HEADER */}
+      {/* HEADER ATUALIZADO COM SELO LOCAL */}
       <View style={s.header}>
         <View>
           <Text style={s.headerSub}>PAINEL ADMINISTRATIVO</Text>
-          <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]} 👋</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+            <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]}</Text>
+            {verificado && (
+              <Image 
+                source={SeloVerificado} 
+                style={{ width: 20, height: 20, resizeMode: 'contain' }} 
+              />
+            )}
+          </View>
         </View>
         <View style={s.headerAcoes}>
           <TouchableOpacity onPress={() => navigation.navigate('AdminNotif')} style={s.sinoBtn}>
@@ -326,7 +337,6 @@ Gerado pelo BeautyHub`;
               })}
             </View>
 
-            {/* BOTÃO GERAR RELATÓRIO MENSAL */}
             <TouchableOpacity style={s.btnRelatorioFaturamento} onPress={gerarRelatorioPDF} activeOpacity={0.8}>
               <Text style={s.btnRelatorioFaturamentoText}>📊 Gerar relatório mensal</Text>
             </TouchableOpacity>
@@ -482,7 +492,9 @@ Gerado pelo BeautyHub`;
               <View style={s.estabInfo}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={s.estabNome}>{item.nome}</Text>
-                  {(item as any).verificado && <Text>✅</Text>}
+                  {(item as any).verificado && (
+                    <Image source={SeloVerificado} style={{ width: 14, height: 14, resizeMode: 'contain' }} />
+                  )}
                 </View>
                 <Text style={s.estabTipo}>{item.tipo} • ⭐ {item.avaliacao?.toFixed(1)}</Text>
               </View>
@@ -492,30 +504,30 @@ Gerado pelo BeautyHub`;
         />
       )}
 
-{/* FAB - ASSINAR/UPGRADE */}
-{(planoAtual !== 'pro' && planoAtual !== 'elite') && (
-  <TouchableOpacity
-    style={s.fab}
-    onPress={() => navigation.navigate('Assinatura')}
-    activeOpacity={0.88}
-  >
-    <View style={s.fabGlow} />
-    <Text style={s.fabIcon}>
-      {planoAtual === 'essencial' ? '🚀' : '⭐'}
-    </Text>
-    <View>
-      <Text style={s.fabText}>
-        {planoAtual === 'essencial' ? 'Fazer upgrade' : 'Assinar agora'}
-      </Text>
-      <Text style={s.fabSub}>
-        {planoAtual === 'essencial'
-          ? 'Desbloqueie recursos Pro e Elite'
-          : 'Apareça para mais clientes'}
-      </Text>
-    </View>
-    <Text style={s.fabArrow}>→</Text>
-  </TouchableOpacity>
-)}
+      {/* FAB - ASSINAR/UPGRADE */}
+      {(planoAtual !== 'pro' && planoAtual !== 'elite') && (
+        <TouchableOpacity
+          style={s.fab}
+          onPress={() => navigation.navigate('Assinatura')}
+          activeOpacity={0.88}
+        >
+          <View style={s.fabGlow} />
+          <Text style={s.fabIcon}>
+            {planoAtual === 'essencial' ? '🚀' : '⭐'}
+          </Text>
+          <View>
+            <Text style={s.fabText}>
+              {planoAtual === 'essencial' ? 'Fazer upgrade' : 'Assinar agora'}
+            </Text>
+            <Text style={s.fabSub}>
+              {planoAtual === 'essencial'
+                ? 'Desbloqueie recursos Pro e Elite'
+                : 'Apareça para mais clientes'}
+            </Text>
+          </View>
+          <Text style={s.fabArrow}>→</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -594,7 +606,6 @@ const s = StyleSheet.create({
   periodoLabel: { color: GOLD, fontSize: 10, fontWeight: '700', marginBottom: 4 },
   periodoValor: { color: '#1A1A1A', fontSize: 15, fontWeight: '800' },
 
-  // Botão Relatório no Faturamento
   btnRelatorioFaturamento: {
     marginTop: 20,
     borderTopWidth: 1,
@@ -667,7 +678,6 @@ const s = StyleSheet.create({
   estabIcon: { borderRadius: 14, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   estabEmoji: { fontSize: 24 },
 
-  // FAB CHAMATIVO
   fab: {
     position: 'absolute',
     bottom: 28,

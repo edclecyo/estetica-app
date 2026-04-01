@@ -145,13 +145,14 @@ export const lembreteAgendamento = onSchedule(
         // 🔔 salvar notificação
         const notifRef = db.collection('notificacoes').doc();
         batch.set(notifRef, {
-          clienteId: agend.clienteUid,
-          titulo: '⏰ Seu horário está chegando!',
-          mensagem: `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
-          lida: false,
-          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-          expiraEm: admin.firestore.Timestamp.fromDate(expira)
-        });
+  clienteId: agend.clienteUid,
+  titulo: '⏰ Seu horário está chegando!',
+  mensagem: `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
+  agendamentoId: doc.id, // Adicionado
+  lida: false,
+  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  expiraEm: admin.firestore.Timestamp.fromDate(expira)
+});
 
         // 📲 push
         if (agend.fcmTokenCliente) {
@@ -197,7 +198,6 @@ export const lembreteAgendamento = onSchedule(
 export const onAgendamentoUpdate = onDocumentUpdated(
   { document: "agendamentos/{docId}", region: REGION },
   async (event) => {
-
     const antes = event.data?.before.data();
     const depois = event.data?.after.data();
 
@@ -209,45 +209,46 @@ export const onAgendamentoUpdate = onDocumentUpdated(
       antes.avaliacaoCliente === depois.avaliacaoCliente
     ) return;
 
-    // ─── PUSH STATUS ─────────
+    // ─── PUSH STATUS (Notificações) ─────────
     if (antes.status !== depois.status) {
       let titulo = '';
       let corpo = '';
 
       if (depois.status === 'concluido') {
         titulo = '✅ Atendimento Concluído!';
-        corpo = `Avalie ${depois.servicoNome}`;
+        corpo = `Avalie o serviço de ${depois.servicoNome}`;
       } else if (depois.status === 'cancelado') {
         titulo = '❌ Agendamento Cancelado';
-        corpo = `${depois.servicoNome} foi cancelado`;
+        corpo = `O serviço ${depois.servicoNome} foi cancelado.`;
       }
 
       if (titulo) {
-        // 🔔 salvar no banco
-        const expira = new Date();
-expira.setDate(expira.getDate() + 30);
+  const expira = new Date();
+  expira.setDate(expira.getDate() + 30);
 
-await db.collection('notificacoes').add({
-  clienteId: depois.clienteUid,
-  titulo,
-  mensagem: corpo,
-  lida: false,
-  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-  expiraEm: admin.firestore.Timestamp.fromDate(expira) // ✅ CORRETO
-});
+  await db.collection('notificacoes').add({
+    clienteId: depois.clienteUid,
+    titulo,
+    mensagem: corpo,
+    lida: false,
+    // --- ADICIONE ESTES CAMPOS ABAIXO ---
+    agendamentoId: event.params.docId, // ID do agendamento para o botão avaliar
+    estabelecimentoNome: depois.estabelecimentoNome, 
+    tipo: 'status_agendamento',
+    // ------------------------------------
+    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    expiraEm: admin.firestore.Timestamp.fromDate(expira)
+  });
 
-        // 📲 push
         if (depois.fcmTokenCliente) {
-          await enviarPush(depois.fcmTokenCliente, titulo, corpo, {
-            tela: 'agendamento',
-          });
+          await enviarPush(depois.fcmTokenCliente, titulo, corpo, { tela: 'agendamento' });
         }
       }
     }
 
-    // ─── RANKING ─────────
+    // ─── RANKING E PENALIDADES ─────────
+    // Só entra aqui se o status for concluído E houver uma nova nota do cliente
     if (depois.status === 'concluido' && depois.avaliacaoCliente !== antes.avaliacaoCliente) {
-
       const estRef = db.collection('estabelecimentos').doc(depois.estabelecimentoId);
 
       await db.runTransaction(async (t) => {
@@ -256,21 +257,36 @@ await db.collection('notificacoes').add({
 
         const d = estDoc.data() || {};
 
+        // 1. Cálculos de Média
         const total = (d.quantidadeAvaliacoes || 0) + 1;
         const soma = (d.somaNotas || 0) + depois.avaliacaoCliente;
+        let novaMedia = soma / total;
 
-        const novaMedia = soma / total;
+        // 2. Lógica de Negativas (Penalidade)
+        // Se a nota for 1 ou 2, incrementamos o contador de negativas do estabelecimento
+        let novasNegativas = d.avaliacoesNegativas || 0;
+        if (depois.avaliacaoCliente <= 2) {
+          novasNegativas += 1;
+        }
 
+        // A cada 10 avaliações negativas, subtraímos 0.5 da média visual (o "peso" da má fama)
+        const penalidade = Math.floor(novasNegativas / 10) * 0.5;
+        novaMedia = Math.max(1, novaMedia - penalidade); // Nota mínima é 1
+
+        // 3. Cálculo do Ranking Score (Ajustado)
+        // Damos peso para: Média, Quantidade de serviços e o Plano (Elite/Pro)
         const ranking =
           novaMedia * 2 +
           total * 0.5 +
           (d.plano === 'elite' ? 100 : d.plano === 'pro' ? 50 : 0);
 
         t.update(estRef, {
-          avaliacao: novaMedia,
+          avaliacao: Math.round(novaMedia * 10) / 10, // Arredonda para 1 casa decimal (ex: 4.7)
           quantidadeAvaliacoes: total,
           somaNotas: soma,
+          avaliacoesNegativas: novasNegativas,
           rankingScore: ranking,
+          ultimaAvaliacaoEm: admin.firestore.FieldValue.serverTimestamp()
         });
       });
     }
@@ -752,7 +768,7 @@ expira.setDate(expira.getDate() + 30);
 await db.collection('notificacoes').add({
   adminId: superAdmin.id,
   titulo: '🔔 Nova solicitação de selo',
-  msg: `${est.nome} solicitou o selo verificado`,
+  mensagem: `${est.nome} solicitou o selo verificado`,
   tipo: 'solicitacao_selo',
   estabelecimentoId,
   lida: false,
@@ -811,7 +827,7 @@ export const responderSolicitacaoSelo = functions.onCall(async (request) => {
 
   // ✅ Notifica o admin do estabelecimento
   const titulo = aprovado ? '✅ Selo Verificado Aprovado!' : '❌ Solicitação de Selo Rejeitada';
-  const msg = aprovado
+  const mensagem = aprovado
     ? `Parabéns! ${sol.estabelecimentoNome} agora tem o selo verificado ✅`
     : `Sua solicitação foi rejeitada. ${motivo ? `Motivo: ${motivo}` : ''}`;
 
@@ -821,7 +837,7 @@ expira.setDate(expira.getDate() + 30);
 await db.collection('notificacoes').add({
   adminId: sol.adminId,
   titulo,
-  msg,
+  mensagem,
   tipo: 'resposta_selo',
   lida: false,
   apagada: false,
@@ -831,7 +847,7 @@ await db.collection('notificacoes').add({
 
   const tokenAdmin = await getTokenAdmin(sol.adminId);
   if (tokenAdmin) {
-    await enviarPush(tokenAdmin, titulo, msg, { tela: 'dash' });
+    await enviarPush(tokenAdmin, titulo, mensagem, { tela: 'dash' });
   }
 
   return { ok: true };

@@ -41,54 +41,16 @@ export default function AvaliarScreen() {
     try {
       setSalvando(true);
 
-      // 1 — Salva avaliação no agendamento
+      // 1 — Atualiza o agendamento
+      // Ao mudar o 'status' e adicionar 'avaliacaoCliente', sua Cloud Function 
+      // onAgendamentoUpdate será disparada automaticamente para calcular o ranking.
       await firestore().collection('agendamentos').doc(agendamentoId).update({
-        avaliacao: {
-          estrelas,
+        avaliacaoCliente: estrelas,
+        detalhesAvaliacao: {
           tags: tagsSel,
           criadoEm: firestore.FieldValue.serverTimestamp(),
         },
         status: 'concluido'
-      });
-
-      // 2 — Atualiza média e lógica de penalidade por avaliação negativa
-      const estabRef = firestore().collection('estabelecimentos').doc(estabelecimentoId);
-      
-      await firestore().runTransaction(async tx => {
-        const estabSnap = await tx.get(estabRef);
-        if (!estabSnap.exists) return;
-
-        const data = estabSnap.data()!;
-        
-        // Contadores básicos
-        const totalAtual = data.totalAvaliacoes || 0;
-        const somaNotasAtual = (data.avaliacao || 5) * totalAtual; 
-        const novoTotal = totalAtual + 1;
-        
-        // Lógica de Negativas (1 ou 2 estrelas contam como negativo)
-        let novasNegativas = data.avaliacoesNegativas || 0;
-        if (estrelas <= 2) {
-          novasNegativas += 1;
-        }
-
-        // Cálculo da média aritmética simples
-        let novaMedia = (somaNotasAtual + estrelas) / novoTotal;
-
-        // --- LÓGICA DE PENALIDADE ---
-        // Se tiver 10, 20, 30... negativas, subtraímos 0.5 da média por cada "dezena"
-        // Isso força a perda de estrelas visualmente
-        const penalidade = Math.floor(novasNegativas / 10) * 0.5;
-        novaMedia = novaMedia - penalidade;
-
-        // Garante que a nota não seja menor que 1 nem maior que 5
-        if (novaMedia < 1) novaMedia = 1;
-
-        tx.update(estabRef, {
-          avaliacao: Math.round(novaMedia * 10) / 10,
-          totalAvaliacoes: novoTotal,
-          avaliacoesNegativas: novasNegativas,
-          ultimaAvaliacaoEm: firestore.FieldValue.serverTimestamp()
-        });
       });
 
       Alert.alert('Obrigado! 🎉', 'Sua avaliação foi enviada!', [

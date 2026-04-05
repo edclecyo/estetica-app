@@ -45,13 +45,18 @@ export default function SuperAdminEstabsScreen() {
   }, []);
 
   const filtrados = estabs.filter(e => {
-    const buscaOk = e.nome?.toLowerCase().includes(busca.toLowerCase());
-    if (filtro === 'destaque')  return buscaOk && e.destaqueAtivo;
-    if (filtro === 'verificar') return buscaOk && !e.verificado;
-    if (filtro === 'pagantes')  return buscaOk && e.assinaturaAtiva && e.plano !== 'free' && e.plano !== 'trial';
-    if (filtro === 'inativos')  return buscaOk && !e.assinaturaAtiva;
-    return buscaOk;
-  });
+  // Esta é a linha que você deve alterar:
+  const buscaOk = 
+    e.nome?.toLowerCase().includes(busca.toLowerCase()) || 
+    e.email?.toLowerCase().includes(busca.toLowerCase());
+
+  if (filtro === 'destaque')  return buscaOk && e.destaqueAtivo;
+  if (filtro === 'verificar') return buscaOk && !e.verificado;
+  if (filtro === 'pagantes')  return buscaOk && e.assinaturaAtiva && e.plano !== 'free' && e.plano !== 'trial';
+  if (filtro === 'inativos')  return buscaOk && !e.assinaturaAtiva;
+  
+  return buscaOk;
+});
 
   const toggleVerificado = async (id: string, atual: boolean) => {
     try {

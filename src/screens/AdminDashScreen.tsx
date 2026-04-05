@@ -47,53 +47,105 @@ export default function AdminDashScreen() {
   const [verificado, setVerificado] = useState(false);
   const [estabPrincipalId, setEstabPrincipalId] = useState<string | null>(null);
   const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
+  const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
+ // --- LÓGICA DE BLOQUEIO SEGURO ---
+const isBloqueado = useMemo(() => {
+  // Se não tem plano nenhum, bloqueia (ou libera se for conta nova, você decide)
+  if (!planoAtual) return true; 
+  
+  // Se for trial, bloqueia se os dias forem 0 ou menos
+  if (planoAtual === 'trial') {
+    return diasRestantes !== null && diasRestantes <= 0;
+  }
 
-  useEffect(() => {
-    if (!admin?.id) return;
+  // Se for um plano pago (essencial, pro, elite), verifica se a assinatura está ativa
+  // Se NÃO estiver ativa, bloqueia.
+  if (!assinaturaAtiva) return true;
 
-    const unsubEstabs = firestore()
-      .collection('estabelecimentos')
-      .where('adminId', '==', admin.id)
-      .onSnapshot(snap => {
-        const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
-        setEstabs(lista);
+  return false; 
+}, [planoAtual, diasRestantes, assinaturaAtiva]);
+// --- 2. DECLARAÇÃO DA FUNÇÃO DE MUDAR ABA ---
+  // Esta função impede o clique nas outras abas se estiver bloqueado
+  const mudarAba = (novaAba: any) => {
+  if (loading) return; // Espera carregar os dados do plano antes de bloquear
+  if (isBloqueado && novaAba !== 'dash') {
+      Alert.alert(
+        'Assinatura Expirada 🔒', 
+        'Seu período de teste terminou. Regularize sua assinatura para acessar esta aba.'
+      );
+      return;
+    }
+    setAba(novaAba);
+  };
+ useEffect(() => {
+  if (!admin?.id) return;
 
-        if (lista.length > 0) {
-          const principal = lista[0] as any;
-          setPlanoAtual(principal.plano || null);
-          setAssinaturaAtiva(principal.assinaturaAtiva || false);
-          setVerificado(principal.verificado || false);
-          setEstabPrincipalId(principal.id);
-          setSolicitacaoStatus(principal.solicitacaoSeloStatus || null);
+  // 1. Ouvinte de Estabelecimentos
+  const unsubEstabs = firestore()
+    .collection('estabelecimentos')
+    .where('adminId', '==', admin.id)
+    .onSnapshot(snap => {
+      if (!snap || snap.empty) {
+        setEstabs([]);
+        setLoading(false);
+        return;
+      }
 
-          firestore().collection('agendamentos')
-            .where('adminId', '==', admin.id)
-            .orderBy('criadoEm', 'desc')
-            .limit(100)
-            .onSnapshot(snapA => {
-              if (snapA) setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
-              setLoading(false);
-            });
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
+      setEstabs(lista);
 
-          firestore().collection('stories')
-            .where('adminId', '==', admin.id)
-            .onSnapshot(snapS => {
-              if (snapS) {
-                const storiesData = snapS.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-                storiesData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-                setMeusStories(storiesData);
-                const likes = storiesData.reduce((acc, curr) => acc + (curr.likesCount || 0), 0);
-                setTotalLikes(likes);
-              }
-            }, err => console.error('Erro stories:', err));
+      // Lógica de Plano e Expiração
+      if (lista.length > 0) {
+        const dados = lista[0] as any;
+        setPlanoAtual(dados.plano);
+        setAssinaturaAtiva(dados.assinaturaAtiva);
+
+        if (dados.plano === 'trial' && dados.expiraEm) {
+          const agora = new Date();
+          const expiraData = dados.expiraEm.toDate ? dados.expiraEm.toDate() : new Date(dados.expiraEm.seconds * 1000);
+          const diffTime = expiraData.getTime() - agora.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          setDiasRestantes(diffDays > 0 ? diffDays : 0);
         } else {
-          setAgends([]);
-          setLoading(false);
+          setDiasRestantes(null);
         }
-      });
+      }
+    });
 
-    return unsubEstabs;
-  }, [admin?.id]);
+  // 2. Ouvinte de Agendamentos (Separado para evitar duplicidade)
+  const unsubAgends = firestore()
+    .collection('agendamentos')
+    .where('adminId', '==', admin.id)
+    .orderBy('criadoEm', 'desc')
+    .limit(100)
+    .onSnapshot(snapA => {
+      if (snapA) {
+        setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
+      }
+      setLoading(false);
+    }, err => console.error('Erro agendamentos:', err));
+
+  // 3. Ouvinte de Stories (Separado)
+  const unsubStories = firestore()
+    .collection('stories')
+    .where('adminId', '==', admin.id)
+    .onSnapshot(snapS => {
+      if (snapS) {
+        const storiesData = snapS.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+        storiesData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+        setMeusStories(storiesData);
+        const likes = storiesData.reduce((acc, curr) => acc + (curr.likesCount || 0), 0);
+        setTotalLikes(likes);
+      }
+    }, err => console.error('Erro stories:', err));
+
+  // LIMPEZA: Isso mata os 3 ouvintes quando o usuário sai da tela ou o ID muda
+  return () => {
+    unsubEstabs();
+    unsubAgends();
+    unsubStories();
+  };
+}, [admin?.id]);
 
   useEffect(() => {
     if (!admin?.id) return;
@@ -253,48 +305,56 @@ Gerado pelo BeautyHub`;
       </View>
 
       {/* ABAS */}
-      <View style={s.abasContainer}>
-        <View style={s.abasInner}>
-          {([['dash', '📊 Dash'], ['agends', '📅 Agenda'], ['stories', '🎬 Posts'], ['estabs', '🏪 Locais']] as [string, string][])
-            .map(([k, l]) => (
-              <TouchableOpacity key={k} onPress={() => setAba(k as any)} style={[s.aba, aba === k && s.abaAtiva]}>
-                <Text style={[s.abaText, aba === k && s.abaTextAtiva]}>{l}</Text>
-              </TouchableOpacity>
-            ))}
-        </View>
-      </View>
+<View style={s.abasContainer}>
+  <View style={s.abasInner}>
+    {([['dash', '📊 Dash'], ['agends', '📅 Agenda'], ['stories', '🎬 Posts'], ['estabs', '🏪 Locais']] as [string, string][])
+      .map(([k, l]) => (
+        <TouchableOpacity 
+          key={k} 
+          // TROCADO: Agora chama a função de validação antes de mudar
+          onPress={() => mudarAba(k as any)} 
+          // ADICIONADO: Se estiver bloqueado e não for a aba dash, fica opaco (0.3)
+          style={[
+            s.aba, 
+            aba === k && s.abaAtiva,
+            (isBloqueado && k !== 'dash') && { opacity: 0.3 }
+          ]}
+        >
+          <Text style={[s.abaText, aba === k && s.abaTextAtiva]}>{l}</Text>
+        </TouchableOpacity>
+      ))}
+  </View>
+</View>
 
       {/* ─── ABA DASH ─── */}
       {aba === 'dash' && (
         <ScrollView contentContainerStyle={s.lista} showsVerticalScrollIndicator={false}>
 
           {/* CARD DE PLANO */}
-          <TouchableOpacity
-            style={[s.planoCard, { borderColor: badge.cor, backgroundColor: badge.bg }]}
-            onPress={() => navigation.navigate('Assinatura')}
-            activeOpacity={0.85}
-          >
-            <View style={s.planoCardLeft}>
-              <View style={[s.planoBadge, { backgroundColor: badge.cor }]}>
-                <Text style={s.planoBadgeText}>{badge.label}</Text>
-              </View>
-              <View style={{ marginLeft: 12 }}>
-                <Text style={s.planoCardTitulo}>
-                  {assinaturaAtiva ? 'Seu plano atual' : 'Nenhum plano ativo'}
-                </Text>
-                <Text style={s.planoCardSub}>
-                  {assinaturaAtiva
-                    ? 'Toque para gerenciar ou fazer upgrade'
-                    : 'Ative agora e apareça para mais clientes'}
-                </Text>
-              </View>
-            </View>
-            <View style={[s.upgradePill, { backgroundColor: badge.cor }]}>
-              <Text style={s.upgradePillText}>
-                {assinaturaAtiva ? '↑ Upgrade' : 'Ativar'}
-              </Text>
-            </View>
-          </TouchableOpacity>
+<TouchableOpacity
+  style={[s.planoCard, { borderColor: badge.cor, backgroundColor: badge.bg }]}
+  onPress={() => navigation.navigate('Assinatura')}
+>
+  <View style={s.planoCardLeft}>
+    <View style={[s.planoBadge, { backgroundColor: badge.cor }]}>
+      <Text style={s.planoBadgeText}>
+        {planoAtual === 'trial' 
+          ? (diasRestantes !== null && diasRestantes <= 0 ? "EXPIRADO" : `${diasRestantes} DIAS RESTANTES`)
+          : badge.label}
+      </Text>
+    </View>
+    <View style={{ marginLeft: 12 }}>
+      <Text style={s.planoCardTitulo}>
+        {isBloqueado ? 'Acesso Limitado' : 'Seu plano está ativo'}
+      </Text>
+      <Text style={s.planoCardSub}>
+        {planoAtual === 'trial' 
+          ? `Seu teste grátis termina em ${diasRestantes || 0} dias.`
+          : 'Toque para ver detalhes da assinatura'}
+      </Text>
+    </View>
+  </View>
+</TouchableOpacity>
 
           {/* ✅ CARD DE SELO */}
           {mostrarCardSelo && (
@@ -319,10 +379,10 @@ Gerado pelo BeautyHub`;
               {['dia', 'semana', 'mes'].map((p) => {
                 const hoje = new Date();
                 const valor = agends
-                  .filter(a => a.status === 'concluido' || a.status === 'confirmado')
-                  .filter(a => {
-                    const parts = a.data?.split('/');
-                    if (!parts || parts.length < 3) return false;
+  .filter(a => (a.status === 'concluido' || a.status === 'confirmado') && a.data) // Garante que tem data
+  .filter(a => {
+    const parts = a.data.split('/');
+    if (parts.length !== 3) return false;
                     const dAgend = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
                     const diff = (hoje.getTime() - dAgend.getTime()) / (1000 * 60 * 60 * 24);
                     return p === 'dia' ? diff <= 1 : p === 'semana' ? diff <= 7 : diff <= 30;

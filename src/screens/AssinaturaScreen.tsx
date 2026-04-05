@@ -42,6 +42,8 @@ export default function AssinaturaScreen({ navigation }) {
   const [loading, setLoading] = useState<string | null>(null);
   const [statusTrial, setStatusTrial] = useState<'disponivel' | 'bloqueado'>('disponivel');
   const [loadingDados, setLoadingDados] = useState(true);
+  const [planoAtualId, setPlanoAtualId] = useState<string | null>(null);
+  const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
 
   useEffect(() => {
     const user = auth().currentUser;
@@ -50,9 +52,27 @@ export default function AssinaturaScreen({ navigation }) {
     const unsub = firestore()
       .collection('estabelecimentos')
       .where('adminId', '==', user.uid)
+      .limit(1)
       .onSnapshot(snapshot => {
         if (!snapshot.empty) {
           const data = snapshot.docs[0].data();
+          
+          setPlanoAtualId(data.plano || null);
+
+          // Lógica de cálculo de dias restantes
+          if (data.plano === 'trial' && data.trialDataInicio) {
+            const agora = new Date();
+            const inicio = data.trialDataInicio.toDate();
+            const fim = new Date(inicio);
+            fim.setDate(inicio.getDate() + 14); // Trial de 14 dias
+
+            const diff = fim.getTime() - agora.getTime();
+            const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+            setDiasRestantes(dias > 0 ? dias : 0);
+          } else {
+            setDiasRestantes(null);
+          }
+
           const isBloqueado = data.plano === 'trial' || data.assinaturaAtiva === true || data.trialUsado === true;
           setStatusTrial(isBloqueado ? 'bloqueado' : 'disponivel');
           setLoadingDados(false);
@@ -66,7 +86,7 @@ export default function AssinaturaScreen({ navigation }) {
     setLoading('trial');
     try {
       const user = auth().currentUser;
-      const estSnap = await firestore().collection('estabelecimentos').where('adminId', '==', user?.uid).get();
+      const estSnap = await firestore().collection('estabelecimentos').where('adminId', '==', user?.uid).limit(1).get();
       await functions().httpsCallable('iniciarTrial')({ estabelecimentoId: estSnap.docs[0].id });
       Alert.alert("🎉 Sucesso", "Seus 14 dias de teste começaram!");
     } catch (e) {
@@ -74,8 +94,11 @@ export default function AssinaturaScreen({ navigation }) {
     } finally { setLoading(null); }
   };
 
-  // APENAS NAVEGA PARA A TELA DE PAGAMENTO
   const handleAssinar = (plano: any) => {
+    if (plano.id === planoAtualId) {
+      Alert.alert("Plano Ativo", "Você já possui este plano em sua assinatura.");
+      return;
+    }
     navigation.navigate('CheckoutPagamentoScreen', { 
       planoId: plano.id, 
       preco: plano.preco 
@@ -99,55 +122,90 @@ export default function AssinaturaScreen({ navigation }) {
 
         <View style={[styles.trialCard, statusTrial === 'bloqueado' && styles.trialCardDisabled]}>
           <View style={styles.trialContent}>
-            <Icon name="gift-outline" size={30} color={statusTrial === 'bloqueado' ? "#444" : "#D4AF37"} />
+            <Icon 
+              name={diasRestantes !== null ? "clock-outline" : "gift-outline"} 
+              size={30} 
+              color={statusTrial === 'bloqueado' && diasRestantes === null ? "#444" : "#D4AF37"} 
+            />
             <View style={{ flex: 1, marginLeft: 15 }}>
-              <Text style={[styles.trialTitle, statusTrial === 'bloqueado' && { color: '#666' }]}>
-                {statusTrial === 'bloqueado' ? "Teste já utilizado" : "Degustação Grátis"}
+              <Text style={[styles.trialTitle, statusTrial === 'bloqueado' && diasRestantes === null && { color: '#666' }]}>
+                {diasRestantes !== null 
+                  ? `Restam ${diasRestantes} ${diasRestantes === 1 ? 'dia' : 'dias'}` 
+                  : statusTrial === 'bloqueado' ? "Teste já utilizado" : "Degustação Grátis"}
               </Text>
-              <Text style={styles.trialText}>Acesso total por 14 dias sem compromisso.</Text>
+              <Text style={styles.trialText}>
+                {diasRestantes !== null 
+                  ? "Seu período de teste está ativo." 
+                  : "Acesso total por 14 dias sem compromisso."}
+              </Text>
             </View>
-            <TouchableOpacity 
-              onPress={handleTrial} 
-              disabled={statusTrial === 'bloqueado' || !!loading}
-              style={[styles.trialActionBtn, statusTrial === 'bloqueado' && styles.trialActionBtnDisabled]}
-            >
-              {loading === 'trial' ? <ActivityIndicator size="small" color="#000" /> : 
-              <Text style={styles.trialActionText}>{statusTrial === 'bloqueado' ? "INDISPONÍVEL" : "ATIVAR"}</Text>}
-            </TouchableOpacity>
+            
+            {/* O botão some ou muda se o trial já estiver ativo */}
+            {planoAtualId !== 'trial' && (
+               <TouchableOpacity 
+               onPress={handleTrial} 
+               disabled={statusTrial === 'bloqueado' || !!loading}
+               style={[styles.trialActionBtn, statusTrial === 'bloqueado' && styles.trialActionBtnDisabled]}
+             >
+               {loading === 'trial' ? <ActivityIndicator size="small" color="#000" /> : 
+               <Text style={styles.trialActionText}>{statusTrial === 'bloqueado' ? "INDISPONÍVEL" : "ATIVAR"}</Text>}
+             </TouchableOpacity>
+            )}
           </View>
         </View>
 
-        {PLANOS.map((plano) => (
-          <View key={plano.id} style={[styles.planCard, plano.popular && styles.planCardPopular]}>
-            {plano.popular && (
-              <View style={styles.popularBadge}><Text style={styles.popularText}>MAIS ESCOLHIDO</Text></View>
-            )}
-            <View style={styles.planHeader}>
-              <View>
-                <Text style={styles.planName}>{plano.nome}</Text>
-                <Text style={styles.planDesc}>{plano.desc}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.planPrice}>R$ {plano.preco}</Text>
-                <Text style={styles.planMes}>/mês</Text>
-              </View>
-            </View>
-            <View style={styles.featureList}>
-              {plano.features.map((item, index) => (
-                <View key={index} style={styles.featureItem}>
-                  <Icon name="check-circle" size={18} color={plano.cor} />
-                  <Text style={styles.featureText}>{item}</Text>
+        {PLANOS.map((plano) => {
+          const isPlanoAtual = plano.id === planoAtualId;
+
+          return (
+            <View key={plano.id} style={[
+              styles.planCard, 
+              plano.popular && styles.planCardPopular,
+              isPlanoAtual && styles.planCardAtual
+            ]}>
+              {plano.popular && !isPlanoAtual && (
+                <View style={styles.popularBadge}><Text style={styles.popularText}>MAIS ESCOLHIDO</Text></View>
+              )}
+              
+              {isPlanoAtual && (
+                <View style={styles.atualBadge}><Text style={styles.atualText}>PLANO ATUAL</Text></View>
+              )}
+
+              <View style={styles.planHeader}>
+                <View>
+                  <Text style={styles.planName}>{plano.nome}</Text>
+                  <Text style={styles.planDesc}>{plano.desc}</Text>
                 </View>
-              ))}
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.planPrice}>R$ {plano.preco}</Text>
+                  <Text style={styles.planMes}>/mês</Text>
+                </View>
+              </View>
+
+              <View style={styles.featureList}>
+                {plano.features.map((item, index) => (
+                  <View key={index} style={styles.featureItem}>
+                    <Icon name="check-circle" size={18} color={isPlanoAtual ? "#666" : plano.cor} />
+                    <Text style={[styles.featureText, isPlanoAtual && { color: '#666' }]}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <TouchableOpacity 
+                style={[
+                  styles.subscribeBtn, 
+                  { backgroundColor: isPlanoAtual ? '#222' : plano.cor }
+                ]}
+                onPress={() => handleAssinar(plano)}
+                disabled={isPlanoAtual}
+              >
+                <Text style={[styles.subscribeBtnText, isPlanoAtual && { color: '#555' }]}>
+                  {isPlanoAtual ? 'PLANO ATIVO' : 'ASSINAR AGORA'}
+                </Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity 
-              style={[styles.subscribeBtn, { backgroundColor: plano.cor }]}
-              onPress={() => handleAssinar(plano)}
-            >
-              <Text style={styles.subscribeBtnText}>ASSINAR AGORA</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -168,10 +226,17 @@ const styles = StyleSheet.create({
   trialActionBtn: { backgroundColor: '#D4AF37', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 12 },
   trialActionBtnDisabled: { backgroundColor: '#222' },
   trialActionText: { color: '#000', fontSize: 11, fontWeight: '900' },
+  
   planCard: { backgroundColor: '#111', marginHorizontal: 20, marginBottom: 20, borderRadius: 24, padding: 25, borderWidth: 1, borderColor: '#1a1a1a' },
   planCardPopular: { borderColor: '#D4AF37', backgroundColor: '#151515', elevation: 15, shadowColor: '#D4AF37', shadowOpacity: 0.1, shadowRadius: 20 },
+  planCardAtual: { borderColor: '#444', backgroundColor: '#0A0A0A', opacity: 0.9 },
+  
   popularBadge: { position: 'absolute', top: -12, right: 25, backgroundColor: '#D4AF37', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 },
   popularText: { color: '#000', fontSize: 10, fontWeight: '900' },
+  
+  atualBadge: { position: 'absolute', top: -12, right: 25, backgroundColor: '#444', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 },
+  atualText: { color: '#FFF', fontSize: 10, fontWeight: '900' },
+
   planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 25 },
   planName: { color: '#FFF', fontSize: 24, fontWeight: '900' },
   planDesc: { color: '#666', fontSize: 13, marginTop: 4 },

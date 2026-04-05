@@ -1,16 +1,48 @@
-[debug] [2026-04-01T19:54:56.475Z] ----------------------------------------------------------------------
-[debug] [2026-04-01T19:54:56.477Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\Secretaria_4\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only functions
-[debug] [2026-04-01T19:54:56.478Z] CLI Version:   15.11.0
-[debug] [2026-04-01T19:54:56.478Z] Platform:      win32
-[debug] [2026-04-01T19:54:56.478Z] Node Version:  v24.14.1
-[debug] [2026-04-01T19:54:56.478Z] Time:          Wed Apr 01 2026 16:54:56 GMT-0300 (Horário Padrão de Brasília)
-[debug] [2026-04-01T19:54:56.478Z] ----------------------------------------------------------------------
+[debug] [2026-04-04T02:21:53.958Z] ----------------------------------------------------------------------
+[debug] [2026-04-04T02:21:53.960Z] Command:       C:\nvm4w\nodejs\node.exe C:\nvm4w\nodejs\node_modules\firebase-tools\lib\bin\firebase.js deploy --only functions --debug
+[debug] [2026-04-04T02:21:53.961Z] CLI Version:   15.8.0
+[debug] [2026-04-04T02:21:53.961Z] Platform:      win32
+[debug] [2026-04-04T02:21:53.961Z] Node Version:  v20.19.6
+[debug] [2026-04-04T02:21:53.961Z] Time:          Fri Apr 03 2026 23:21:53 GMT-0300 (Horário Padrão de Brasília)
+[debug] [2026-04-04T02:21:53.961Z] ----------------------------------------------------------------------
 [debug] 
-[debug] [2026-04-01T19:54:57.594Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
-[debug] [2026-04-01T19:54:57.595Z] > authorizing via signed-in user (edclecyo12@gmail.com)
-[debug] [2026-04-01T19:54:57.595Z] [iam] checking project agenda-beleza-75106 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
-[debug] [2026-04-01T19:54:57.596Z] Checked if tokens are valid: false, expires at: 1775074104685
-[debug] [2026-04-01T19:54:57.596Z] Checked if tokens are valid: false, expires at: 1775074104685
-[debug] [2026-04-01T19:54:57.596Z] > refreshing access token with scopes: []
-[debug] [2026-04-01T19:54:57.598Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
-[debug] [2026-04-01T19:54:57.598Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-04-04T02:21:55.375Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-04-04T02:21:55.376Z] > authorizing via signed-in user (edclecyo12@gmail.com)
+[debug] [2026-04-04T02:21:55.377Z] [iam] checking project agenda-beleza-75106 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
+[debug] [2026-04-04T02:21:55.379Z] Checked if tokens are valid: false, expires at: 1775269936172
+[debug] [2026-04-04T02:21:55.379Z] Checked if tokens are valid: false, expires at: 1775269936172
+[debug] [2026-04-04T02:21:55.380Z] > refreshing access token with scopes: []
+[debug] [2026-04-04T02:21:55.382Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-04-04T02:21:55.383Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-04-04T02:22:06.366Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-04-04T02:22:06.367Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-04-04T02:22:06.379Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/agenda-beleza-75106:testIamPermissions [none]
+[debug] [2026-04-04T02:22:06.379Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/agenda-beleza-75106:testIamPermissions  x-goog-user-project=agenda-beleza-75106
+[debug] [2026-04-04T02:22:06.380Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/agenda-beleza-75106:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2026-04-04T02:22:19.077Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/agenda-beleza-75106:testIamPermissions 200
+[debug] [2026-04-04T02:22:19.078Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/agenda-beleza-75106:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2026-04-04T02:22:19.080Z] Checked if tokens are valid: true, expires at: 1775272925368
+[debug] [2026-04-04T02:22:19.080Z] Checked if tokens are valid: true, expires at: 1775272925368
+[debug] [2026-04-04T02:22:19.081Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/agenda-beleza-75106/serviceAccounts/agenda-beleza-75106@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2026-04-04T02:22:19.081Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/agenda-beleza-75106/serviceAccounts/agenda-beleza-75106@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2026-04-04T02:22:30.653Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/agenda-beleza-75106/serviceAccounts/agenda-beleza-75106@appspot.gserviceaccount.com:testIamPermissions 200
+[debug] [2026-04-04T02:22:30.654Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/agenda-beleza-75106/serviceAccounts/agenda-beleza-75106@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[info] 
+[info] === Deploying to 'agenda-beleza-75106'...
+[info] 
+[info] i  deploying functions 
+[info] Running command: npm --prefix "$RESOURCE_DIR" run lint
+[info] Running command: npm --prefix "$RESOURCE_DIR" run build
+[info] +  functions: Finished running predeploy script. 
+[debug] [2026-04-04T02:22:35.229Z] Checked if tokens are valid: true, expires at: 1775272925368
+[debug] [2026-04-04T02:22:35.229Z] Checked if tokens are valid: true, expires at: 1775272925368
+[debug] [2026-04-04T02:22:35.229Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/agenda-beleza-75106 [none]
+[debug] [2026-04-04T02:22:46.211Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/agenda-beleza-75106 200
+[debug] [2026-04-04T02:22:46.212Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/agenda-beleza-75106 {"projectNumber":"1043439367326","projectId":"agenda-beleza-75106","lifecycleState":"ACTIVE","name":"estetica-app","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-12-15T19:43:35.130434Z"}
+[info] i  functions: preparing codebase default for deployment 
+[info] i  functions: ensuring required API cloudfunctions.googleapis.com is enabled... 
+[info] i  functions: ensuring required API cloudbuild.googleapis.com is enabled... 
+[info] i  artifactregistry: ensuring required API artifactregistry.googleapis.com is enabled... 
+[debug] [2026-04-04T02:22:46.216Z] Checked if tokens are valid: true, expires at: 1775272925368
+[debug] [2026-04-04T02:22:46.216Z] Checked if tokens are valid: true, expires at: 1775272925368
+[debug] [2026-04-04T02:22:46.217Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/agenda-beleza-75106/adminSdkConfig [none]

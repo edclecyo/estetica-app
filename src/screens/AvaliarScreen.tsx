@@ -45,13 +45,14 @@ export default function AvaliarScreen() {
       // Ao mudar o 'status' e adicionar 'avaliacaoCliente', sua Cloud Function 
       // onAgendamentoUpdate será disparada automaticamente para calcular o ranking.
       await firestore().collection('agendamentos').doc(agendamentoId).update({
-        avaliacaoCliente: estrelas,
-        detalhesAvaliacao: {
-          tags: tagsSel,
-          criadoEm: firestore.FieldValue.serverTimestamp(),
-        },
-        status: 'concluido'
-      });
+  avaliacaoCliente: estrelas,
+  detalhesAvaliacao: {
+    tags: tagsSel,
+    criadoEm: firestore.FieldValue.serverTimestamp(),
+    estabelecimentoId: estabelecimentoId // redundância útil para a Function
+  },
+  status: 'concluido'
+});
 
       Alert.alert('Obrigado! 🎉', 'Sua avaliação foi enviada!', [
         { text: 'OK', onPress: () => navigation.navigate('HomeTabs', { screen: 'Agendamentos' }) },

@@ -14,7 +14,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Share from 'react-native-share';
 import Video from 'react-native-video';
 
-// Importação dos ícones (Certifique-se de ter instalado o react-native-vector-icons)
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Feather from 'react-native-vector-icons/Feather';
 
@@ -28,6 +27,9 @@ export default function StoryView() {
   const startIndex = route.params?.startIndex || 0;
   const onVisto = route.params?.onVisto;
 
+  // 🔥 FILTRO IMPORTANTE
+  const storiesFiltrados = stories.filter((s: any) => s && s.id);
+
   const [index, setIndex] = useState(startIndex);
   const [isLiked, setIsLiked] = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -36,7 +38,7 @@ export default function StoryView() {
   const [loadingStats, setLoadingStats] = useState(false);
   const [videoDuration, setVideoDuration] = useState(5000);
 
-  const story = stories[index];
+  const story = storiesFiltrados[index];
   const user = auth().currentUser;
   const isAdmin = user?.uid === story?.adminId;
 
@@ -47,19 +49,23 @@ export default function StoryView() {
   const pausedValue = useRef(0);
 
   useEffect(() => {
-    if (!story) return;
+    if (!story || !story.id) return;
+
     progress.setValue(0);
     pausedValue.current = 0;
+
     registrarView();
     onVisto?.(story.id);
+
     if (story.type !== 'video') {
       startAnimation(0, 5000);
     }
+
     return () => progress.stopAnimation();
   }, [index]);
 
   useEffect(() => {
-    if (!story?.id || !user) return;
+    if (!story || !story.id || !user) return;
     checkIfLiked();
   }, [story?.id, user?.uid]);
 
@@ -81,39 +87,54 @@ export default function StoryView() {
 
   const handlePressOut = () => {
     isPaused.current = false;
-    if (!showStats) {
-      startAnimation(pausedValue.current, story.type === 'video' ? videoDuration : 5000);
+    if (!showStats && story) {
+      startAnimation(
+        pausedValue.current,
+        story.type === 'video' ? videoDuration : 5000
+      );
     }
   };
 
   async function registrarView() {
-    if (!story?.id || !user) return;
+    if (!story || !story.id || !user) return;
+
     try {
       const viewId = `${story.id}_${user.uid}`;
       const viewRef = doc(firestore(), "storyViews", viewId);
       const docView = await getDoc(viewRef);
+
       if (!docView.exists()) {
         await setDoc(viewRef, {
           storyId: story.id,
           userId: user.uid,
           timestamp: serverTimestamp()
         });
-        await updateDoc(doc(firestore(), "stories", story.id), { views: increment(1) });
+
+        await updateDoc(
+          doc(firestore(), "stories", story.id),
+          { views: increment(1) }
+        );
       }
-    } catch (e) { console.log("Erro view:", e); }
+    } catch (e) {
+      console.log("Erro view:", e);
+    }
   }
 
   async function checkIfLiked() {
-    if (!story?.id || !user) return;
+    if (!story || !story.id || !user) return;
+
     try {
       const likeId = `${story.id}_${user.uid}`;
       const snap = await getDoc(doc(firestore(), "storyLikes", likeId));
       setIsLiked(snap.exists());
-    } catch (e) { setIsLiked(false); }
+    } catch {
+      setIsLiked(false);
+    }
   }
 
   async function curtir() {
-    if (!story?.id || !user) return;
+    if (!story || !story.id || !user) return;
+
     const estavaCurtido = isLiked;
     const novoEstado = !estavaCurtido;
 
@@ -123,6 +144,7 @@ export default function StoryView() {
     ]).start();
 
     setIsLiked(novoEstado);
+
     const storyRef = doc(firestore(), "stories", story.id);
     const likeRef = doc(firestore(), "storyLikes", `${story.id}_${user.uid}`);
 
@@ -134,59 +156,82 @@ export default function StoryView() {
           userId: user.uid,
           timestamp: serverTimestamp()
         });
+
         await updateDoc(storyRef, { likesCount: increment(1) });
       } else {
         await deleteDoc(likeRef);
         await updateDoc(storyRef, { likesCount: increment(-1) });
       }
-    } catch (e) { setIsLiked(estavaCurtido); }
+    } catch {
+      setIsLiked(estavaCurtido);
+    }
   }
 
   async function compartilhar() {
+    if (!story) return;
+
     handlePressIn();
+
     try {
       await Share.open({
         title: 'Compartilhar Story',
         url: story.url || story.imagem,
         message: `Olha o que vi no perfil de ${story.nome}!`
       });
-    } catch { console.log("Cancelado"); }
+    } catch {}
+
     handlePressOut();
   }
 
   async function abrirStats() {
-    if (!isAdmin) return;
+    if (!isAdmin || !story || !story.id) return;
+
     handlePressIn();
     setShowStats(true);
     setLoadingStats(true);
+
     try {
       const storyData = await getDoc(doc(firestore(), "stories", story.id));
       setTotalViews(storyData.data()?.views || 0);
-      const likesSnap = await getDocs(query(collection(firestore(), "storyLikes"), where("storyId", "==", story.id)));
+
+      const likesSnap = await getDocs(
+        query(collection(firestore(), "storyLikes"), where("storyId", "==", story.id))
+      );
+
       setQuemCurtiu(likesSnap.docs.map(d => d.data()));
-      Animated.spring(statsAnim, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
-    } catch (e) { console.log(e); } finally { setLoadingStats(false); }
+
+      Animated.spring(statsAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        bounciness: 0
+      }).start();
+
+    } finally {
+      setLoadingStats(false);
+    }
   }
 
   function fecharStats() {
-    Animated.timing(statsAnim, { toValue: height, duration: 300, useNativeDriver: true }).start(() => {
+    Animated.timing(statsAnim, {
+      toValue: height,
+      duration: 300,
+      useNativeDriver: true
+    }).start(() => {
       setShowStats(false);
       handlePressOut();
     });
   }
 
-  // Correção do Erro de navegação:
   function fecharStories() {
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
-      // Caso não tenha para onde voltar, redireciona para a Home ou tela principal
-      navigation.navigate("Home"); 
+      navigation.navigate("Home");
     }
   }
 
   function proximo() {
-    if (index + 1 >= stories.length) {
+    if (index + 1 >= storiesFiltrados.length) {
       fecharStories();
     } else {
       setIndex(index + 1);
@@ -197,7 +242,11 @@ export default function StoryView() {
     if (index > 0) setIndex(index - 1);
   }
 
-  if (!story) return null;
+  // 🔥 PROTEÇÃO FINAL
+  if (!story || !story.id) {
+    fecharStories();
+    return null;
+  }
 
   return (
     <View style={s.container}>

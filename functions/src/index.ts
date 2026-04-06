@@ -9,7 +9,7 @@ if (!admin.apps.length) admin.initializeApp();
 
 const db = admin.firestore();
 const messaging = admin.messaging();
-const bucket = admin.storage().bucket();
+
 
 const REGION = "southamerica-east1";
 
@@ -26,10 +26,10 @@ interface MercadoPagoResponse {
 }
 
 // --- HELPERS ---
-function getCollectionMensal(dataBr: string): string {
-  const [dia, mes, ano] = dataBr.split("/");
-  return `agendamentos_${ano}_${mes.padStart(2, "0")}`;
+function getBucket() {
+  return admin.storage().bucket();
 }
+
 
 function parseDataHoraBR(data: string, horario: string): Date {
   const [d, m, a] = data.split("/").map(Number);
@@ -183,9 +183,9 @@ export const lembreteAgendamento = onSchedule(
 );
 // ─── 2. STATUS + RANKING JUNTO ─────────
 export const onAgendamentoUpdate = onDocumentUpdated(
-  { document: "{collectionId}/{docId}", region: REGION },
+  { document: "agendamentos/{docId}", region: REGION },
   async (event) => {
-    if (!event.params.collectionId.startsWith("agendamentos_")) return;
+    
     const antes = event.data?.before.data();
     const depois = event.data?.after.data();
     if (!antes || !depois) return;
@@ -193,10 +193,11 @@ export const onAgendamentoUpdate = onDocumentUpdated(
     if (antes.status !== depois.status) {
       const titulo = depois.status === 'concluido' ? '✅ Atendimento Concluído!' : depois.status === 'cancelado' ? '❌ Agendamento Cancelado' : '';
       if (titulo) {
-        await enviarPush(depois.fcmTokenCliente, titulo, `Serviço: ${depois.servicoNome}`);
-      }
+        if (depois.fcmTokenCliente) {
+  await enviarPush(depois.fcmTokenCliente, titulo, `Serviço: ${depois.servicoNome}`);
+}
     }
-
+	}
     if (depois.status === 'concluido' && depois.avaliacaoCliente !== antes.avaliacaoCliente) {
       const estRef = db.collection('estabelecimentos').doc(depois.estabelecimentoId);
       await db.runTransaction(async (t) => {
@@ -220,8 +221,11 @@ export const onAgendamentoUpdate = onDocumentUpdated(
 
 // ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────
 export const salvarEstabelecimento = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
-  const data = request.data;
+	if (!request.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+  
+   const data = request.data || {};
+   
+  const clienteNome = String(data.clienteNome || "").trim().slice(0, 100);
   const docId = data.estabelecimentoId || db.collection('estabelecimentos').doc().id;
   const payload = { ...data, adminId: request.auth.uid, atualizadoEm: admin.firestore.FieldValue.serverTimestamp() };
   delete payload.estabelecimentoId;
@@ -238,14 +242,14 @@ export const criarAgendamento = onCall(
       throw new HttpsError('unauthenticated', 'Acesso negado');
     }
 
-    const data = request.data || {};
+   const body = request.data || {};
     const clienteUid = request.auth.uid;
 
-    const estabelecimentoId = String(data.estabelecimentoId || "");
-    const servicoNome = String(data.servicoNome || "").trim();
-    const clienteNome = String(data.clienteNome || "").trim();
-    const dataBr = String(data.data || "").trim();
-    const horario = String(data.horario || "").trim();
+    const estabelecimentoId = String(body.estabelecimentoId || "");
+const servicoNome = String(body.servicoNome || "").trim();
+const clienteNome = String(body.clienteNome || "").trim();
+const dataBr = String(body.data || "").trim();
+const horario = String(body.horario || "").trim();
      const colecao = 'agendamentos';
     const [dia, mes, ano] = dataBr.split("/");
     const mesRef = `${ano}_${mes.padStart(2, "0")}`;
@@ -312,7 +316,7 @@ export const criarAgendamento = onCall(
         const dataLast = snap.data();
         const diff = agora - (dataLast?.timestamp || 0);
 
-        if (diff < 2000) {
+        if (diff < 5000) {
           throw new HttpsError('resource-exhausted', 'Muitas requisições');
         }
       }
@@ -487,7 +491,7 @@ export const limparStories = onSchedule({ schedule: "every 1 hours", region: REG
     const data = doc.data();
     if (data.url) {
       const caminho = decodeURIComponent(data.url.split("/o/")[1]?.split("?")[0] || "");
-      if (caminho) await bucket.file(caminho).delete().catch(() => null);
+      if (caminho) await getBucket().file(caminho).delete().catch(() => null);
     }
     await doc.ref.delete();
   }
@@ -496,25 +500,16 @@ export const limparStories = onSchedule({ schedule: "every 1 hours", region: REG
 export const manutencaoDiaria = onSchedule(
   { region: REGION, schedule: "every 24 hours" },
   async () => {
+    const agora = admin.firestore.Timestamp.now();
 
-const agora = admin.firestore.Timestamp.now();
-
-    const [exp, dest] = await Promise.all([
-      db.collection('estabelecimentos').where('expiraEm', '<=', agora).get(),
-      db.collection('estabelecimentos').where('destaqueExpira', '<=', agora).get(),
-    ]);
+    // ✅ Removida a parte de assinatura — já feita pela verificarAssinaturas
+    const dest = await db.collection('estabelecimentos')
+      .where('destaqueExpira', '<=', agora)
+      .get();
 
     const batch = db.batch();
+    dest.docs.forEach(d => batch.update(d.ref, { destaqueAtivo: false }));
 
-    exp.docs.forEach(d => {
-      batch.update(d.ref, { assinaturaAtiva: false });
-    });
-
-    dest.docs.forEach(d => {
-      batch.update(d.ref, { destaqueAtivo: false });
-    });
-
-    // ✅ FIX: try/catch para garantir log em caso de falha parcial
     try {
       await batch.commit();
     } catch (e) {
@@ -552,7 +547,7 @@ export const cobrarAssinaturas = onSchedule(
 
  const MAX_LOOPS = 20;
 let loops = 0;
-let lastDoc = null; // 🔥 FALTAVA ISSO
+let lastDoc: admin.firestore.QueryDocumentSnapshot | null = null;
 
 while (true) {
   if (loops >= MAX_LOOPS) break;
@@ -645,7 +640,7 @@ export const criarAssinatura = onCall(
           transaction_amount: valor,
           currency_id: "BRL",
         },
-        back_url: "https://seuapp.com/sucesso",
+        back_url: process.env.MP_BACK_URL || "https://seuapp.com/sucesso",
         payer_email: email,
       },
       {
@@ -705,12 +700,14 @@ export const iniciarTrial = onCall(
     const fim = new Date();
     fim.setDate(fim.getDate() + 14);
 
-    await estRef.update({
-      plano: 'trial',
-      assinaturaAtiva: true,
-      expiraEm: fim,
-      trialIniciadoEm: new Date(),
-    });
+    // ✅ Adicione:
+await estRef.update({
+  plano: 'trial',
+  assinaturaAtiva: true,
+  expiraEm: fim,
+  trialDataInicio: new Date(),
+  trialUsado: true, // ← adicionar
+});
 
     return { ok: true }; // Retorno importante para o front-end saber que deu certo
   } // Fecha a função async (req)
@@ -718,10 +715,11 @@ export const iniciarTrial = onCall(
 
 // ─── 10. VERIFICAÇÃO AUTOMÁTICA ─────────
 export const verificarSeloAutomatico = onSchedule(
-    { region: REGION, schedule: "every 30 minutes" },
+    { region: REGION, schedule: "every 6 hours" }, // ← era "every 30 minutes"
     async () => {
   const snap = await db.collection('estabelecimentos')
     .where('plano', 'in', ['elite', 'pro'])
+    .where('assinaturaAtiva', '==', true) // ← linha adicionada
     .get();
 
   const promessas = snap.docs.map(async (doc) => {
@@ -853,7 +851,8 @@ await db.collection('notificacoes').add({
 });
 
 // ─── 12. APROVAR/REJEITAR SELO (Super Admin) ─────────
-export const responderSolicitacaoSelo = onCall(async (request) => {
+// ✅ Correto
+export const responderSolicitacaoSelo = onCall({ region: REGION }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
 
   const { solicitacaoId, aprovado, motivo } = request.data;
@@ -926,7 +925,8 @@ export const webhookMercadoPago = onRequest(
     return;
   }
 
-  const { action, data } = req.body;
+  const action = req.body?.action;
+const data = req.body?.data;
 
   // 2. 🚫 Ignora eventos que não interessam
   if (action !== "subscription.updated" || !data?.id) {

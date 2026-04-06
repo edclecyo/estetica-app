@@ -50,20 +50,22 @@ export default function AdminDashScreen() {
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
  // --- LÓGICA DE BLOQUEIO SEGURO ---
 const isBloqueado = useMemo(() => {
-  // Se não tem plano nenhum, bloqueia (ou libera se for conta nova, você decide)
+  if (loading) return false;
+
+  // 1. Se não tem plano nenhum (Usuário que acabou de criar a conta)
   if (!planoAtual) return true; 
-  
-  // Se for trial, bloqueia se os dias forem 0 ou menos
+
+  // 2. Se for Trial, checa os dias
   if (planoAtual === 'trial') {
     return diasRestantes !== null && diasRestantes <= 0;
   }
 
-  // Se for um plano pago (essencial, pro, elite), verifica se a assinatura está ativa
-  // Se NÃO estiver ativa, bloqueia.
+  // 3. PARA TODOS OS OUTROS (Free, Essencial, Pro, Elite)
+  // Se a assinatura não estiver ativa no banco, bloqueia.
   if (!assinaturaAtiva) return true;
 
   return false; 
-}, [planoAtual, diasRestantes, assinaturaAtiva]);
+}, [planoAtual, diasRestantes, assinaturaAtiva, loading]);
 // --- 2. DECLARAÇÃO DA FUNÇÃO DE MUDAR ABA ---
   // Esta função impede o clique nas outras abas se estiver bloqueado
   const mudarAba = (novaAba: any) => {
@@ -82,35 +84,37 @@ const isBloqueado = useMemo(() => {
 
   // 1. Ouvinte de Estabelecimentos
   const unsubEstabs = firestore()
-    .collection('estabelecimentos')
-    .where('adminId', '==', admin.id)
-    .onSnapshot(snap => {
-      if (!snap || snap.empty) {
-        setEstabs([]);
-        setLoading(false);
-        return;
-      }
+  .collection('estabelecimentos')
+  .where('adminId', '==', admin.id)
+  .onSnapshot(snap => {
+    if (!snap || snap.empty) {
+      setEstabs([]);
+      setLoading(false);
+      return;
+    }
 
-      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
-      setEstabs(lista);
+    const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
+    setEstabs(lista);
 
-      // Lógica de Plano e Expiração
-      if (lista.length > 0) {
-        const dados = lista[0] as any;
-        setPlanoAtual(dados.plano);
-        setAssinaturaAtiva(dados.assinaturaAtiva);
+    // PEGA OS DADOS DO ESTABELECIMENTO PRINCIPAL
+    const dados = lista[0] as any;
+setPlanoAtual(dados.plano || null);
+// Garante que se o campo não existir, ele trate como inativo (false)
+setAssinaturaAtiva(!!dados.assinaturaAtiva);
 
-        if (dados.plano === 'trial' && dados.expiraEm) {
-          const agora = new Date();
-          const expiraData = dados.expiraEm.toDate ? dados.expiraEm.toDate() : new Date(dados.expiraEm.seconds * 1000);
-          const diffTime = expiraData.getTime() - agora.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          setDiasRestantes(diffDays > 0 ? diffDays : 0);
-        } else {
-          setDiasRestantes(null);
-        }
-      }
-    });
+    // Lógica de Trial/Expiração
+    if (dados.expiraEm) {
+      const agora = new Date();
+      const expiraData = dados.expiraEm.toDate();
+      const diffTime = expiraData.getTime() - agora.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Se diffDays <= 0, o backend já deve ter setado assinaturaAtiva como false,
+      // mas mantemos o cálculo para exibir "Expirado" na UI.
+      setDiasRestantes(diffDays > 0 ? diffDays : 0);
+    }
+    setLoading(false);
+  });
 
   // 2. Ouvinte de Agendamentos (Separado para evitar duplicidade)
   const unsubAgends = firestore()
@@ -201,25 +205,28 @@ Gerado pelo BeautyHub`;
   };
 
   const atualizarStatus = (id: string, novoStatus: 'concluido' | 'cancelado') => {
-    Alert.alert('Confirmar', `Deseja marcar como ${novoStatus}?`, [
-      { text: 'Não', style: 'cancel' },
-      {
-        text: 'Sim',
-        onPress: async () => {
-          try {
-            if (novoStatus === 'concluido') {
-              await functions().httpsCallable('concluirAgendamento')({ agendamentoId: id });
-            } else {
-              await functions().httpsCallable('cancelarAgendamento')({ agendamentoId: id });
-            }
-          } catch (e) {
-            console.error('Erro ao atualizar status:', e);
-            Alert.alert('Erro', 'Não foi possível atualizar o agendamento.');
-          }
-        },
+  Alert.alert('Confirmar', `Deseja marcar como ${novoStatus}?`, [
+    { text: 'Não', style: 'cancel' },
+    {
+      text: 'Sim',
+      onPress: async () => {
+        try {
+          setLoading(true);
+          const functionName = novoStatus === 'concluido' ? 'concluirAgendamento' : 'cancelarAgendamento';
+          await functions().httpsCallable(functionName)({ agendamentoId: id });
+          // O onSnapshot cuidará de atualizar a lista automaticamente
+        } catch (e: any) {
+          console.error(e);
+          // Mensagem personalizada vinda da Cloud Function
+          const errorMsg = e.message || 'Erro ao atualizar. Verifique sua assinatura.';
+          Alert.alert('Atenção', errorMsg);
+        } finally {
+          setLoading(false);
+        }
       },
-    ]);
-  };
+    },
+  ]);
+};
 
   const handleLogout = () => {
     Alert.alert('Sair', 'Deseja sair do painel?', [
@@ -251,13 +258,40 @@ Gerado pelo BeautyHub`;
   }, [agends]);
 
   const planoBadge = () => {
-    if (!assinaturaAtiva) return { label: 'SEM PLANO', cor: '#FF5252', bg: 'rgba(255,82,82,0.12)' };
-    if (planoAtual === 'trial')    return { label: 'TRIAL',    cor: '#FF9800', bg: 'rgba(255,152,0,0.12)' };
-    if (planoAtual === 'essencial')return { label: 'ESSENCIAL',cor: '#4CAF50', bg: 'rgba(76,175,80,0.12)' };
-    if (planoAtual === 'pro')      return { label: 'PRO',      cor: GOLD,      bg: 'rgba(201,169,110,0.12)' };
-    if (planoAtual === 'elite')    return { label: 'ELITE',    cor: '#9C27B0', bg: 'rgba(156,39,176,0.12)' };
-    return { label: 'FREE', cor: '#666', bg: 'rgba(100,100,100,0.12)' };
-  };
+  // 1. Caso: Admin novo (sem campo plano no Firestore)
+  if (!planoAtual) {
+    return { label: 'ATIVAR TESTE GRÁTIS', cor: GOLD, bg: 'rgba(201,169,110,0.12)' };
+  }
+
+  // 2. Caso: Plano Expirado (Bloqueado e não é Trial ativo)
+  if (isBloqueado) {
+    return { label: 'ASSINATURA EXPIRADA 🔒', cor: '#FF3B30', bg: 'rgba(255,59,48,0.12)' };
+  }
+
+  // 3. Caso: Trial Ativo
+  if (planoAtual === 'trial') {
+    const dias = diasRestantes !== null ? diasRestantes : 0;
+    return { 
+      label: `TRIAL: ${dias} ${dias === 1 ? 'DIA' : 'DIAS'}`, 
+      cor: '#FF9800', 
+      bg: 'rgba(255,152,0,0.12)' 
+    };
+  }
+
+  // 4. Caso: Planos Ativos (Só chega aqui se assinaturaAtiva for true)
+  switch (planoAtual) {
+    case 'essencial':
+      return { label: 'PLANO ESSENCIAL', cor: '#4CAF50', bg: 'rgba(76,175,80,0.12)' };
+    case 'pro':
+      return { label: 'PLANO PRO ⭐', cor: GOLD, bg: 'rgba(201,169,110,0.12)' };
+    case 'elite':
+      return { label: 'PLANO ELITE 👑', cor: '#9C27B0', bg: 'rgba(156,39,176,0.12)' };
+    case 'free':
+      return { label: 'PLANO FREE', cor: '#666', bg: 'rgba(100,100,100,0.12)' };
+    default:
+      return { label: 'SEM PLANO', cor: '#FF5252', bg: 'rgba(255,82,82,0.12)' };
+  }
+};
 
   const seloInfo = () => {
     if (verificado) return { emoji: '✅', titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado ✅', cor: '#4CAF50' };
@@ -338,19 +372,17 @@ Gerado pelo BeautyHub`;
   <View style={s.planoCardLeft}>
     <View style={[s.planoBadge, { backgroundColor: badge.cor }]}>
       <Text style={s.planoBadgeText}>
-        {planoAtual === 'trial' 
-          ? (diasRestantes !== null && diasRestantes <= 0 ? "EXPIRADO" : `${diasRestantes} DIAS RESTANTES`)
-          : badge.label}
+        {planoAtual === null ? "NOVA CONTA" : badge.label}
       </Text>
     </View>
     <View style={{ marginLeft: 12 }}>
       <Text style={s.planoCardTitulo}>
-        {isBloqueado ? 'Acesso Limitado' : 'Seu plano está ativo'}
+        {!planoAtual ? 'Comece seus 14 dias grátis' : (isBloqueado ? 'Acesso Limitado' : 'Seu plano está ativo')}
       </Text>
       <Text style={s.planoCardSub}>
-        {planoAtual === 'trial' 
-          ? `Seu teste grátis termina em ${diasRestantes || 0} dias.`
-          : 'Toque para ver detalhes da assinatura'}
+        {!planoAtual 
+          ? 'Toque aqui para ativar seu painel agora.' 
+          : (isBloqueado ? 'Regularize para liberar os recursos.' : 'Tudo certo com seu acesso!')}
       </Text>
     </View>
   </View>
@@ -422,17 +454,39 @@ Gerado pelo BeautyHub`;
             />
           </View>
 
-          {/* POSTAR STORY */}
-          <TouchableOpacity style={s.storyBtnPremium} activeOpacity={0.8} onPress={() => navigation.navigate('PostarStory')}>
-            <View style={s.storyGradientBorder}>
-              <View style={s.storyIconInner}><Text style={s.storyEmoji}>📸</Text></View>
-            </View>
-            <View style={s.storyTextContent}>
-              <Text style={s.storyTitlePremium}>Postar novo Story</Text>
-              <Text style={s.storySubPremium}>Divulgue novidades para os clientes</Text>
-            </View>
-            <View style={s.storyBadgeNovo}><Text style={s.storyBadgeNovoText}>NOVO</Text></View>
-          </TouchableOpacity>
+          {/* POSTAR STORY COM BLOQUEIO */}
+<TouchableOpacity 
+  style={[
+    s.storyBtnPremium, 
+    isBloqueado && { opacity: 0.6 } // Estilo visual de desativado
+  ]} 
+  activeOpacity={0.8} 
+  onPress={() => {
+    if (isBloqueado) {
+      Alert.alert(
+        'Recurso Bloqueado 📸', 
+        'Ative seu período de teste ou escolha um plano para postar stories.'
+      );
+    } else {
+      navigation.navigate('PostarStory');
+    }
+  }}
+>
+  <View style={[s.storyGradientBorder, isBloqueado && { backgroundColor: '#666' }]}>
+    <View style={s.storyIconInner}>
+      <Text style={s.storyEmoji}>{isBloqueado ? '🔒' : '📸'}</Text>
+    </View>
+  </View>
+  <View style={s.storyTextContent}>
+    <Text style={s.storyTitlePremium}>Postar novo Story</Text>
+    <Text style={s.storySubPremium}>
+      {isBloqueado ? 'Ative seu plano para liberar' : 'Divulgue novidades para os clientes'}
+    </Text>
+  </View>
+  {!isBloqueado && (
+    <View style={s.storyBadgeNovo}><Text style={s.storyBadgeNovoText}>NOVO</Text></View>
+  )}
+</TouchableOpacity>
 
           {/* STATS */}
           <View style={s.statsRow}>
@@ -539,9 +593,19 @@ Gerado pelo BeautyHub`;
           keyExtractor={e => e.id}
           contentContainerStyle={s.lista}
           ListHeaderComponent={
-            <TouchableOpacity style={s.novoBtn} onPress={() => navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' })}>
-              <Text style={s.novoBtnText}>＋ Novo Estabelecimento</Text>
-            </TouchableOpacity>
+            <TouchableOpacity 
+  style={[s.novoBtn, isBloqueado && { opacity: 0.5, backgroundColor: '#CCC' }]} 
+  onPress={() => {
+    if (isBloqueado) {
+      Alert.alert("Acesso Bloqueado", "Regularize sua assinatura para cadastrar novos locais.");
+    } else {
+      navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+    }
+  }}
+  disabled={isBloqueado}
+>
+  <Text style={s.novoBtnText}>＋ Novo Estabelecimento</Text>
+</TouchableOpacity>
           }
           renderItem={({ item }) => (
             <TouchableOpacity

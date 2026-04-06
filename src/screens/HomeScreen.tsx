@@ -257,12 +257,19 @@ export default function HomeScreen() {
 
   // Filtro Memoizado para performance
   const filtrados = useMemo(() => {
-    return estabelecimentos
-      .filter(e => {
-        const mb = (e.nome || '').toLowerCase().includes(busca.toLowerCase());
-        const mt = filtro === 'Todos' || e.tipo === filtro;
-        return mb && mt;
-      })
+  const agora = new Date();
+
+  return estabelecimentos
+    .filter(e => {
+      const mb = (e.nome || '').toLowerCase().includes(busca.toLowerCase());
+      const mt = filtro === 'Todos' || e.tipo === filtro;
+      
+      // --- NOVA VALIDAÇÃO DE ASSINATURA NO FRONT ---
+      const expiraEm = (e as any).expiraEm?.toDate?.() || null;
+      const assinaturaValida = e.assinaturaAtiva && (!expiraEm || agora < expiraEm);
+      
+      return mb && mt && assinaturaValida; // Só mostra se a assinatura estiver OK
+    })
       .map(e => {
         const lat = e.coords?.lat ?? e.lat;
         const lng = e.coords?.lng ?? e.lng;
@@ -384,14 +391,46 @@ export default function HomeScreen() {
             )}
 
             {user ? (
-              <TouchableOpacity style={s.sairBtn} onPress={() => {
-                Alert.alert('Sair', 'Deseja sair?', [
-                  { text: 'Não', style: 'cancel' },
-                  { text: 'Sair', style: 'destructive', onPress: async () => { await auth().signOut(); try { await GoogleSignin.signOut(); } catch {} } },
-                ]);
-              }}>
-                <Text style={s.sairBtnText}>Sair</Text>
-              </TouchableOpacity>
+              <TouchableOpacity 
+  style={s.sairBtn} 
+  onPress={() => {
+    Alert.alert('Sair', 'Deseja realmente sair da sua conta?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { 
+        text: 'Sair', 
+        style: 'destructive', 
+        onPress: async () => {
+          try {
+            // 1. Limpa a sessão do Firebase
+            await auth().signOut();
+            
+            // 2. Limpa a sessão do Google (se existir) de forma segura
+            // Usamos o try/catch interno para que se o Google falhar, 
+            // o usuário ainda seja deslogado do app
+            try {
+              const isSignedIn = await GoogleSignin.isSignedIn();
+              if (isSignedIn) {
+                await GoogleSignin.revokeAccess();
+                await GoogleSignin.signOut();
+              }
+            } catch (googleError) {
+              console.log("Erro ao sair do Google (ignorar se não logado via Google):", googleError);
+            }
+
+            // 3. Força o reset do estado local caso o listener demore
+            setUser(null);
+            
+          } catch (error) {
+            Alert.alert('Erro', 'Não foi possível sair da conta.');
+            console.error(error);
+          }
+        } 
+      },
+    ]);
+  }}
+>
+  <Text style={s.sairBtnText}>Sair</Text>
+</TouchableOpacity>
             ) : (
               <TouchableOpacity style={s.loginBtn} onPress={() => navigation.navigate('ClienteLogin')}>
                 <Icon name="account-outline" size={16} color="#000" style={{ marginRight: 6 }} />

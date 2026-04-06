@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, 
   ActivityIndicator, Alert, StatusBar, Dimensions 
@@ -9,6 +9,7 @@ import functions from '@react-native-firebase/functions';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const { width } = Dimensions.get('window');
+const GOLD = '#D4AF37';
 
 const PLANOS = [
   { 
@@ -23,7 +24,7 @@ const PLANOS = [
     id: 'pro', 
     nome: 'Professional', 
     preco: '49,90', 
-    cor: '#D4AF37', 
+    cor: GOLD, 
     desc: 'O padrão ouro de gestão',
     popular: true,
     features: ['Profissionais Ilimitados', 'Gestão de Comissões', 'Histórico de Clientes', 'Suporte Prioritário', 'Estatísticas Avançadas']
@@ -40,72 +41,116 @@ const PLANOS = [
 
 export default function AssinaturaScreen({ navigation }) {
   const [loading, setLoading] = useState<string | null>(null);
-  const [statusTrial, setStatusTrial] = useState<'disponivel' | 'bloqueado'>('disponivel');
   const [loadingDados, setLoadingDados] = useState(true);
+  const [estId, setEstId] = useState<string | null>(null);
+  
   const [planoAtualId, setPlanoAtualId] = useState<string | null>(null);
+  const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
+  const [trialUsado, setTrialUsado] = useState(false);
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
 
   useEffect(() => {
     const user = auth().currentUser;
-    if (!user) return;
+    if (!user) {
+      setLoadingDados(false);
+      return;
+    }
 
     const unsub = firestore()
       .collection('estabelecimentos')
       .where('adminId', '==', user.uid)
       .limit(1)
       .onSnapshot(snapshot => {
-        if (!snapshot.empty) {
-          const data = snapshot.docs[0].data();
-          
-          setPlanoAtualId(data.plano || null);
-
-          // Lógica de cálculo de dias restantes
-          if (data.plano === 'trial' && data.trialDataInicio) {
-            const agora = new Date();
-            const inicio = data.trialDataInicio.toDate();
-            const fim = new Date(inicio);
-            fim.setDate(inicio.getDate() + 14); // Trial de 14 dias
-
-            const diff = fim.getTime() - agora.getTime();
-            const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
-            setDiasRestantes(dias > 0 ? dias : 0);
-          } else {
-            setDiasRestantes(null);
-          }
-
-          const isBloqueado = data.plano === 'trial' || data.assinaturaAtiva === true || data.trialUsado === true;
-          setStatusTrial(isBloqueado ? 'bloqueado' : 'disponivel');
+        if (snapshot.empty) {
           setLoadingDados(false);
+          return;
         }
+
+        const doc = snapshot.docs[0];
+        const data = doc.data();
+		
+		setEstId(doc.id);
+		setPlanoAtualId(data.plano || null);
+		
+        const expirado = data.expiraEm ? data.expiraEm.toDate() < new Date() : false;
+        setAssinaturaAtiva(!!data.assinaturaAtiva && !expirado);
+		
+        setTrialUsado(!!data.trialUsado);
+
+        if (data.plano === 'trial' && data.trialDataInicio) {
+          const agora = new Date();
+          const inicio = data.trialDataInicio.toDate();
+          const fim = new Date(inicio);
+          fim.setDate(inicio.getDate() + 14); 
+
+          const diff = fim.getTime() - agora.getTime();
+          const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+          setDiasRestantes(dias > 0 ? dias : 0);
+        } else {
+          setDiasRestantes(null);
+        }
+        
+        setLoadingDados(false);
+      }, err => {
+        console.error(err);
+        setLoadingDados(false);
       });
+
     return () => unsub();
   }, []);
 
+  const isExpirado = useMemo(() => {
+    if (planoAtualId === 'trial') return (diasRestantes || 0) <= 0;
+    if (planoAtualId && planoAtualId !== 'free' && !assinaturaAtiva) return true;
+    return false;
+  }, [planoAtualId, diasRestantes, assinaturaAtiva]);
+
   const handleTrial = async () => {
-    if (statusTrial === 'bloqueado') return;
+    if (trialUsado || planoAtualId || loading === 'trial') return;
+    
     setLoading('trial');
     try {
-      const user = auth().currentUser;
-      const estSnap = await firestore().collection('estabelecimentos').where('adminId', '==', user?.uid).limit(1).get();
-      await functions().httpsCallable('iniciarTrial')({ estabelecimentoId: estSnap.docs[0].id });
-      Alert.alert("🎉 Sucesso", "Seus 14 dias de teste começaram!");
-    } catch (e) {
-      Alert.alert("Erro", "Não foi possível ativar o teste.");
-    } finally { setLoading(null); }
+      // ✅ CORRIGIDO: forma correta de passar região no React Native Firebase
+      const result = await functions(undefined, 'southamerica-east1')
+        .httpsCallable('iniciarTrial')({ estabelecimentoId: estId });
+      
+      if (result.data?.ok) {
+        Alert.alert("🎉 Sucesso", "Seus 14 dias de teste começaram!");
+      } else {
+        throw new Error(result.data?.message || "Erro desconhecido");
+      }
+    } catch (e: any) {
+      console.error("Erro ao ativar trial:", e);
+      
+      let msgErro = "Não foi possível ativar o teste. Tente novamente.";
+      
+      if (e.message?.includes('not-found')) {
+        msgErro = "Estabelecimento não encontrado.";
+      } else if (e.message?.includes('already-exists')) {
+        msgErro = "Você já utilizou o período de teste neste estabelecimento.";
+      } else if (e.message?.includes('permission-denied')) {
+        msgErro = "Você não tem permissão para ativar este trial.";
+      }
+
+      Alert.alert("Ops!", msgErro);
+    } finally {
+      setLoading(null);
+    }
   };
 
   const handleAssinar = (plano: any) => {
-    if (plano.id === planoAtualId) {
-      Alert.alert("Plano Ativo", "Você já possui este plano em sua assinatura.");
+    if (plano.id === planoAtualId && assinaturaAtiva) {
+      Alert.alert("Plano Ativo", "Você já possui este plano ativo.");
       return;
     }
+    
     navigation.navigate('CheckoutPagamentoScreen', { 
       planoId: plano.id, 
       preco: plano.preco 
     });
   };
 
-  if (loadingDados) return <View style={styles.center}><ActivityIndicator color="#D4AF37" size="large" /></View>;
+  if (loadingDados) return <View style={styles.center}><ActivityIndicator color={GOLD} size="large" /></View>;
 
   return (
     <View style={styles.container}>
@@ -114,61 +159,74 @@ export default function AssinaturaScreen({ navigation }) {
         
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeBtn}>
-            <Icon name="close" size={28} color="#D4AF37" />
+            <Icon name="close" size={28} color={GOLD} />
           </TouchableOpacity>
-          <Text style={styles.supraTitulo}>BEAUTYHUB PREMIUM</Text>
-          <Text style={styles.titulo}>Eleve o nível do seu negócio</Text>
+          <Text style={styles.supraTitulo}>ESTÉTICAHUB PREMIUM</Text>
+          <Text style={styles.titulo}>Transforme sua gestão em ouro</Text>
         </View>
 
-        <View style={[styles.trialCard, statusTrial === 'bloqueado' && styles.trialCardDisabled]}>
+        {/* CARD DE TRIAL DINÂMICO */}
+        <View style={[
+            styles.trialCard, 
+            (trialUsado && planoAtualId !== 'trial') && styles.trialCardDisabled,
+            (isExpirado && planoAtualId === 'trial') && { borderColor: '#FF3B30', backgroundColor: '#1A0505' }
+        ]}>
           <View style={styles.trialContent}>
             <Icon 
-              name={diasRestantes !== null ? "clock-outline" : "gift-outline"} 
-              size={30} 
-              color={statusTrial === 'bloqueado' && diasRestantes === null ? "#444" : "#D4AF37"} 
+              name={isExpirado && planoAtualId === 'trial' ? "alert-circle-outline" : "gift-outline"} 
+              size={32} 
+              color={isExpirado && planoAtualId === 'trial' ? "#FF3B30" : GOLD} 
             />
             <View style={{ flex: 1, marginLeft: 15 }}>
-              <Text style={[styles.trialTitle, statusTrial === 'bloqueado' && diasRestantes === null && { color: '#666' }]}>
-                {diasRestantes !== null 
-                  ? `Restam ${diasRestantes} ${diasRestantes === 1 ? 'dia' : 'dias'}` 
-                  : statusTrial === 'bloqueado' ? "Teste já utilizado" : "Degustação Grátis"}
+              <Text style={[styles.trialTitle, isExpirado && planoAtualId === 'trial' && { color: '#FF3B30' }]}>
+                {planoAtualId === 'trial' 
+                  ? (isExpirado ? "Teste Expirado" : `Teste Ativo: ${diasRestantes} dias`)
+                  : (trialUsado ? "Teste já utilizado" : "14 Dias Grátis")}
               </Text>
               <Text style={styles.trialText}>
-                {diasRestantes !== null 
-                  ? "Seu período de teste está ativo." 
-                  : "Acesso total por 14 dias sem compromisso."}
+                {planoAtualId === 'trial' 
+                  ? (isExpirado ? "Assine um plano para continuar." : "Aproveite todos os recursos VIP.")
+                  : "Experimente o plano Professional sem custo."}
               </Text>
             </View>
             
-            {/* O botão some ou muda se o trial já estiver ativo */}
-            {planoAtualId !== 'trial' && (
-               <TouchableOpacity 
-               onPress={handleTrial} 
-               disabled={statusTrial === 'bloqueado' || !!loading}
-               style={[styles.trialActionBtn, statusTrial === 'bloqueado' && styles.trialActionBtnDisabled]}
-             >
-               {loading === 'trial' ? <ActivityIndicator size="small" color="#000" /> : 
-               <Text style={styles.trialActionText}>{statusTrial === 'bloqueado' ? "INDISPONÍVEL" : "ATIVAR"}</Text>}
-             </TouchableOpacity>
+            {!trialUsado && !planoAtualId && (
+              <TouchableOpacity 
+                onPress={handleTrial} 
+                disabled={!!loading}
+                style={styles.trialActionBtn}
+              >
+                {loading === 'trial' 
+                  ? <ActivityIndicator size="small" color="#000" /> 
+                  : <Text style={styles.trialActionText}>ATIVAR</Text>}
+              </TouchableOpacity>
             )}
           </View>
         </View>
 
         {PLANOS.map((plano) => {
-          const isPlanoAtual = plano.id === planoAtualId;
+          const isEstePlano = plano.id === planoAtualId;
+          const mostrarComoAtivo = isEstePlano && assinaturaAtiva;
+          const mostrarComoExpirado = isEstePlano && isExpirado;
 
           return (
             <View key={plano.id} style={[
               styles.planCard, 
               plano.popular && styles.planCardPopular,
-              isPlanoAtual && styles.planCardAtual
+              mostrarComoAtivo && styles.planCardAtual,
+              mostrarComoExpirado && styles.planCardExpirado
             ]}>
-              {plano.popular && !isPlanoAtual && (
-                <View style={styles.popularBadge}><Text style={styles.popularText}>MAIS ESCOLHIDO</Text></View>
-              )}
               
-              {isPlanoAtual && (
-                <View style={styles.atualBadge}><Text style={styles.atualText}>PLANO ATUAL</Text></View>
+              {mostrarComoAtivo && (
+                <View style={styles.atualBadge}>
+                  <Text style={styles.atualText}>PLANO ATIVO</Text>
+                </View>
+              )}
+
+              {mostrarComoExpirado && (
+                <View style={[styles.atualBadge, { backgroundColor: '#FF3B30' }]}>
+                  <Text style={styles.atualText}>PAGAMENTO PENDENTE</Text>
+                </View>
               )}
 
               <View style={styles.planHeader}>
@@ -185,8 +243,8 @@ export default function AssinaturaScreen({ navigation }) {
               <View style={styles.featureList}>
                 {plano.features.map((item, index) => (
                   <View key={index} style={styles.featureItem}>
-                    <Icon name="check-circle" size={18} color={isPlanoAtual ? "#666" : plano.cor} />
-                    <Text style={[styles.featureText, isPlanoAtual && { color: '#666' }]}>{item}</Text>
+                    <Icon name="check-circle" size={18} color={mostrarComoAtivo ? "#4CAF50" : plano.cor} />
+                    <Text style={styles.featureText}>{item}</Text>
                   </View>
                 ))}
               </View>
@@ -194,13 +252,13 @@ export default function AssinaturaScreen({ navigation }) {
               <TouchableOpacity 
                 style={[
                   styles.subscribeBtn, 
-                  { backgroundColor: isPlanoAtual ? '#222' : plano.cor }
+                  { backgroundColor: mostrarComoAtivo ? '#1A1A1A' : (mostrarComoExpirado ? '#FF3B30' : plano.cor) }
                 ]}
                 onPress={() => handleAssinar(plano)}
-                disabled={isPlanoAtual}
+                disabled={mostrarComoAtivo}
               >
-                <Text style={[styles.subscribeBtnText, isPlanoAtual && { color: '#555' }]}>
-                  {isPlanoAtual ? 'PLANO ATIVO' : 'ASSINAR AGORA'}
+                <Text style={[styles.subscribeBtnText, mostrarComoAtivo && { color: '#444' }]}>
+                  {mostrarComoAtivo ? 'PLANO ATUAL' : mostrarComoExpirado ? 'REATIVAR AGORA' : 'ASSINAR AGORA'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -216,35 +274,29 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#050505', justifyContent: 'center', alignItems: 'center' },
   header: { padding: 30, paddingTop: 60 },
   closeBtn: { alignSelf: 'flex-start', marginBottom: 20 },
-  supraTitulo: { color: '#D4AF37', fontSize: 12, fontWeight: '900', letterSpacing: 2, marginBottom: 5 },
+  supraTitulo: { color: GOLD, fontSize: 12, fontWeight: '900', letterSpacing: 2, marginBottom: 5 },
   titulo: { color: '#FFF', fontSize: 32, fontWeight: '900', lineHeight: 38 },
   trialCard: { backgroundColor: '#111', marginHorizontal: 20, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#222', marginBottom: 25 },
-  trialCardDisabled: { borderColor: '#111', opacity: 0.8 },
+  trialCardDisabled: { opacity: 0.5 },
   trialContent: { flexDirection: 'row', alignItems: 'center' },
-  trialTitle: { color: '#FFF', fontSize: 18, fontWeight: '800' },
+  trialTitle: { color: '#FFF', fontSize: 17, fontWeight: '800' },
   trialText: { color: '#777', fontSize: 12, marginTop: 2 },
-  trialActionBtn: { backgroundColor: '#D4AF37', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 12 },
-  trialActionBtnDisabled: { backgroundColor: '#222' },
+  trialActionBtn: { backgroundColor: GOLD, paddingHorizontal: 15, paddingVertical: 8, borderRadius: 10 },
   trialActionText: { color: '#000', fontSize: 11, fontWeight: '900' },
-  
   planCard: { backgroundColor: '#111', marginHorizontal: 20, marginBottom: 20, borderRadius: 24, padding: 25, borderWidth: 1, borderColor: '#1a1a1a' },
-  planCardPopular: { borderColor: '#D4AF37', backgroundColor: '#151515', elevation: 15, shadowColor: '#D4AF37', shadowOpacity: 0.1, shadowRadius: 20 },
-  planCardAtual: { borderColor: '#444', backgroundColor: '#0A0A0A', opacity: 0.9 },
-  
-  popularBadge: { position: 'absolute', top: -12, right: 25, backgroundColor: '#D4AF37', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 },
-  popularText: { color: '#000', fontSize: 10, fontWeight: '900' },
-  
-  atualBadge: { position: 'absolute', top: -12, right: 25, backgroundColor: '#444', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 },
+  planCardPopular: { borderColor: GOLD, backgroundColor: '#0F0F0F' },
+  planCardAtual: { borderColor: '#4CAF50' },
+  planCardExpirado: { borderColor: '#FF3B30' },
+  atualBadge: { position: 'absolute', top: -12, right: 25, backgroundColor: '#4CAF50', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 },
   atualText: { color: '#FFF', fontSize: 10, fontWeight: '900' },
-
-  planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 25 },
-  planName: { color: '#FFF', fontSize: 24, fontWeight: '900' },
-  planDesc: { color: '#666', fontSize: 13, marginTop: 4 },
-  planPrice: { color: '#FFF', fontSize: 22, fontWeight: '900' },
-  planMes: { color: '#444', fontSize: 11, fontWeight: '700' },
-  featureList: { marginBottom: 30 },
-  featureItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  featureText: { color: '#BBB', fontSize: 14, marginLeft: 12, fontWeight: '500' },
-  subscribeBtn: { height: 55, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-  subscribeBtnText: { color: '#000', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 }
+  planHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  planName: { color: '#FFF', fontSize: 22, fontWeight: '900' },
+  planDesc: { color: '#666', fontSize: 12 },
+  planPrice: { color: '#FFF', fontSize: 20, fontWeight: '900' },
+  planMes: { color: '#444', fontSize: 10 },
+  featureList: { marginBottom: 25 },
+  featureItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  featureText: { color: '#BBB', fontSize: 13, marginLeft: 10 },
+  subscribeBtn: { height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  subscribeBtnText: { color: '#000', fontSize: 15, fontWeight: '900' }
 });

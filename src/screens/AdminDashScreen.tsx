@@ -45,40 +45,57 @@ export default function AdminDashScreen() {
   const [planoAtual, setPlanoAtual] = useState<string | null>(null);
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [verificado, setVerificado] = useState(false);
-  const [estabPrincipalId, setEstabPrincipalId] = useState<string | null>(null);
+  
   const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
  // --- LÓGICA DE BLOQUEIO SEGURO ---
+const isNovoUsuario = !planoAtual;
+const temEstabelecimento = estabs.length > 0;
+
 const isBloqueado = useMemo(() => {
-  if (loading) return false;
+  if (loading) return true;
 
-  // 1. Se não tem plano nenhum (Usuário que acabou de criar a conta)
-  if (!planoAtual) return true; 
+  // 🚨 1. NOVO USUÁRIO SEM ESTABELECIMENTO
+  if (!temEstabelecimento) {
+    return true; // bloqueia tudo
+  }
 
-  // 2. Se for Trial, checa os dias
+  // 🚨 2. TEM ESTABELECIMENTO MAS NÃO TEM PLANO
+  if (!planoAtual || planoAtual === 'free') {
+    return true;
+  }
+
+  // 🚨 3. TRIAL EXPIRADO
   if (planoAtual === 'trial') {
     return diasRestantes !== null && diasRestantes <= 0;
   }
 
-  // 3. PARA TODOS OS OUTROS (Free, Essencial, Pro, Elite)
-  // Se a assinatura não estiver ativa no banco, bloqueia.
+  // 🚨 4. SEM ASSINATURA
   if (!assinaturaAtiva) return true;
 
-  return false; 
-}, [planoAtual, diasRestantes, assinaturaAtiva, loading]);
+  return false;
+}, [temEstabelecimento, planoAtual, diasRestantes, assinaturaAtiva, loading]);
 // --- 2. DECLARAÇÃO DA FUNÇÃO DE MUDAR ABA ---
   // Esta função impede o clique nas outras abas se estiver bloqueado
   const mudarAba = (novaAba: any) => {
-  if (loading) return; // Espera carregar os dados do plano antes de bloquear
-  if (isBloqueado && novaAba !== 'dash') {
-      Alert.alert(
-        'Assinatura Expirada 🔒', 
-        'Seu período de teste terminou. Regularize sua assinatura para acessar esta aba.'
-      );
-      return;
-    }
+  if (loading) return;
+
+  // 🚨 LIBERA aba de estabelecimento SEMPRE
+  if (novaAba === 'estabs') {
     setAba(novaAba);
-  };
+    return;
+  }
+
+  if (isBloqueado) {
+    Alert.alert(
+      'Acesso bloqueado 🔒',
+      'Ative seu plano para liberar essa função.'
+    );
+    return;
+  }
+
+  setAba(novaAba);
+};
  useEffect(() => {
   if (!admin?.id) return;
 
@@ -93,26 +110,25 @@ const isBloqueado = useMemo(() => {
       return;
     }
 
-    const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
-    setEstabs(lista);
-
     // PEGA OS DADOS DO ESTABELECIMENTO PRINCIPAL
-    const dados = lista[0] as any;
-setPlanoAtual(dados.plano || null);
-// Garante que se o campo não existir, ele trate como inativo (false)
-setAssinaturaAtiva(!!dados.assinaturaAtiva);
+   const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
+setEstabs(lista);
 
-    // Lógica de Trial/Expiração
-    if (dados.expiraEm) {
-      const agora = new Date();
-      const expiraData = dados.expiraEm.toDate();
-      const diffTime = expiraData.getTime() - agora.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      // Se diffDays <= 0, o backend já deve ter setado assinaturaAtiva como false,
-      // mas mantemos o cálculo para exibir "Expirado" na UI.
-      setDiasRestantes(diffDays > 0 ? diffDays : 0);
-    }
+// ✅ AGORA PEGA O PRINCIPAL CORRETAMENTE
+const principal = lista.find(e => e.principal) || lista[0];
+
+setPlanoAtual(principal?.plano || null);
+setAssinaturaAtiva(!!principal?.assinaturaAtiva);
+
+// Trial
+if (principal?.expiraEm) {
+  const agora = new Date();
+  const expiraData = principal.expiraEm.toDate();
+  const diffTime = expiraData.getTime() - agora.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  setDiasRestantes(diffDays > 0 ? diffDays : 0);
+}
     setLoading(false);
   });
 
@@ -130,20 +146,33 @@ setAssinaturaAtiva(!!dados.assinaturaAtiva);
     }, err => console.error('Erro agendamentos:', err));
 
   // 3. Ouvinte de Stories (Separado)
-  const unsubStories = firestore()
+ const unsubStories = firestore()
     .collection('stories')
     .where('adminId', '==', admin.id)
     .onSnapshot(snapS => {
       if (snapS) {
-        const storiesData = snapS.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-        storiesData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+        const storiesData = snapS.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        })) as any[];
+
+        storiesData.sort(
+          (a, b) =>
+            (b.timestamp?.seconds || 0) -
+            (a.timestamp?.seconds || 0)
+        );
+
         setMeusStories(storiesData);
-        const likes = storiesData.reduce((acc, curr) => acc + (curr.likesCount || 0), 0);
+
+        const likes = storiesData.reduce(
+          (acc, curr) => acc + (curr.likesCount || 0),
+          0
+        );
+
         setTotalLikes(likes);
       }
-    }, err => console.error('Erro stories:', err));
+    });
 
-  // LIMPEZA: Isso mata os 3 ouvintes quando o usuário sai da tela ou o ID muda
   return () => {
     unsubEstabs();
     unsubAgends();
@@ -594,18 +623,26 @@ Gerado pelo BeautyHub`;
           contentContainerStyle={s.lista}
           ListHeaderComponent={
             <TouchableOpacity 
-  style={[s.novoBtn, isBloqueado && { opacity: 0.5, backgroundColor: '#CCC' }]} 
+  style={s.novoBtn}
   onPress={() => {
-    if (isBloqueado) {
-      Alert.alert("Acesso Bloqueado", "Regularize sua assinatura para cadastrar novos locais.");
-    } else {
+    // 🚨 SEM estabelecimento → pode criar
+    if (!temEstabelecimento) {
       navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+      return;
     }
+
+    // 🚨 JÁ TEM estabelecimento mas sem plano → bloqueia
+    if (!assinaturaAtiva) {
+      Alert.alert(
+  "Plano necessário",
+  "Ative seu plano para criar mais estabelecimentos."
+);
+      return;
+    }
+
+    navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
   }}
-  disabled={isBloqueado}
 >
-  <Text style={s.novoBtnText}>＋ Novo Estabelecimento</Text>
-</TouchableOpacity>
           }
           renderItem={({ item }) => (
             <TouchableOpacity

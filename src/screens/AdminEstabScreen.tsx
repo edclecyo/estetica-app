@@ -44,7 +44,7 @@ export default function AdminEstabScreen() {
   const { estabelecimentoId } = route.params;
   const isNovo = estabelecimentoId === 'novo';
 
-  const fn = useMemo(() => functions(), []);
+  const fn = useMemo(() => functions(undefined, 'southamerica-east1'), []);
   const mapRef = useRef<MapView>(null);
 
   const [aba, setAba] = useState<'info' | 'servicos' | 'horarios' | 'agenda'>('info');
@@ -248,11 +248,52 @@ export default function AdminEstabScreen() {
         fotoPerfil, fotoCapa, avaliacao: 5.0, ativo: true,
         lat: coords.lat, lng: coords.lng
       });
-      Alert.alert('Sucesso! ✅', isNovo ? 'Criado!' : 'Atualizado!', [{ text: 'OK', onPress: () => isNovo && navigation.goBack() }]);
-    } catch (e: any) {
-      Alert.alert('Erro', e.message || 'Erro ao salvar.');
-    } finally { setSalvando(false); }
-  };
+      Alert.alert('Sucesso! ✅', 'Estabelecimento criado!', [
+  {
+    text: 'Continuar',
+    onPress: () => {
+      navigation.replace('AssinaturaScreen'); // 👈 manda pra assinatura
+    }
+  }
+]);
+   const salvar = async () => {
+  if (!nome || !endereco || !cidade) {
+    Alert.alert('Atenção', 'Nome, endereço e cidade são obrigatórios.');
+    return;
+  }
+
+  try {
+    setSalvando(true);
+
+    await fn.httpsCallable('salvarEstabelecimento')({
+      estabelecimentoId: isNovo ? undefined : estabelecimentoId,
+      nome, tipo, endereco, cep, bairro, numero, cidade, telefone, descricao,
+      horarioFuncionamento: horarioFunc, img, cor, servicos, horarios,
+      fotoPerfil, fotoCapa, avaliacao: 5.0, ativo: true,
+      lat: coords.lat, lng: coords.lng
+    });
+
+    Alert.alert(
+      'Sucesso! ✅',
+      isNovo ? 'Criado!' : 'Atualizado!',
+      [{ text: 'OK', onPress: () => isNovo && navigation.goBack() }]
+    );
+
+  } catch (e: any) {
+    if (e.code === 'failed-precondition') {
+      Alert.alert(
+        'Plano necessário 🚫',
+        'Você precisa ativar um plano para criar mais estabelecimentos.'
+      );
+      return;
+    }
+
+    Alert.alert('Erro', e.message || 'Erro ao salvar.');
+
+  } finally {
+    setSalvando(false);
+  }
+};
 
   const escolherImagem = async (tipoImg: 'perfil' | 'capa') => {
     if (isNovo) { Alert.alert("Aviso", "Salve o local antes de adicionar fotos."); return; }
@@ -313,7 +354,11 @@ export default function AdminEstabScreen() {
           <Text style={[s.headerLabel, { color: cor }]}>{isNovo ? 'NOVO LOCAL' : tipo.toUpperCase()}</Text>
           <Text style={s.headerTitle} numberOfLines={1}>{isNovo ? 'Criar Cadastro' : nome}</Text>
         </View>
-        <TouchableOpacity onPress={salvar} disabled={salvando} style={[s.saveBtn, { backgroundColor: cor }]}>
+        <TouchableOpacity 
+  onPress={salvar} 
+  disabled={salvando}
+  style={[s.saveBtn, { backgroundColor: cor, opacity: salvando ? 0.6 : 1 }]}
+>
           {salvando
             ? <ActivityIndicator size="small" color="#111" />
             : <Text style={s.saveBtnText}>Salvar</Text>}

@@ -253,17 +253,22 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (request) 
 
   const adminId = request.auth.uid;
   const data = request.data || {};
-  const isNovo = !data.estabelecimentoId;
+  const { estabelecimentoId } = data;
+  const isNovo = !estabelecimentoId;
 
-  const docId = data.estabelecimentoId || db.collection('estabelecimentos').doc().id;
+  // 1. Definição do Documento
+  const docRef = isNovo 
+    ? db.collection('estabelecimentos').doc() 
+    : db.collection('estabelecimentos').doc(estabelecimentoId);
 
-  // 🔒 PROTEÇÃO (evita hack)
-  delete data.plano;
-  delete data.assinaturaAtiva;
-  delete data.expiraEm;
-  delete data.verificado;
+  const docSnap = await docRef.get();
 
-  // 🔎 BUSCA ESTABELECIMENTOS DO ADMIN
+  // 🔒 SEGURANÇA: Se não for novo, verifica se o admin é o dono
+  if (!isNovo && docSnap.exists && docSnap.data()?.adminId !== adminId) {
+    throw new HttpsError('permission-denied', 'Você não tem permissão para alterar este local');
+  }
+
+  // 🔎 BUSCA QUANTIDADE PARA VALIDAÇÃO DE PLANO
   const estabsSnap = await db
     .collection('estabelecimentos')
     .where('adminId', '==', adminId)
@@ -271,46 +276,38 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (request) 
 
   const totalEstabs = estabsSnap.size;
 
-  const isPrincipal = totalEstabs === 0 && isNovo;
-
-  // 🚫 BLOQUEIA MAIS DE 1 ESTABELECIMENTO NO FREE
+  // 🚫 BLOQUEIO PLANO FREE (Somente na criação de novos)
   if (isNovo && totalEstabs >= 1) {
     throw new HttpsError(
       'failed-precondition',
-      'Você só pode ter 1 estabelecimento no plano gratuito'
+      'Você atingiu o limite de 1 estabelecimento para o plano gratuito.'
     );
   }
 
-  // 🧠 DEFINE SE É PRINCIPAL
-  const docRef = db.collection('estabelecimentos').doc(docId);
-  const existingDoc = await docRef.get();
-  const exists = existingDoc.exists;
+  // 🛡️ LIMPEZA DE PAYLOAD (Sanitização)
+  const cleanData = { ...data };
+  const camposProtegidos = ['plano', 'assinaturaAtiva', 'expiraEm', 'verificado', 'adminId', 'principal', 'estabelecimentoId'];
+  camposProtegidos.forEach(key => delete cleanData[key]);
 
+  // 🏗️ MONTAGEM DO PAYLOAD FINAL
   const payload = {
-    ...data,
-    adminId,
-    principal: isPrincipal,
-
-    plano: exists
-      ? existingDoc.data()?.plano
-      : 'free',
-
-    assinaturaAtiva: exists
-      ? existingDoc.data()?.assinaturaAtiva
-      : false,
-
-    expiraEm: exists
-      ? existingDoc.data()?.expiraEm
-      : null,
-
-    atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+    ...cleanData,
+    adminId, // Garante que o ID do dono nunca mude
+    atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  delete payload.estabelecimentoId;
+  // Se for o primeiro estabelecimento, define como principal
+  if (isNovo) {
+    payload.criadoEm = admin.firestore.FieldValue.serverTimestamp();
+    payload.principal = totalEstabs === 0;
+    payload.plano = 'free';
+    payload.assinaturaAtiva = false;
+    payload.expiraEm = null;
+  }
 
-  await db.collection('estabelecimentos').doc(docId).set(payload, { merge: true });
+  await docRef.set(payload, { merge: true });
 
-  return { id: docId, ok: true };
+  return { id: docRef.id, ok: true };
 });
 
 // ─── 4. CRIAR AGENDAMENTO ─────────────────────────────────────────────────────

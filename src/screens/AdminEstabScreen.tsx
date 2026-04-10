@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import Slider from '@react-native-community/slider';
-import firestore from '@react-native-firebase/firestore';
+import { firebase } from '@react-native-firebase/app';
 import functions from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,7 +13,7 @@ import type { Servico, Agendamento } from '../types';
 import { launchImageLibrary } from "react-native-image-picker";
 import storage from "@react-native-firebase/storage";
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-
+import Geolocation from '@react-native-community/geolocation';
 const { width } = Dimensions.get('window');
 
 const EMOJIS = [
@@ -44,7 +44,7 @@ export default function AdminEstabScreen() {
   const { estabelecimentoId } = route.params;
   const isNovo = estabelecimentoId === 'novo';
 
-  const fn = useMemo(() => functions(undefined, 'southamerica-east1'), []);
+ const fn = useMemo(() => firebase.app().functions('southamerica-east1'), []);
   const mapRef = useRef<MapView>(null);
 
   const [aba, setAba] = useState<'info' | 'servicos' | 'horarios' | 'agenda'>('info');
@@ -105,7 +105,7 @@ export default function AdminEstabScreen() {
         } catch { return; }
       }
       try {
-        navigator.geolocation?.getCurrentPosition(
+        Geolocation.getCurrentPosition(
           (pos) => {
             const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
             setUserLocation(loc);
@@ -237,25 +237,6 @@ export default function AdminEstabScreen() {
     }
   }, [coordsOk]);
 
-  const salvar = async () => {
-    if (!nome || !endereco || !cidade) { Alert.alert('Atenção', 'Nome, endereço e cidade são obrigatórios.'); return; }
-    try {
-      setSalvando(true);
-      await fn.httpsCallable('salvarEstabelecimento')({
-        estabelecimentoId: isNovo ? undefined : estabelecimentoId,
-        nome, tipo, endereco, cep, bairro, numero, cidade, telefone, descricao,
-        horarioFuncionamento: horarioFunc, img, cor, servicos, horarios,
-        fotoPerfil, fotoCapa, avaliacao: 5.0, ativo: true,
-        lat: coords.lat, lng: coords.lng
-      });
-      Alert.alert('Sucesso! ✅', 'Estabelecimento criado!', [
-  {
-    text: 'Continuar',
-    onPress: () => {
-      navigation.replace('AssinaturaScreen'); // 👈 manda pra assinatura
-    }
-  }
-]);
    const salvar = async () => {
   if (!nome || !endereco || !cidade) {
     Alert.alert('Atenção', 'Nome, endereço e cidade são obrigatórios.');
@@ -265,21 +246,23 @@ export default function AdminEstabScreen() {
   try {
     setSalvando(true);
 
-    await fn.httpsCallable('salvarEstabelecimento')({
+    const res = await fn.httpsCallable('salvarEstabelecimento')({
       estabelecimentoId: isNovo ? undefined : estabelecimentoId,
       nome, tipo, endereco, cep, bairro, numero, cidade, telefone, descricao,
       horarioFuncionamento: horarioFunc, img, cor, servicos, horarios,
-      fotoPerfil, fotoCapa, avaliacao: 5.0, ativo: true,
+      fotoPerfil, avaliacao: 5.0, ativo: true,
       lat: coords.lat, lng: coords.lng
     });
-
-    Alert.alert(
-      'Sucesso! ✅',
-      isNovo ? 'Criado!' : 'Atualizado!',
-      [{ text: 'OK', onPress: () => isNovo && navigation.goBack() }]
-    );
+const estabId = res.data.id;
+    if (isNovo) {
+      navigation.replace('AdminDash', { estabelecimentoId: estabId });
+    } else {
+      Alert.alert('Sucesso!', 'Atualizado com sucesso');
+    }
 
   } catch (e: any) {
+    console.log('ERRO SALVAR:', e);
+
     if (e.code === 'failed-precondition') {
       Alert.alert(
         'Plano necessário 🚫',
@@ -288,8 +271,15 @@ export default function AdminEstabScreen() {
       return;
     }
 
-    Alert.alert('Erro', e.message || 'Erro ao salvar.');
+    if (e.code === 'not-found') {
+      Alert.alert(
+        'Erro de conexão',
+        'Função não encontrada. Verifique região ou nome da function.'
+      );
+      return;
+    }
 
+    Alert.alert('Erro', e.message || 'Erro ao salvar.');
   } finally {
     setSalvando(false);
   }

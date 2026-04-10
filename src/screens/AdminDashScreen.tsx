@@ -52,25 +52,25 @@ export default function AdminDashScreen() {
 const isNovoUsuario = !planoAtual;
 const temEstabelecimento = estabs.length > 0;
 
+// 🔥 AJUSTE FINO NA LÓGICA DE BLOQUEIO
 const isBloqueado = useMemo(() => {
   if (loading) return true;
 
-  // 🚨 1. NOVO USUÁRIO SEM ESTABELECIMENTO
-  if (!temEstabelecimento) {
-    return true; // bloqueia tudo
-  }
+  // ❌ sem estabelecimento → bloqueia tudo
+  if (!temEstabelecimento) return true;
 
-  // 🚨 2. TEM ESTABELECIMENTO MAS NÃO TEM PLANO
-  if (!planoAtual || planoAtual === 'free') {
-    return true;
-  }
+  // ✅ novo usuário (SEM plano) → libera trial
+  if (!planoAtual) return false;
 
-  // 🚨 3. TRIAL EXPIRADO
+  // ⏳ trial expirado
   if (planoAtual === 'trial') {
     return diasRestantes !== null && diasRestantes <= 0;
   }
 
-  // 🚨 4. SEM ASSINATURA
+  // 🆓 plano free sempre bloqueado
+  if (planoAtual === 'free') return true;
+
+  // 💳 planos pagos sem assinatura ativa
   if (!assinaturaAtiva) return true;
 
   return false;
@@ -99,40 +99,59 @@ const isBloqueado = useMemo(() => {
  useEffect(() => {
   if (!admin?.id) return;
 
+  setLoading(true); // 🔥 começa carregando corretamente
+
   // 1. Ouvinte de Estabelecimentos
   const unsubEstabs = firestore()
-  .collection('estabelecimentos')
-  .where('adminId', '==', admin.id)
-  .onSnapshot(snap => {
-    if (!snap || snap.empty) {
-      setEstabs([]);
+    .collection('estabelecimentos')
+    .where('adminId', '==', admin.id)
+    .onSnapshot(snap => {
+      const lista = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })) as Estabelecimento[];
+
+      setEstabs(lista);
+
+      // 🔥 evita erro quando não tem estabelecimento
+      if (lista.length === 0) {
+        setPlanoAtual(null);
+        setAssinaturaAtiva(false);
+        setDiasRestantes(null);
+        setLoading(false);
+        return;
+      }
+
+      // ✅ pega principal corretamente
+      const principal = lista.find(e => e.principal) || lista[0];
+
+      setPlanoAtual(principal?.plano || null);
+      setAssinaturaAtiva(!!principal?.assinaturaAtiva);
+
+      // ⏳ cálculo do trial seguro
+      if (principal?.expiraEm) {
+        try {
+          const agora = new Date();
+          const expiraData = principal.expiraEm.toDate();
+
+          const diffTime = expiraData.getTime() - agora.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          setDiasRestantes(diffDays > 0 ? diffDays : 0);
+        } catch {
+          setDiasRestantes(null);
+        }
+      } else {
+        setDiasRestantes(null);
+      }
+
       setLoading(false);
-      return;
-    }
+    }, err => {
+      console.error('Erro estabelecimentos:', err);
+      setLoading(false);
+    });
 
-    // PEGA OS DADOS DO ESTABELECIMENTO PRINCIPAL
-   const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Estabelecimento[];
-setEstabs(lista);
-
-// ✅ AGORA PEGA O PRINCIPAL CORRETAMENTE
-const principal = lista.find(e => e.principal) || lista[0];
-
-setPlanoAtual(principal?.plano || null);
-setAssinaturaAtiva(!!principal?.assinaturaAtiva);
-
-// Trial
-if (principal?.expiraEm) {
-  const agora = new Date();
-  const expiraData = principal.expiraEm.toDate();
-  const diffTime = expiraData.getTime() - agora.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  setDiasRestantes(diffDays > 0 ? diffDays : 0);
-}
-    setLoading(false);
-  });
-
-  // 2. Ouvinte de Agendamentos (Separado para evitar duplicidade)
+  // 2. Ouvinte de Agendamentos
   const unsubAgends = firestore()
     .collection('agendamentos')
     .where('adminId', '==', admin.id)
@@ -140,13 +159,17 @@ if (principal?.expiraEm) {
     .limit(100)
     .onSnapshot(snapA => {
       if (snapA) {
-        setAgends(snapA.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]);
+        setAgends(
+          snapA.docs.map(d => ({
+            id: d.id,
+            ...d.data()
+          })) as Agendamento[]
+        );
       }
-      setLoading(false);
     }, err => console.error('Erro agendamentos:', err));
 
-  // 3. Ouvinte de Stories (Separado)
- const unsubStories = firestore()
+  // 3. Ouvinte de Stories
+  const unsubStories = firestore()
     .collection('stories')
     .where('adminId', '==', admin.id)
     .onSnapshot(snapS => {
@@ -285,57 +308,64 @@ Gerado pelo BeautyHub`;
     }
     return { labels, datasets: [{ data: valores }] };
   }, [agends]);
-
-  const planoBadge = () => {
-  // 1. Caso: Admin novo (sem campo plano no Firestore)
-  if (!planoAtual) {
-    return { label: 'ATIVAR TESTE GRÁTIS', cor: GOLD, bg: 'rgba(201,169,110,0.12)' };
-  }
-
-  // 2. Caso: Plano Expirado (Bloqueado e não é Trial ativo)
-  if (isBloqueado) {
-    return { label: 'ASSINATURA EXPIRADA 🔒', cor: '#FF3B30', bg: 'rgba(255,59,48,0.12)' };
-  }
-
-  // 3. Caso: Trial Ativo
-  if (planoAtual === 'trial') {
-    const dias = diasRestantes !== null ? diasRestantes : 0;
+  
+const safeChartData = useMemo(() => {
+  // Verifica se o array de dados existe e se tem algum valor
+  if (!chartData.datasets[0].data || chartData.datasets[0].data.length === 0) {
     return { 
-      label: `TRIAL: ${dias} ${dias === 1 ? 'DIA' : 'DIAS'}`, 
-      cor: '#FF9800', 
-      bg: 'rgba(255,152,0,0.12)' 
+      labels: ['Sem dados'], 
+      datasets: [{ data: [0] }] 
     };
   }
+  return chartData;
+}, [chartData]);
 
-  // 4. Caso: Planos Ativos (Só chega aqui se assinaturaAtiva for true)
-  switch (planoAtual) {
-    case 'essencial':
-      return { label: 'PLANO ESSENCIAL', cor: '#4CAF50', bg: 'rgba(76,175,80,0.12)' };
-    case 'pro':
-      return { label: 'PLANO PRO ⭐', cor: GOLD, bg: 'rgba(201,169,110,0.12)' };
-    case 'elite':
-      return { label: 'PLANO ELITE 👑', cor: '#9C27B0', bg: 'rgba(156,39,176,0.12)' };
-    case 'free':
-      return { label: 'PLANO FREE', cor: '#666', bg: 'rgba(100,100,100,0.12)' };
-    default:
-      return { label: 'SEM PLANO', cor: '#FF5252', bg: 'rgba(255,82,82,0.12)' };
-  }
-};
+const planoBadge = () => {
+    if (!planoAtual) {
+      return { label: '7 DIAS GRÁTIS', cor: GOLD, bg: 'rgba(201,169,110,0.12)', icon: 'clock-outline' };
+    }
+
+    if (isBloqueado) {
+      return { label: 'BLOQUEADO', cor: '#FF3B30', bg: 'rgba(255,59,48,0.12)', icon: 'lock' };
+    }
+
+    if (planoAtual === 'trial') {
+      const dias = diasRestantes !== null ? diasRestantes : 0;
+      return { 
+        label: `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} RESTANTES`, 
+        cor: '#FF9800', 
+        bg: 'rgba(255,152,0,0.12)',
+        icon: 'calendar-clock'
+      };
+    }
+
+    const config = {
+      essencial: { label: 'PLANO ESSENCIAL', icon: 'certificate' },
+      pro: { label: 'PLANO PRO', icon: 'star' },
+      elite: { label: 'PLANO ELITE', icon: 'crown' },
+      free: { label: 'PLANO FREE', icon: 'account' },
+    };
+
+    const current = config[planoAtual as keyof typeof config] || { label: 'PLANO ATIVO', icon: 'check-decagram' };
+
+    return { 
+      ...current,
+      cor: planoAtual === 'elite' ? '#9C27B0' : (planoAtual === 'pro' ? GOLD : '#4CAF50'),
+      bg: 'rgba(100,100,100,0.1)'
+    };
+  };
 
   const seloInfo = () => {
-    if (verificado) return { emoji: '✅', titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado ✅', cor: '#4CAF50' };
-    if (solicitacaoStatus === 'pendente') return { emoji: '⏳', titulo: 'Solicitação em Análise', sub: 'Aguardando aprovação do BeautyHub', cor: '#FF9800' };
-    if (solicitacaoStatus === 'rejeitado') return { emoji: '❌', titulo: 'Solicitação Rejeitada', sub: 'Verifique os critérios e tente novamente', cor: '#F44336' };
-    if (planoAtual === 'elite') return { emoji: '👑', titulo: 'Selo Elite Automático', sub: 'Incluído no seu plano Elite', cor: '#9C27B0' };
-    return { emoji: '⭐', titulo: 'Obter Selo Verificado', sub: 'Plano Pro — solicite o selo por R$ 14,90', cor: GOLD };
-  };
+  if (verificado) return { titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado', cor: '#4CAF50', emoji: '✅' };
+  if (solicitacaoStatus === 'pendente') return { titulo: 'Solicitação em Análise', sub: 'Aguardando aprovação do BeautyHub', cor: '#FF9800', emoji: '⏳' };
+  if (solicitacaoStatus === 'rejeitado') return { titulo: 'Solicitação Rejeitada', sub: 'Verifique os critérios e tente novamente', cor: '#F44336', emoji: '❌' };
+  if (planoAtual === 'elite') return { titulo: 'Selo Elite Automático', sub: 'Incluído no seu plano Elite', cor: '#9C27B0', emoji: '👑' };
+  return { titulo: 'Obter Selo Verificado', sub: 'Plano Pro — solicite o selo por R$ 14,90', cor: GOLD, emoji: '⭐' };
+};
 
   const badge = planoBadge();
   const selo = seloInfo();
   const mostrarCardSelo = planoAtual === 'pro' || planoAtual === 'elite';
-
-  if (loading) return <View style={s.center}><ActivityIndicator size="large" color={GOLD} /></View>;
-
   return (
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1A1A1A" />
@@ -391,31 +421,38 @@ Gerado pelo BeautyHub`;
 
       {/* ─── ABA DASH ─── */}
       {aba === 'dash' && (
-        <ScrollView contentContainerStyle={s.lista} showsVerticalScrollIndicator={false}>
+  <ScrollView contentContainerStyle={s.lista} showsVerticalScrollIndicator={false}>
 
-          {/* CARD DE PLANO */}
-<TouchableOpacity
-  style={[s.planoCard, { borderColor: badge.cor, backgroundColor: badge.bg }]}
-  onPress={() => navigation.navigate('Assinatura')}
->
-  <View style={s.planoCardLeft}>
-    <View style={[s.planoBadge, { backgroundColor: badge.cor }]}>
-      <Text style={s.planoBadgeText}>
-        {planoAtual === null ? "NOVA CONTA" : badge.label}
-      </Text>
-    </View>
-    <View style={{ marginLeft: 12 }}>
-      <Text style={s.planoCardTitulo}>
-        {!planoAtual ? 'Comece seus 14 dias grátis' : (isBloqueado ? 'Acesso Limitado' : 'Seu plano está ativo')}
-      </Text>
-      <Text style={s.planoCardSub}>
-        {!planoAtual 
-          ? 'Toque aqui para ativar seu painel agora.' 
-          : (isBloqueado ? 'Regularize para liberar os recursos.' : 'Tudo certo com seu acesso!')}
-      </Text>
-    </View>
-  </View>
-</TouchableOpacity>
+    {/* CARD DE PLANO ATUALIZADO */}
+    <TouchableOpacity
+      style={[s.planoCard, { borderColor: badge.cor, backgroundColor: badge.bg }]}
+      onPress={() => navigation.navigate('Assinatura')}
+    >
+      <View style={s.planoCardLeft}>
+        <View style={[s.planoBadge, { backgroundColor: badge.cor }]}>
+          <Text style={s.planoBadgeText}>
+            {badge.label}
+          </Text>
+        </View>
+        <View style={{ marginLeft: 12 }}>
+          <Text style={s.planoCardTitulo}>
+            {!planoAtual 
+              ? 'Comece seus 7 dias grátis' 
+              : (isBloqueado ? 'Assinatura Expirada' : `Plano ${planoAtual.toUpperCase()}`)}
+          </Text>
+          <Text style={s.planoCardSub}>
+  {!planoAtual 
+    ? 'Toque para ativar seu período de teste.'
+    : isBloqueado
+      ? 'Seu plano expirou. Toque para reativar.'
+      : planoAtual === 'trial'
+        ? `Você tem ${diasRestantes} ${diasRestantes === 1 ? 'dia restante' : 'dias restantes'}.`
+        : 'Seu acesso completo está liberado!'}
+</Text>
+        </View>
+      </View>
+      <Text style={{ color: badge.cor, fontSize: 18, fontWeight: 'bold' }}>→</Text>
+    </TouchableOpacity>
 
           {/* ✅ CARD DE SELO */}
           {mostrarCardSelo && (
@@ -439,16 +476,29 @@ Gerado pelo BeautyHub`;
             <View style={s.periodoRow}>
               {['dia', 'semana', 'mes'].map((p) => {
                 const hoje = new Date();
-                const valor = agends
-  .filter(a => (a.status === 'concluido' || a.status === 'confirmado') && a.data) // Garante que tem data
+               const valor = agends
+  .filter(a => (a.status === 'concluido' || a.status === 'confirmado') && a.data)
   .filter(a => {
-    const parts = a.data.split('/');
-    if (parts.length !== 3) return false;
-                    const dAgend = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
-                    const diff = (hoje.getTime() - dAgend.getTime()) / (1000 * 60 * 60 * 24);
-                    return p === 'dia' ? diff <= 1 : p === 'semana' ? diff <= 7 : diff <= 30;
-                  })
-                  .reduce((acc, curr) => acc + (curr.servicoPreco || 0), 0);
+    try {
+      const parts = a.data.split('/');
+      if (parts.length !== 3) return false;
+
+      const dAgend = new Date(
+        Number(parts[2]),
+        Number(parts[1]) - 1,
+        Number(parts[0])
+      );
+
+      if (isNaN(dAgend.getTime())) return false;
+
+      const diff = (hoje.getTime() - dAgend.getTime()) / (1000 * 60 * 60 * 24);
+
+      return p === 'dia' ? diff <= 1 : p === 'semana' ? diff <= 7 : diff <= 30;
+    } catch {
+      return false;
+    }
+  })
+  .reduce((acc, curr) => acc + (curr.servicoPreco || 0), 0);
                 return (
                   <View key={p} style={s.periodoItem}>
                     <Text style={s.periodoLabel}>{p === 'dia' ? 'HOJE' : p === 'semana' ? '7 DIAS' : '30 DIAS'}</Text>
@@ -470,17 +520,17 @@ Gerado pelo BeautyHub`;
               <Text style={s.chartTotal}>Total: R$ {receitaTotal.toLocaleString('pt-BR')}</Text>
             </View>
             <BarChart
-              data={chartData}
-              width={width - 40}
-              height={180}
-              yAxisLabel="R$"
-              chartConfig={{ ...chartConfig, fillShadowGradient: GOLD, fillShadowGradientOpacity: 1 }}
-              fromZero
-              withInnerLines={false}
-              style={s.chartStyle}
-              flatColor
-              showValuesOnTopOfBars
-            />
+  data={safeChartData} // ⚠️ antes estava chartData (pode quebrar)
+  width={width - 40}
+  height={180}
+  yAxisLabel="R$"
+  chartConfig={{ ...chartConfig, fillShadowGradient: GOLD, fillShadowGradientOpacity: 1 }}
+  fromZero
+  withInnerLines={false}
+  style={s.chartStyle}
+  flatColor
+  showValuesOnTopOfBars
+/>
           </View>
 
           {/* POSTAR STORY COM BLOQUEIO */}
@@ -616,34 +666,36 @@ Gerado pelo BeautyHub`;
       )}
 
       {/* ─── ABA ESTABELECIMENTOS ─── */}
-      {aba === 'estabs' && (
-        <FlatList
-          data={estabs}
-          keyExtractor={e => e.id}
-          contentContainerStyle={s.lista}
-          ListHeaderComponent={
-            <TouchableOpacity 
-  style={s.novoBtn}
-  onPress={() => {
-    // 🚨 SEM estabelecimento → pode criar
-    if (!temEstabelecimento) {
-      navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
-      return;
-    }
-
-    // 🚨 JÁ TEM estabelecimento mas sem plano → bloqueia
-    if (!assinaturaAtiva) {
-      Alert.alert(
-  "Plano necessário",
-  "Ative seu plano para criar mais estabelecimentos."
-);
-      return;
-    }
-
-    navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
-  }}
->
+{aba === 'estabs' && (
+  <FlatList
+    data={estabs}
+    keyExtractor={e => e.id}
+    contentContainerStyle={s.lista}
+    ListHeaderComponent={
+      <TouchableOpacity 
+        style={s.novoBtn}
+        onPress={() => {
+          // 🚨 SEM estabelecimento → pode criar
+          if (!temEstabelecimento) {
+            navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+            return;
           }
+
+          // 🚨 JÁ TEM estabelecimento mas sem plano → bloqueia
+          if (!assinaturaAtiva) {
+            Alert.alert(
+              "Plano necessário",
+              "Ative seu plano para criar mais estabelecimentos."
+            );
+            return;
+          }
+
+          navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+        }}
+      >
+        <Text style={s.novoBtnText}>+ Novo Estabelecimento</Text>
+      </TouchableOpacity>
+    }
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[s.estabCard, { borderLeftColor: item.cor || GOLD }]}

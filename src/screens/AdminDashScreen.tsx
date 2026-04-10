@@ -49,7 +49,7 @@ export default function AdminDashScreen() {
   const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
  // --- LÓGICA DE BLOQUEIO SEGURO ---
-const isNovoUsuario = !planoAtual;
+const isNovoUsuario = !temEstabelecimento;
 const temEstabelecimento = estabs.length > 0;
 
 // 🔥 AJUSTE FINO NA LÓGICA DE BLOQUEIO
@@ -436,18 +436,27 @@ const planoBadge = () => {
         </View>
         <View style={{ marginLeft: 12 }}>
           <Text style={s.planoCardTitulo}>
-            {!planoAtual 
-              ? 'Comece seus 7 dias grátis' 
-              : (isBloqueado ? 'Assinatura Expirada' : `Plano ${planoAtual.toUpperCase()}`)}
+            {isNovoUsuario
+  ? 'Comece seus 7 dias grátis'
+  : !planoAtual
+    ? 'Carregando plano...'
+    : (isBloqueado 
+        ? 'Assinatura Expirada' 
+        : `Plano ${planoAtual.toUpperCase()}`
+      )
+}
           </Text>
           <Text style={s.planoCardSub}>
-  {!planoAtual 
-    ? 'Toque para ativar seu período de teste.'
+  {isNovoUsuario
+  ? 'Toque para ativar seu período de teste.'
+  : !planoAtual
+    ? 'Carregando informações do plano...'
     : isBloqueado
       ? 'Seu plano expirou. Toque para reativar.'
       : planoAtual === 'trial'
         ? `Você tem ${diasRestantes} ${diasRestantes === 1 ? 'dia restante' : 'dias restantes'}.`
-        : 'Seu acesso completo está liberado!'}
+        : 'Seu acesso completo está liberado!'
+}
 </Text>
         </View>
       </View>

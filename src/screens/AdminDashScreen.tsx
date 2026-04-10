@@ -321,39 +321,74 @@ const safeChartData = useMemo(() => {
 }, [chartData]);
 
 const planoBadge = () => {
-    if (!planoAtual) {
-      return { label: '7 DIAS GRÁTIS', cor: GOLD, bg: 'rgba(201,169,110,0.12)', icon: 'clock-outline' };
-    }
-
-    if (isBloqueado) {
-      return { label: 'BLOQUEADO', cor: '#FF3B30', bg: 'rgba(255,59,48,0.12)', icon: 'lock' };
-    }
-
-    if (planoAtual === 'trial') {
-      const dias = diasRestantes !== null ? diasRestantes : 0;
-      return { 
-        label: `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} RESTANTES`, 
-        cor: '#FF9800', 
-        bg: 'rgba(255,152,0,0.12)',
-        icon: 'calendar-clock'
-      };
-    }
-
-    const config = {
-      essencial: { label: 'PLANO ESSENCIAL', icon: 'certificate' },
-      pro: { label: 'PLANO PRO', icon: 'star' },
-      elite: { label: 'PLANO ELITE', icon: 'crown' },
-      free: { label: 'PLANO FREE', icon: 'account' },
+  // 🆕 sem estabelecimento
+  if (!temEstabelecimento) {
+    return {
+      label: 'COMEÇAR GRÁTIS',
+      cor: GOLD,
+      bg: 'rgba(201,169,110,0.12)',
     };
+  }
 
-    const current = config[planoAtual as keyof typeof config] || { label: 'PLANO ATIVO', icon: 'check-decagram' };
-
-    return { 
-      ...current,
-      cor: planoAtual === 'elite' ? '#9C27B0' : (planoAtual === 'pro' ? GOLD : '#4CAF50'),
-      bg: 'rgba(100,100,100,0.1)'
+  // ⏳ carregando
+  if (!planoAtual) {
+    return {
+      label: 'CARREGANDO...',
+      cor: '#999',
+      bg: 'rgba(0,0,0,0.05)',
     };
+  }
+
+  // 🎯 TRIAL
+  if (planoAtual === 'trial') {
+    const dias = diasRestantes ?? 0;
+
+    return {
+      label: dias > 0
+        ? `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} DE TESTE`
+        : 'TRIAL ENCERRADO',
+      cor: '#FF9800',
+      bg: 'rgba(255,152,0,0.12)',
+    };
+  }
+
+  // 🆓 FREE
+  if (planoAtual === 'free') {
+    return {
+      label: 'PLANO FREE',
+      cor: '#777',
+      bg: 'rgba(0,0,0,0.05)',
+    };
+  }
+
+  // 💳 PLANOS PAGOS
+  const nomes = {
+    essencial: 'PLANO ESSENCIAL',
+    pro: 'PLANO PRO',
+    elite: 'PLANO ELITE',
   };
+
+  // 🔴 plano existe mas não está ativo
+  if (!assinaturaAtiva) {
+    return {
+      label: `${nomes[planoAtual]} (INATIVO)`,
+      cor: '#FF3B30',
+      bg: 'rgba(255,59,48,0.12)',
+    };
+  }
+
+  // ✅ plano ativo
+  return {
+    label: nomes[planoAtual] || 'PLANO ATIVO',
+    cor:
+      planoAtual === 'elite'
+        ? '#9C27B0'
+        : planoAtual === 'pro'
+        ? GOLD
+        : '#4CAF50',
+    bg: 'rgba(100,100,100,0.1)',
+  };
+};
 
   const seloInfo = () => {
   if (verificado) return { titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado', cor: '#4CAF50', emoji: '✅' };

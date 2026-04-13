@@ -6,6 +6,7 @@ import {
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import Slider from '@react-native-community/slider';
 import { firebase } from '@react-native-firebase/app';
+import firestore from '@react-native-firebase/firestore';
 import functions from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
@@ -37,6 +38,10 @@ const PRESETS_CORES = [
   '#1A1A1A', '#FF5F5F', '#4CAF50', '#2196F3', '#FFFFFF'
 ];
 
+Geolocation.setRNConfiguration({
+  skipPermissionRequests: false,
+  authorizationLevel: 'whenInUse',
+});
 export default function AdminEstabScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -96,31 +101,68 @@ export default function AdminEstabScreen() {
     return { concluido, pendente, total: concluido + pendente };
   }, [agends]);
 
-  useEffect(() => {
-    const obter = async () => {
+ useEffect(() => {
+  const obterLocalizacao = async () => {
+    try {
       if (Platform.OS === 'android') {
-        try {
-          const ok = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-          if (ok !== PermissionsAndroid.RESULTS.GRANTED) return;
-        } catch { return; }
-      }
-      try {
-        Geolocation.getCurrentPosition(
-          (pos) => {
-            const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-            setUserLocation(loc);
-            if (isNovo && !coordsOk) {
-              setCoords(loc);
-              setCoordsOk(true);
-            }
-          },
-          (err) => console.log('GPS erro', err),
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
         );
-      } catch { }
-    };
-    obter();
-  }, []);
+
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          console.log('Permissão negada');
+          return;
+        }
+      }
+Geolocation.requestAuthorization?.();
+      Geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          };
+
+          console.log('LOCAL ATUAL:', loc);
+
+          setUserLocation(loc);
+
+          // 🔥 ESSA LINHA É A CHAVE
+          if (isNovo) {
+            setCoords(loc);
+            setCoordsOk(true);
+
+            // move o mapa automaticamente
+            setTimeout(() => {
+              mapRef.current?.animateToRegion({
+                latitude: loc.lat,
+                longitude: loc.lng,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              }, 800);
+            }, 500);
+          }
+        },
+        (err) => {
+          console.log('Erro GPS:', err);
+
+          // fallback
+          const fallback = userLocation || { lat: -7.31, lng: -38.94 };
+          setCoords(fallback);
+          setCoordsOk(true);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 10000,
+        }
+      );
+    } catch (e) {
+      console.log('Erro geral:', e);
+    }
+  };
+
+  obterLocalizacao();
+}, []);
 
   const geocodificarEndereco = async (rua: string, cid: string, n: string, bairo: string) => {
     if (!rua || !cid) return;
@@ -216,7 +258,10 @@ export default function AdminEstabScreen() {
         .where('estabelecimentoId', '==', estabelecimentoId)
         .onSnapshot(
           snap => setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]),
-          err => console.log('Agendamentos error:', err)
+         err => {
+  console.log('Agendamentos error:', err);
+  Alert.alert('Erro', 'Falha ao carregar agenda.');
+}
         );
       return unsub;
     } else {
@@ -238,8 +283,15 @@ export default function AdminEstabScreen() {
   }, [coordsOk]);
 
    const salvar = async () => {
+  // 🔒 validação básica
   if (!nome || !endereco || !cidade) {
     Alert.alert('Atenção', 'Nome, endereço e cidade são obrigatórios.');
+    return;
+  }
+
+  // 🔒 validação de localização (ANTES do try)
+  if (!coords?.lat || !coords?.lng) {
+    Alert.alert('Erro', 'Localização inválida.');
     return;
   }
 
@@ -248,12 +300,44 @@ export default function AdminEstabScreen() {
 
     const res = await fn.httpsCallable('salvarEstabelecimento')({
       estabelecimentoId: isNovo ? undefined : estabelecimentoId,
-      nome, tipo, endereco, cep, bairro, numero, cidade, telefone, descricao,
-      horarioFuncionamento: horarioFunc, img, cor, servicos, horarios,
-      fotoPerfil, avaliacao: 5.0, ativo: true,
-      lat: coords.lat, lng: coords.lng
+      nome,
+      tipo,
+      endereco,
+      cep,
+      bairro,
+      numero,
+      cidade,
+      telefone,
+      descricao,
+      horarioFuncionamento: horarioFunc,
+      img,
+      cor,
+      servicos,
+      horarios,
+      fotoPerfil,
+      avaliacao: 5.0,
+      ativo: true,
+      lat: coords.lat,
+      lng: coords.lng,
+      // ❌ NÃO precisa mandar adminId (vem do backend via auth)
     });
-const estabId = res.data.id;
+
+    // 🔥 NOVO PADRÃO (IMPORTANTE)
+    if (!res.data?.ok) {
+      if (res.data?.code === 'LIMITO_FREE') {
+        Alert.alert(
+          'Limite atingido 🚫',
+          res.data.message || 'Você já possui um estabelecimento no plano gratuito.'
+        );
+        return;
+      }
+
+      Alert.alert('Erro', res.data?.message || 'Falha ao salvar.');
+      return;
+    }
+
+    const estabId = res.data.id;
+
     if (isNovo) {
       navigation.replace('AdminDash', { estabelecimentoId: estabId });
     } else {
@@ -263,6 +347,7 @@ const estabId = res.data.id;
   } catch (e: any) {
     console.log('ERRO SALVAR:', e);
 
+    // 🔥 fallback (caso backend ainda use throw)
     if (e.code === 'failed-precondition') {
       Alert.alert(
         'Plano necessário 🚫',
@@ -295,7 +380,8 @@ const estabId = res.data.id;
     const reference = storage().ref(path);
     try {
       setSalvando(true);
-      await reference.putFile(uri!);
+      if (!uri) return;
+await reference.putFile(uri);
       const url = await reference.getDownloadURL();
       if (tipoImg === 'perfil') { setFotoPerfil(url); setImg(url); } else { setFotoCapa(url); }
       await firestore().collection('estabelecimentos').doc(estabelecimentoId).update({
@@ -321,7 +407,8 @@ const estabId = res.data.id;
 
     try {
       setSubindoFotoServico(true);
-      await reference.putFile(uri!);
+      if (!uri) return;
+await reference.putFile(uri);
       const url = await reference.getDownloadURL();
       setNsFoto(url);
     } catch {
@@ -511,35 +598,37 @@ const estabId = res.data.id;
               <Text style={s.mapHint}>Arraste o pino para ajustar a posição exata</Text>
 
      <View style={s.mapCard}>
-  {coordsOk ? (
+  {!coordsOk ? (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <ActivityIndicator size="large" color={cor} />
+      <Text style={{ color: '#666', marginTop: 10 }}>
+        Pegando sua localização...
+      </Text>
+    </View>
+  ) : (
     <MapView
-      // A key dinâmica força o mapa a resetar a View nativa se o ID mudar,
-      // prevenindo o erro de "child already has a parent" (addView)
-      key={`map-${estabelecimentoId}-${coords.lat}`}
-      ref={mapRef}
-      style={s.map}
-      provider={PROVIDER_GOOGLE}
-      showsUserLocation={false}
-      showsMyLocationButton={false}
-      customMapStyle={[{ elementType: 'labels', stylers: [{ languageOverride: 'pt-BR' }] }]}
-      initialRegion={{
-        latitude: coords.lat,
-        longitude: coords.lng,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      }}
-    >
+  ref={mapRef}
+  style={s.map}
+  provider={PROVIDER_GOOGLE}
+  showsUserLocation={false}
+  showsMyLocationButton={false}
+  initialRegion={{
+  latitude: coords.lat,
+  longitude: coords.lng,
+  loadingEnabled,
+  latitudeDelta: 0.005,
+  longitudeDelta: 0.005,
+}}
+>
       {userLocation && (
         <Marker
-          key="user-location"
           coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
           title="Você está aqui"
           pinColor="#2196F3"
         />
       )}
-      
+
       <Marker
-        key={`marker-${estabelecimentoId}`}
         coordinate={{ latitude: coords.lat, longitude: coords.lng }}
         draggable
         onDragEnd={(e) => setCoords({
@@ -547,18 +636,9 @@ const estabId = res.data.id;
           lng: e.nativeEvent.coordinate.longitude,
         })}
         pinColor={cor}
-        // No Android, evite passar títulos que mudam muito rápido (como o 'nome' do input)
-        // para não bugar a View do callout nativo.
         title="Local do Estabelecimento"
       />
     </MapView>
-  ) : (
-    <View style={s.mapPlaceholder}>
-      <Icon name="map-search" size={32} color="#333" />
-      <Text style={s.mapPlaceholderText}>
-        {buscandoEnd ? 'Buscando localização...' : 'Digite o endereço para ver no mapa'}
-      </Text>
-    </View>
   )}
 </View>
 

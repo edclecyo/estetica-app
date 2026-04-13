@@ -6,7 +6,7 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
-import functions from '@react-native-firebase/functions';
+import functions, { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const GOLD_GRADIENT = ['#D4AF37', '#F9E29B', '#B8860B'];
@@ -100,20 +100,48 @@ export default function AssinaturaScreen({ navigation }) {
   };
 
   const callsIniciarTrial = async () => {
-    setLoadingAction('trial');
-    try {
-      const result = await functions().httpsCallable('iniciarTrial')({ 
-        estabelecimentoId: estId 
-      });
-      if (result.data?.ok) {
-        Alert.alert("Sucesso", "7 dias de Premium liberados!");
+  if (!estId) {
+    Alert.alert("Erro", "ID não carregado.");
+    return;
+  }
+
+  setLoadingAction('trial');
+
+  try {
+    const user = auth().currentUser;
+    const token = await user?.getIdToken();
+
+    console.log("Enviando estId:", estId);
+
+    const response = await fetch(
+      'https://southamerica-east1-agenda-beleza-75106.cloudfunctions.net/iniciarTrial',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          data: { estabelecimentoId: estId }
+        }),
       }
-    } catch (e) {
-      Alert.alert("Erro", "Falha ao processar trial. Tente novamente.");
-    } finally {
-      setLoadingAction(null);
+    );
+
+    const json = await response.json();
+    console.log("Resposta:", JSON.stringify(json));
+
+    if (json?.result?.ok) {
+      Alert.alert("Sucesso", "7 dias de Premium liberados!");
+    } else {
+      Alert.alert("Erro", json?.error?.message || "Erro desconhecido");
     }
-  };
+  } catch (e: any) {
+    console.log("ERRO:", e.message);
+    Alert.alert("Erro", e.message || "Erro desconhecido");
+  } finally {
+    setLoadingAction(null);
+  }
+};
 
   if (loadingDados) return <View style={styles.center}><ActivityIndicator color={GOLD} size="large" /></View>;
 

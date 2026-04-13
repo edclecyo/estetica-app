@@ -49,32 +49,34 @@ export default function AdminDashScreen() {
   const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
  // --- LÓGICA DE BLOQUEIO SEGURO ---
+ const temEstabelecimento = estabs.length > 0;
 const isNovoUsuario = !temEstabelecimento;
-const temEstabelecimento = estabs.length > 0;
+
 
 // 🔥 AJUSTE FINO NA LÓGICA DE BLOQUEIO
 const isBloqueado = useMemo(() => {
   if (loading) return true;
 
-  // ❌ sem estabelecimento → bloqueia tudo
+  // 🚫 sem estabelecimento → bloqueado total
   if (!temEstabelecimento) return true;
 
-  // ✅ novo usuário (SEM plano) → libera trial
+  // 🆕 usuário novo → libera trial
   if (!planoAtual) return false;
 
-  // ⏳ trial expirado
+  // ⏳ TRIAL
   if (planoAtual === 'trial') {
-    return diasRestantes !== null && diasRestantes <= 0;
+    if (diasRestantes === null) return false;
+    return diasRestantes <= 0;
   }
 
-  // 🆓 plano free sempre bloqueado
+  // 🆓 FREE sempre bloqueado
   if (planoAtual === 'free') return true;
 
-  // 💳 planos pagos sem assinatura ativa
+  // 💳 planos pagos
   if (!assinaturaAtiva) return true;
 
   return false;
-}, [temEstabelecimento, planoAtual, diasRestantes, assinaturaAtiva, loading]);
+}, [loading, temEstabelecimento, planoAtual, diasRestantes, assinaturaAtiva]);
 // --- 2. DECLARAÇÃO DA FUNÇÃO DE MUDAR ABA ---
   // Esta função impede o clique nas outras abas se estiver bloqueado
   const mudarAba = (novaAba: any) => {
@@ -101,19 +103,18 @@ const isBloqueado = useMemo(() => {
 
   setLoading(true); // 🔥 começa carregando corretamente
 
-  // 1. Ouvinte de Estabelecimentos
   const unsubEstabs = firestore()
-    .collection('estabelecimentos')
-    .where('adminId', '==', admin.id)
-    .onSnapshot(snap => {
+  .collection('estabelecimentos')
+  .where('adminId', '==', admin.id)
+  .onSnapshot(
+    snap => {
       const lista = snap.docs.map(d => ({
         id: d.id,
-        ...d.data()
+        ...d.data(),
       })) as Estabelecimento[];
 
       setEstabs(lista);
 
-      // 🔥 evita erro quando não tem estabelecimento
       if (lista.length === 0) {
         setPlanoAtual(null);
         setAssinaturaAtiva(false);
@@ -122,34 +123,30 @@ const isBloqueado = useMemo(() => {
         return;
       }
 
-      // ✅ pega principal corretamente
-      const principal = lista.find(e => e.principal) || lista[0];
+      const principal =
+        lista.find(e => e.principal) || lista[0];
 
-      setPlanoAtual(principal?.plano || null);
-      setAssinaturaAtiva(!!principal?.assinaturaAtiva);
+      setPlanoAtual(principal?.plano ?? null);
+      setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
 
-      // ⏳ cálculo do trial seguro
-      if (principal?.expiraEm) {
-        try {
-          const agora = new Date();
-          const expiraData = principal.expiraEm.toDate();
+      // ⏳ cálculo seguro
+      if (principal?.expiraEm?.toDate) {
+        const agora = Date.now();
+        const expira = principal.expiraEm.toDate().getTime();
 
-          const diffTime = expiraData.getTime() - agora.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-          setDiasRestantes(diffDays > 0 ? diffDays : 0);
-        } catch {
-          setDiasRestantes(null);
-        }
+        const dias = Math.ceil((expira - agora) / 86400000);
+        setDiasRestantes(dias > 0 ? dias : 0);
       } else {
         setDiasRestantes(null);
       }
 
       setLoading(false);
-    }, err => {
-      console.error('Erro estabelecimentos:', err);
+    },
+    err => {
+      console.error(err);
       setLoading(false);
-    });
+    }
+  );
 
   // 2. Ouvinte de Agendamentos
   const unsubAgends = firestore()
@@ -310,13 +307,17 @@ Gerado pelo BeautyHub`;
   }, [agends]);
   
 const safeChartData = useMemo(() => {
-  // Verifica se o array de dados existe e se tem algum valor
-  if (!chartData.datasets[0].data || chartData.datasets[0].data.length === 0) {
-    return { 
-      labels: ['Sem dados'], 
-      datasets: [{ data: [0] }] 
+  if (
+    !chartData?.datasets ||
+    !chartData.datasets[0]?.data ||
+    chartData.datasets[0].data.length === 0
+  ) {
+    return {
+      labels: ['Sem dados'],
+      datasets: [{ data: [0] }],
     };
   }
+
   return chartData;
 }, [chartData]);
 
@@ -524,8 +525,10 @@ const planoBadge = () => {
   .filter(a => (a.status === 'concluido' || a.status === 'confirmado') && a.data)
   .filter(a => {
     try {
-      const parts = a.data.split('/');
-      if (parts.length !== 3) return false;
+      if (!a.data || typeof a.data !== 'string') return false;
+
+const parts = a.data.split('/');
+if (parts.length !== 3) return false;
 
       const dAgend = new Date(
         Number(parts[2]),
@@ -721,18 +724,17 @@ const planoBadge = () => {
         onPress={() => {
           // 🚨 SEM estabelecimento → pode criar
           if (!temEstabelecimento) {
-            navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
-            return;
-          }
+  navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+  return;
+}
 
-          // 🚨 JÁ TEM estabelecimento mas sem plano → bloqueia
-          if (!assinaturaAtiva) {
-            Alert.alert(
-              "Plano necessário",
-              "Ative seu plano para criar mais estabelecimentos."
-            );
-            return;
-          }
+if (!assinaturaAtiva) {
+  Alert.alert(
+    "Plano necessário",
+    "Ative seu plano para criar mais estabelecimentos."
+  );
+  return;
+}
 
           navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
         }}

@@ -249,26 +249,27 @@ export const onAgendamentoUpdate = onDocumentUpdated(
 
 // ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────────────────────────────────────
 export const salvarEstabelecimento = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Acesso negado');
+  }
 
   const adminId = request.auth.uid;
   const data = request.data || {};
   const { estabelecimentoId } = data;
   const isNovo = !estabelecimentoId;
 
-  // 1. Definição do Documento
-  const docRef = isNovo 
-    ? db.collection('estabelecimentos').doc() 
+  const docRef = isNovo
+    ? db.collection('estabelecimentos').doc()
     : db.collection('estabelecimentos').doc(estabelecimentoId);
 
   const docSnap = await docRef.get();
 
-  // 🔒 SEGURANÇA: Se não for novo, verifica se o admin é o dono
+  // 🔒 SEGURANÇA
   if (!isNovo && docSnap.exists && docSnap.data()?.adminId !== adminId) {
-    throw new HttpsError('permission-denied', 'Você não tem permissão para alterar este local');
+    throw new HttpsError('permission-denied', 'Sem permissão');
   }
 
-  // 🔎 BUSCA QUANTIDADE PARA VALIDAÇÃO DE PLANO
+  // 🔎 CONTAGEM
   const estabsSnap = await db
     .collection('estabelecimentos')
     .where('adminId', '==', adminId)
@@ -276,27 +277,35 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (request) 
 
   const totalEstabs = estabsSnap.size;
 
-  // 🚫 BLOQUEIO PLANO FREE (Somente na criação de novos)
+  // 🚫 BLOQUEIO FREE (SEM QUEBRAR APP)
   if (isNovo && totalEstabs >= 1) {
-    throw new HttpsError(
-      'failed-precondition',
-      'Você atingiu o limite de 1 estabelecimento para o plano gratuito.'
-    );
+    return {
+      ok: false,
+      code: 'LIMITO_FREE',
+      message: 'Você já possui um estabelecimento no plano gratuito.'
+    };
   }
 
-  // 🛡️ LIMPEZA DE PAYLOAD (Sanitização)
+  // 🧼 LIMPEZA
   const cleanData = { ...data };
-  const camposProtegidos = ['plano', 'assinaturaAtiva', 'expiraEm', 'verificado', 'adminId', 'principal', 'estabelecimentoId'];
+  const camposProtegidos = [
+    'plano',
+    'assinaturaAtiva',
+    'expiraEm',
+    'verificado',
+    'adminId',
+    'principal',
+    'estabelecimentoId'
+  ];
   camposProtegidos.forEach(key => delete cleanData[key]);
 
-  // 🏗️ MONTAGEM DO PAYLOAD FINAL
-  const payload = {
+  // 🏗️ PAYLOAD
+  const payload: any = {
     ...cleanData,
-    adminId, // Garante que o ID do dono nunca mude
+    adminId,
     atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  // Se for o primeiro estabelecimento, define como principal
   if (isNovo) {
     payload.criadoEm = admin.firestore.FieldValue.serverTimestamp();
     payload.principal = totalEstabs === 0;
@@ -307,7 +316,7 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (request) 
 
   await docRef.set(payload, { merge: true });
 
-  return { id: docRef.id, ok: true };
+  return { ok: true, id: docRef.id };
 });
 
 // ─── 4. CRIAR AGENDAMENTO ─────────────────────────────────────────────────────
@@ -575,19 +584,59 @@ export const verificarAssinaturas = onSchedule(
   { region: REGION, schedule: "every day 02:00" },
   async () => {
     const agora = admin.firestore.Timestamp.now();
-    const snap = await db.collection('estabelecimentos')
-      .where('assinaturaAtiva', '==', true)
-      .where('expiraEm', '<', agora)
-      .limit(500)
-      .get();
 
-    const batch = db.batch();
-    snap.docs.forEach(doc => batch.update(doc.ref, {
-      assinaturaAtiva: false,
-      plano: 'free',
-      statusPagamento: 'expirado'
-    }));
-    await batch.commit();
+    const MAX_LOOPS = 20;
+    let loops = 0;
+    let lastDoc: admin.firestore.QueryDocumentSnapshot | null = null;
+
+    let totalAtualizados = 0;
+
+    while (true) {
+      if (loops++ >= MAX_LOOPS) break;
+
+      let query = db.collection('estabelecimentos')
+        .where('assinaturaAtiva', '==', true)
+        .where('expiraEm', '<', agora)
+        .limit(500);
+
+      if (lastDoc) query = query.startAfter(lastDoc);
+
+      const snap = await query.get();
+      if (snap.empty) break;
+
+      const batch = db.batch();
+
+      snap.docs.forEach(doc => {
+        const data = doc.data();
+
+        const updates: any = {
+          assinaturaAtiva: false,
+          statusPagamento: 'expirado',
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        // 🔥 TRIAL → vira FREE automaticamente
+        if (data.plano === 'trial') {
+          updates.plano = 'free';
+          updates.trialExpiradoEm = admin.firestore.FieldValue.serverTimestamp();
+        }
+
+        // 🔥 Planos pagos → mantém plano, mas desativa acesso
+        if (['essencial', 'pro', 'elite'].includes(data.plano)) {
+          updates.statusPagamento = 'pendente';
+        }
+
+        batch.update(doc.ref, updates);
+      });
+
+      await batch.commit();
+      totalAtualizados += snap.size;
+
+      if (snap.size < 500) break;
+      lastDoc = snap.docs[snap.size - 1];
+    }
+
+    console.log(`✅ verificarAssinaturas finalizado | Atualizados: ${totalAtualizados}`);
   }
 );
 
@@ -1059,13 +1108,54 @@ export const webhookMercadoPago = onRequest(
       }
 
       // 🎯 8. ATUALIZA STATUS
-      await docRef.update({
-        assinaturaAtiva: mpData.status === "authorized",
-        statusPagamento: mpData.status,
-        ultimaAtualizacaoMP: admin.firestore.Timestamp.fromDate(novaDataMP),
-        atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      const agora = new Date();
 
+let novaExpiracao: Date | null = null;
+let assinaturaAtiva = false;
+let statusPagamento = mpData.status;
+
+// ✅ PAGAMENTO APROVADO / AUTORIZADO
+if (mpData.status === "authorized") {
+  assinaturaAtiva = true;
+
+  const expiraAtual = dados.expiraEm?.toDate?.();
+
+  // 🔁 Se ainda não venceu → soma +30 dias
+  if (expiraAtual && expiraAtual > agora) {
+    novaExpiracao = new Date(expiraAtual);
+    novaExpiracao.setDate(novaExpiracao.getDate() + 30);
+  } else {
+    // 🆕 Novo ciclo
+    novaExpiracao = new Date();
+    novaExpiracao.setDate(novaExpiracao.getDate() + 30);
+  }
+}
+
+// ❌ CANCELADO OU PAUSADO
+if (mpData.status === "cancelled" || mpData.status === "paused") {
+  assinaturaAtiva = false;
+}
+
+await docRef.update({
+  assinaturaAtiva,
+  statusPagamento,
+  ...(novaExpiracao && {
+    expiraEm: admin.firestore.Timestamp.fromDate(novaExpiracao)
+  }),
+  ultimaAtualizacaoMP: admin.firestore.Timestamp.fromDate(new Date()),
+  atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+});
+// 🔔 Notificação de pagamento aprovado
+if (mpData.status === "authorized" && dados.statusPagamento !== "authorized") {
+  await db.collection('notificacoes').add({
+    adminId: dados.adminId,
+    titulo: "💰 Pagamento confirmado",
+    mensagem: "Seu plano foi renovado com sucesso!",
+    tipo: "pagamento",
+    lida: false,
+    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
       console.log("✅ Webhook processado:", mpData.status);
 
       res.sendStatus(200);

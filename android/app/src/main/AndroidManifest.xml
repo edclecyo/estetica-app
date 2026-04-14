@@ -35,7 +35,7 @@
 	  <!-- CONFIGURAÇÃO DO GOOGLE MAPS - ADICIONE AQUI -->
       <meta-data
         android:name="com.google.android.geo.API_KEY"
-        android:value="AIzaSyCyIXpjEZYgPysywUG-zF89LaMXBEUs9MU" />
+        android:value="AIzaSyCSFd6v_uZgd98WKLwZNR-tDtEUNzMg4fU" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

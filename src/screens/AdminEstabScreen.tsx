@@ -15,6 +15,8 @@ import { launchImageLibrary } from "react-native-image-picker";
 import storage from "@react-native-firebase/storage";
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Geolocation from '@react-native-community/geolocation';
+import LinearGradient from 'react-native-linear-gradient';
+
 const { width } = Dimensions.get('window');
 
 const EMOJIS = [
@@ -34,8 +36,16 @@ const TIPOS = [
 ];
 
 const PRESETS_CORES = [
-  '#C9A96E', '#D4A5A5', '#A5BDD4', '#A5D4B5', '#C4A5D4',
-  '#1A1A1A', '#FF5F5F', '#4CAF50', '#2196F3', '#FFFFFF'
+  '#C9A96E', // Ouro Clássico
+  '#AF935B', // Ouro Envelhecido (Premium)
+  '#D4A5A5', // Rose Gold
+  '#533483', // Deep Purple
+  '#004D40', // Deep Emerald
+  '#1C1C1E', // Jet Black
+  '#2C2C2E', // Graphite
+  '#8B0000', // Blood Red (Vinho)
+  '#0F3460', // Midnight Blue
+  '#B8860B', // Dark Goldenrod
 ];
 
 Geolocation.setRNConfiguration({
@@ -101,6 +111,32 @@ export default function AdminEstabScreen() {
     return { concluido, pendente, total: concluido + pendente };
   }, [agends]);
 
+const gerarGradiente = (hex: string) => {
+  const escurecer = (cor: string, fator: number) => {
+    const num = parseInt(cor.replace('#', ''), 16);
+    let r = Math.floor((num >> 16) * fator);
+    let g = Math.floor(((num >> 8) & 0x00FF) * fator);
+    let b = Math.floor((num & 0x0000FF) * fator);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+
+  // Se for uma cor muito escura (como preto), o gradiente deve clarear levemente para dar profundidade
+  // Se for uma cor clara, ele escurece.
+  return [hex, escurecer(hex, 0.7)];
+};
+const getContraste = (hex: string) => {
+  // Remove o # se existir
+  const color = hex.replace('#', '');
+  const r = parseInt(color.substring(0, 2), 16);
+  const g = parseInt(color.substring(2, 4), 16);
+  const b = parseInt(color.substring(4, 6), 16);
+
+  // Fórmula de luminância padrão (ITU-R BT.709)
+  const luminancia = (0.299 * r + 0.587 * g + 0.114 * b);
+
+  // Se a luminância for alta (cor clara), retorna preto. Se baixa (cor escura), retorna branco.
+  return luminancia > 160 ? '#121212' : '#FFFFFF';
+};
  useEffect(() => {
   const obterLocalizacao = async () => {
     try {
@@ -151,8 +187,8 @@ Geolocation.requestAuthorization?.();
           setCoordsOk(true);
         },
         {
-          enableHighAccuracy: true,
-          timeout: 15000,
+          enableHighAccuracy: false,
+          timeout: 30000,
           maximumAge: 10000,
         }
       );
@@ -424,23 +460,39 @@ await reference.putFile(uri);
     <View style={s.container}>
       {/* HEADER */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
-          <Icon name="close" size={20} color="#888" />
-        </TouchableOpacity>
-        <View style={s.headerTitleContainer}>
-          <Text style={[s.headerLabel, { color: cor }]}>{isNovo ? 'NOVO LOCAL' : tipo.toUpperCase()}</Text>
-          <Text style={s.headerTitle} numberOfLines={1}>{isNovo ? 'Criar Cadastro' : nome}</Text>
-        </View>
-        <TouchableOpacity 
-  onPress={salvar} 
-  disabled={salvando}
-  style={[s.saveBtn, { backgroundColor: cor, opacity: salvando ? 0.6 : 1 }]}
->
-          {salvando
-            ? <ActivityIndicator size="small" color="#111" />
-            : <Text style={s.saveBtnText}>Salvar</Text>}
-        </TouchableOpacity>
-      </View>
+  <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+    <Icon name="close" size={20} color="#888" />
+  </TouchableOpacity>
+
+  <View style={s.headerTitleContainer}>
+    <Text style={[s.headerLabel, { color: cor }]}>
+      {isNovo ? 'NOVO LOCAL' : tipo.toUpperCase()}
+    </Text>
+    <Text style={s.headerTitle} numberOfLines={1}>
+      {isNovo ? 'Criar Cadastro' : nome}
+    </Text>
+  </View>
+
+  <TouchableOpacity 
+    onPress={salvar} 
+    disabled={salvando}
+    style={{ opacity: salvando ? 0.6 : 1 }}
+  >
+    <LinearGradient
+      colors={gerarGradiente(cor)}
+      style={s.saveBtn}
+    >
+      {salvando
+        ? <ActivityIndicator size="small" color={getContraste(cor)} />
+        : (
+          <Text style={[s.saveBtnText, { color: getContraste(cor) }]}>
+            Salvar
+          </Text>
+        )
+      }
+    </LinearGradient>
+  </TouchableOpacity>
+</View>
 
       {/* STATS */}
       {!isNovo && (
@@ -467,13 +519,25 @@ await reference.putFile(uri);
       {/* ABAS */}
       <View style={s.tabsWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsContent}>
-          {([['info','Informações'],['servicos','Serviços'],['horarios','Horários'],['agenda','Agenda']] as const)
-            .filter(([k]) => !isNovo || k !== 'agenda')
-            .map(([k, l]) => (
-              <TouchableOpacity key={k} onPress={() => setAba(k)} style={[s.tabItem, aba === k && { backgroundColor: cor, borderColor: cor }]}>
-                <Text style={[s.tabText, aba === k && { color: '#111' }]}>{l}</Text>
-              </TouchableOpacity>
-            ))}
+         {([['info','Informações'],['servicos','Serviços'],['horarios','Horários'],['agenda','Agenda']] as const)
+  .filter(([k]) => !isNovo || k !== 'agenda')
+  .map(([k, l]) => (
+    <TouchableOpacity 
+      key={k} 
+      onPress={() => setAba(k)} 
+      style={[
+        s.tabItem, 
+        aba === k && { backgroundColor: cor, borderColor: cor }
+      ]}
+    >
+      <Text style={[
+        s.tabText, 
+        aba === k && { color: getContraste(cor) } // <--- O texto agora muda aqui
+      ]}>
+        {l}
+      </Text>
+    </TouchableOpacity>
+  ))}
         </ScrollView>
       </View>
 
@@ -496,8 +560,31 @@ await reference.putFile(uri);
                     ))}
                   </ScrollView>
                 </View>
-                <View style={[s.colorPreview, { backgroundColor: cor }]} />
-              </View>
+               <View
+  style={[
+    s.colorPreview,
+    {
+      backgroundColor: cor,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 4
+    }
+  ]}
+>
+  <Text
+    numberOfLines={1}
+    adjustsFontSizeToFit
+    style={{
+      color: getContraste(cor),
+      fontWeight: 'bold',
+      fontSize: 10,
+      textAlign: 'center'
+    }}
+  >
+    {cor}
+  </Text>
+</View>
+</View>
 
               <Text style={[s.inputLabel, { marginTop: 25 }]}>MIXER DE CORES</Text>
               <View style={s.mixerContainer}>
@@ -613,28 +700,37 @@ await reference.putFile(uri);
   showsUserLocation={false}
   showsMyLocationButton={false}
   initialRegion={{
-  latitude: coords.lat,
-  longitude: coords.lng,
-  loadingEnabled,
-  latitudeDelta: 0.005,
-  longitudeDelta: 0.005,
-}}
+    latitude: coords.lat,
+    longitude: coords.lng,
+    latitudeDelta: 0.005,
+    longitudeDelta: 0.005,
+  }}
 >
+      {/* 📍 LOCAL DO USUÁRIO */}
       {userLocation && (
         <Marker
-          coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
+          coordinate={{
+            latitude: userLocation.lat,
+            longitude: userLocation.lng,
+          }}
           title="Você está aqui"
           pinColor="#2196F3"
         />
       )}
 
+      {/* 📍 LOCAL DO ESTABELECIMENTO */}
       <Marker
-        coordinate={{ latitude: coords.lat, longitude: coords.lng }}
+        coordinate={{
+          latitude: coords.lat,
+          longitude: coords.lng,
+        }}
         draggable
-        onDragEnd={(e) => setCoords({
-          lat: e.nativeEvent.coordinate.latitude,
-          lng: e.nativeEvent.coordinate.longitude,
-        })}
+        onDragEnd={(e) =>
+          setCoords({
+            lat: e.nativeEvent.coordinate.latitude,
+            lng: e.nativeEvent.coordinate.longitude,
+          })
+        }
         pinColor={cor}
         title="Local do Estabelecimento"
       />
@@ -757,10 +853,13 @@ await reference.putFile(uri);
                   <TextInput style={s.input} value={gIntervalo} onChangeText={setGIntervalo} keyboardType="numeric" placeholderTextColor="#444" />
                 </View>
               </View>
-              <TouchableOpacity onPress={gerarGradeHorarios} style={[s.btnAdd, { backgroundColor: cor, marginTop: 15 }]}>
-                <Icon name="clock-time-four-outline" size={18} color="#111" style={{ marginRight: 8 }} />
-                <Text style={[s.btnAddText, { color: '#111' }]}>Gerar Horários</Text>
-              </TouchableOpacity>
+              <TouchableOpacity 
+  onPress={gerarGradeHorarios} 
+  style={[s.btnAdd, { backgroundColor: cor, marginTop: 15 }]}
+>
+  <Icon name="clock-time-four-outline" size={18} color={getContraste(cor)} style={{ marginRight: 8 }} />
+  <Text style={[s.btnAddText, { color: getContraste(cor) }]}>Gerar Horários</Text>
+</TouchableOpacity>
             </View>
 
             <View style={s.horariosGrid}>

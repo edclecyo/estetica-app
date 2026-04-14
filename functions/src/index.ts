@@ -766,32 +766,51 @@ export const criarAssinatura = onCall(
 );
 
 // ─── 7. INICIAR TRIAL ─────────────────────────────────────────────────────────
-// ALTERADO: trial de 14 dias → 7 dias
+// ALTERADO: trial → 7 dias
 export const iniciarTrial = onCall(
   { region: REGION },
   async (req) => {
-    if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+    if (!req.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
 
     const { estabelecimentoId } = req.data;
-    if (!estabelecimentoId) throw new HttpsError('invalid-argument', 'estabelecimentoId é obrigatório');
+
+    if (!estabelecimentoId) {
+      throw new HttpsError('invalid-argument', 'estabelecimentoId é obrigatório');
+    }
 
     const estRef = db.collection('estabelecimentos').doc(estabelecimentoId);
     const estSnap = await estRef.get();
-    if (!estSnap.exists) throw new HttpsError('not-found', 'Estabelecimento não encontrado');
-    if (estSnap.data()?.trialUsado) throw new HttpsError('failed-precondition', 'Trial já utilizado');
-    if (estSnap.data()?.adminId !== req.auth.uid) {
+
+    if (!estSnap.exists) {
+      throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+    }
+
+    const data = estSnap.data();
+
+    if (data?.trialUsado) {
+      throw new HttpsError('failed-precondition', 'Trial já utilizado');
+    }
+
+    if (data?.adminId !== req.auth.uid) {
       throw new HttpsError('permission-denied', 'Você não pode iniciar trial deste estabelecimento');
     }
 
-    const fim = new Date();
-    fim.setDate(fim.getDate() + 7); // ← 7 dias de trial
+    // 🔥 DATA CORRETA
+    const agora = new Date();
+
+    const expira = new Date();
+    expira.setDate(agora.getDate() + 7);
 
     await estRef.update({
       plano: 'trial',
       assinaturaAtiva: true,
-      expiraEm: fim,
-      trialDataInicio: new Date(),
       trialUsado: true,
+
+      // ✅ PADRÃO FIREBASE (ESSENCIAL)
+      trialInicio: admin.firestore.Timestamp.fromDate(agora),
+      expiraEm: admin.firestore.Timestamp.fromDate(expira),
     });
 
     return { ok: true };

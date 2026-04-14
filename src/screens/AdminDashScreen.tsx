@@ -130,23 +130,31 @@ const isBloqueado = useMemo(() => {
       setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
 
       // ⏳ cálculo seguro
-      if (principal?.expiraEm?.toDate) {
-        const agora = Date.now();
-        const expira = principal.expiraEm.toDate().getTime();
+if (principal?.expiraEm?.toDate && typeof principal.expiraEm.toDate === 'function') {
+  const agora = new Date();
+  const expira = principal.expiraEm.toDate();
 
-        const dias = Math.ceil((expira - agora) / 86400000);
-        setDiasRestantes(dias > 0 ? dias : 0);
-      } else {
-        setDiasRestantes(null);
-      }
+  const diffTempo = expira.getTime() - agora.getTime();
 
-      setLoading(false);
+  // calcula dias restantes (arredonda pra cima)
+  const diasCalculados = Math.ceil(diffTempo / (1000 * 60 * 60 * 24));
+
+  // 🔥 garante entre 0 e 7 dias
+  const diasFinal = Math.min(7, Math.max(0, diasCalculados));
+
+  setDiasRestantes(diasFinal);
+} else {
+  setDiasRestantes(null);
+}
+
+setLoading(false);
     },
     err => {
-      console.error(err);
+      console.error('Erro estabs:', err);
       setLoading(false);
     }
   );
+
 
   // 2. Ouvinte de Agendamentos
   const unsubAgends = firestore()
@@ -267,7 +275,10 @@ Gerado pelo BeautyHub`;
         } catch (e: any) {
           console.error(e);
           // Mensagem personalizada vinda da Cloud Function
-          const errorMsg = e.message || 'Erro ao atualizar. Verifique sua assinatura.';
+          const errorMsg =
+  e?.details?.message ||
+  e?.message ||
+  'Erro ao atualizar. Verifique sua assinatura.';
           Alert.alert('Atenção', errorMsg);
         } finally {
           setLoading(false);
@@ -322,7 +333,7 @@ const safeChartData = useMemo(() => {
 }, [chartData]);
 
 const planoBadge = () => {
-  // 🆕 sem estabelecimento
+  // 🚫 Sem estabelecimento
   if (!temEstabelecimento) {
     return {
       label: 'COMEÇAR GRÁTIS',
@@ -331,7 +342,7 @@ const planoBadge = () => {
     };
   }
 
-  // ⏳ carregando
+  // ⏳ Ainda carregando
   if (!planoAtual) {
     return {
       label: 'CARREGANDO...',
@@ -340,16 +351,23 @@ const planoBadge = () => {
     };
   }
 
-  // 🎯 TRIAL
+  // 🎯 TRIAL (ÚNICO BLOCO - corrigido)
   if (planoAtual === 'trial') {
-    const dias = diasRestantes ?? 0;
+    // garante limite entre 0 e 7
+    let dias = diasRestantes ?? 7;
+    if (dias > 7) dias = 7;
+    if (dias < 0) dias = 0;
+
+    const expirado = dias <= 0;
 
     return {
-      label: dias > 0
-        ? `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} DE TESTE`
-        : 'TRIAL ENCERRADO',
-      cor: '#FF9800',
-      bg: 'rgba(255,152,0,0.12)',
+      label: expirado
+        ? 'TRIAL ENCERRADO'
+        : `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} DE TESTE`,
+      cor: expirado ? '#FF3B30' : '#FF9800',
+      bg: expirado
+        ? 'rgba(255,59,48,0.12)'
+        : 'rgba(255,152,0,0.12)',
     };
   }
 
@@ -363,24 +381,26 @@ const planoBadge = () => {
   }
 
   // 💳 PLANOS PAGOS
-  const nomes = {
+  const nomes: Record<string, string> = {
     essencial: 'PLANO ESSENCIAL',
     pro: 'PLANO PRO',
     elite: 'PLANO ELITE',
   };
 
-  // 🔴 plano existe mas não está ativo
+  const nomePlano = nomes[planoAtual] || 'PLANO ATIVO';
+
+  // 🔴 Plano inativo
   if (!assinaturaAtiva) {
     return {
-      label: `${nomes[planoAtual]} (INATIVO)`,
+      label: `${nomePlano} (INATIVO)`,
       cor: '#FF3B30',
       bg: 'rgba(255,59,48,0.12)',
     };
   }
 
-  // ✅ plano ativo
+  // ✅ Plano ativo
   return {
-    label: nomes[planoAtual] || 'PLANO ATIVO',
+    label: nomePlano,
     cor:
       planoAtual === 'elite'
         ? '#9C27B0'
@@ -482,17 +502,21 @@ const planoBadge = () => {
       )
 }
           </Text>
-          <Text style={s.planoCardSub}>
+      <Text style={s.planoCardSub}>
   {isNovoUsuario
-  ? 'Toque para ativar seu período de teste.'
-  : !planoAtual
-    ? 'Carregando informações do plano...'
-    : isBloqueado
-      ? 'Seu plano expirou. Toque para reativar.'
-      : planoAtual === 'trial'
-        ? `Você tem ${diasRestantes} ${diasRestantes === 1 ? 'dia restante' : 'dias restantes'}.`
-        : 'Seu acesso completo está liberado!'
-}
+    ? 'Toque para ativar seu período de teste.'
+    : planoAtual === 'trial'
+      ? diasRestantes === 7
+        ? 'Parabéns! Seu período de 7 dias começou hoje.'
+        : diasRestantes === 0
+          ? 'Seu período de teste terminou.'
+          : `Você tem ${diasRestantes} dias restantes.`
+      : planoAtual === 'free'
+        ? 'Plano gratuito ativo. Atualize para liberar recursos.'
+      : !assinaturaAtiva
+        ? 'Sua assinatura expirou.'
+        : 'Plano ativo.'
+  }
 </Text>
         </View>
       </View>
@@ -801,6 +825,7 @@ const chartConfig = {
   decimalPlaces: 0,
 };
 
+// 2. Estilos do Aplicativo
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA' },
@@ -939,30 +964,19 @@ const s = StyleSheet.create({
 
   fab: {
     position: 'absolute',
-    bottom: 28,
-    left: 20,
-    right: 20,
+    bottom: 28, left: 20, right: 20,
     backgroundColor: '#1A1A1A',
     borderRadius: 22,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    elevation: 16,
-    shadowColor: GOLD,
+    paddingHorizontal: 20, paddingVertical: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    elevation: 16, shadowColor: GOLD,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.55,
-    shadowRadius: 20,
-    borderWidth: 1.5,
-    borderColor: GOLD,
+    shadowOpacity: 0.55, shadowRadius: 20,
+    borderWidth: 1.5, borderColor: GOLD,
   },
   fabGlow: {
-    position: 'absolute',
-    top: -3, left: -3, right: -3, bottom: -3,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: 'rgba(201,169,110,0.3)',
+    position: 'absolute', top: -3, left: -3, right: -3, bottom: -3,
+    borderRadius: 25, borderWidth: 1, borderColor: 'rgba(201,169,110,0.3)',
   },
   fabIcon: { fontSize: 22 },
   fabText: { color: GOLD, fontWeight: '900', fontSize: 15, letterSpacing: 0.4 },
@@ -971,4 +985,5 @@ const s = StyleSheet.create({
 
   btnPdf: { backgroundColor: '#1A1A1A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: GOLD },
   btnPdfText: { color: GOLD, fontSize: 12, fontWeight: '800' },
-});
+}); // <--- FECHAMENTO ESSENCIAL AQUI
+

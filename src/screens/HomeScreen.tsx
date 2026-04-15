@@ -11,7 +11,7 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import StoriesHeader from '../components/StoriesHeader';
 import type { Estabelecimento } from '../types';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-
+import LinearGradient from 'react-native-linear-gradient';
 // Constantes mantidas conforme original
 const TIPOS = [
   'Todos', 'Salão de Beleza', 'Barbearia Premium', 'Espaço de Unhas', 'Manicure & Pedicure',
@@ -33,10 +33,11 @@ const TIPO_ICONS: Record<string, string> = {
   'Harmonização Facial': '✨', 'Estúdio de Yoga': '🧘', 'Centro Holístico': '🌿',
 };
 
-const GOLD = '#C9A96E';
-const GOLD2 = '#F0D080';
-const GOLD3 = '#A07040';
 
+// Paleta de Ouro Premium
+const GOLD_GRADIENT = ['#C9A96E', '#F0D080', '#A07040'];
+const DARK_GRADIENT = ['#1A1A1A', '#0A0A0A'];
+const GOLD = '#C9A96E';
 // Componentes Auxiliares otimizados
 const SeloVerificado = React.memo(({ size = 20 }: { size?: number }) => (
   <Image
@@ -302,65 +303,136 @@ export default function HomeScreen() {
     const imagemUri = item.fotoPerfil || (item.img?.startsWith('http') ? item.img : null);
     const verificado = item.verificado;
 
-    return (
-      <TouchableOpacity activeOpacity={0.9}
-        onPress={() => navigation.navigate(user ? 'Detalhe' : 'ClienteLogin', { estabelecimentoId: item.id })}>
-        <View style={s.card}>
+   return (
+  <TouchableOpacity
+    activeOpacity={0.9}
+    onPress={() =>
+      navigation.navigate(user ? 'Detalhe' : 'ClienteLogin', {
+        estabelecimentoId: item.id,
+      })
+    }
+  >
+    {/* BORDA DEGRADÊ */}
+    <LinearGradient
+      colors={['#C9A96E', '#F0D080', '#A07040']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        borderRadius: 28,
+        padding: 1.5,
+        marginBottom: 24,
+      }}
+    >
+      {/* CARD */}
+      <View style={[s.card, { marginBottom: 0, borderWidth: 0 }]}>
+        
+        {dist !== null && (
+          <View style={s.distRow}>
+            <Icon
+              name="map-marker-outline"
+              size={13}
+              color={GOLD}
+              style={{ marginRight: 4 }}
+            />
+            <Text style={s.distBadgeText}>
+              {formatarDistancia(dist)}
+            </Text>
+          </View>
+        )}
+
+        <View style={s.cardHeaderCircular}>
+          <View
+            style={[
+              s.imageContainer,
+              {
+                borderColor: verificado ? GOLD : item.cor || GOLD,
+                borderWidth: verificado ? 4 : 2,
+              },
+            ]}
+          >
+            {imagemUri ? (
+              <Image source={{ uri: imagemUri }} style={s.circleImage} />
+            ) : (
+              <Text style={s.cardEmojiLarge}>
+                {item.img || '🏢'}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        <View style={s.cardBodyCentral}>
+          <View style={s.nomeIconRow}>
+            <Text style={s.cardNome} numberOfLines={1}>
+              {item.nome}
+            </Text>
+
+            {verificado && <SeloVerificado size={18} />}
+
+            <Text style={s.miniIcon}>
+              {TIPO_ICONS[item.tipo] || '✨'}
+            </Text>
+          </View>
+
+          <Text style={[s.cardTipo, { color: item.cor || GOLD }]}>
+            {item.tipo}
+          </Text>
+
+          <View style={s.statusRowCentral}>
+            <View
+              style={[
+                s.dot,
+                { backgroundColor: aberto ? '#4CAF50' : '#F44336' },
+              ]}
+            />
+
+            <Text
+              style={[
+                s.statusText,
+                { color: aberto ? '#4CAF50' : '#F44336' },
+              ]}
+            >
+              {aberto ? 'Aberto agora' : 'Fechado no momento'}
+            </Text>
+
+            {item.horarioFuncionamento && (
+              <Text style={s.horarioTexto}>
+                {' '}• {item.horarioFuncionamento}
+              </Text>
+            )}
+          </View>
+
           {dist !== null && (
-            <View style={s.distRow}>
-              <Icon name="map-marker-outline" size={13} color={GOLD} style={{ marginRight: 4 }} />
-              <Text style={s.distBadgeText}>{formatarDistancia(dist)}</Text>
+            <View style={s.distInfoRow}>
+              <Icon
+                name="map-marker-outline"
+                size={13}
+                color="#888"
+                style={{ marginRight: 4 }}
+              />
+              <Text style={s.distanciaInfoSub}>
+                A {formatarDistancia(dist)} de você
+              </Text>
             </View>
           )}
 
-          <View style={s.cardHeaderCircular}>
-            <View style={[s.imageContainer, {
-              borderColor: verificado ? GOLD : (item.cor || GOLD),
-              borderWidth: verificado ? 4 : 2,
-            }]}>
-              {imagemUri
-                ? <Image source={{ uri: imagemUri }} style={s.circleImage} />
-                : <Text style={s.cardEmojiLarge}>{item.img || '🏢'}</Text>}
-            </View>
-          </View>
-
-          <View style={s.cardBodyCentral}>
-            <View style={s.nomeIconRow}>
-              <Text style={s.cardNome} numberOfLines={1}>{item.nome}</Text>
-              {verificado && <SeloVerificado size={18} />}
-              <Text style={s.miniIcon}>{TIPO_ICONS[item.tipo] || '✨'}</Text>
-            </View>
-            <Text style={[s.cardTipo, { color: item.cor || GOLD }]}>{item.tipo}</Text>
-
-            <View style={s.statusRowCentral}>
-              <View style={[s.dot, { backgroundColor: aberto ? '#4CAF50' : '#F44336' }]} />
-              <Text style={[s.statusText, { color: aberto ? '#4CAF50' : '#F44336' }]}>
-                {aberto ? 'Aberto agora' : 'Fechado no momento'}
-              </Text>
-              {item.horarioFuncionamento && (
-                <Text style={s.horarioTexto}> • {item.horarioFuncionamento}</Text>
-              )}
-            </View>
-
-            {dist !== null && (
-              <View style={s.distInfoRow}>
-                <Icon name="map-marker-outline" size={13} color="#888" style={{ marginRight: 4 }} />
-                <Text style={s.distanciaInfoSub}>A {formatarDistancia(dist)} de você</Text>
-              </View>
-            )}
-
-            <View style={s.ratingRow}>
-              {renderStars(item.avaliacao || 5)}
-              <Text style={s.avaliacaoNumero}>({item.avaliacao ? item.avaliacao.toFixed(1) : '5.0'})</Text>
-            </View>
-          </View>
-
-          <View style={[s.cardBtn, { backgroundColor: item.cor || GOLD }]}>
-            <Text style={[s.cardBtnText, { color: '#000' }]}>Agendar Horário →</Text>
+          <View style={s.ratingRow}>
+            {renderStars(item.avaliacao || 5)}
+            <Text style={s.avaliacaoNumero}>
+              ({item.avaliacao ? item.avaliacao.toFixed(1) : '5.0'})
+            </Text>
           </View>
         </View>
-      </TouchableOpacity>
-    );
+
+        <View style={[s.cardBtn, { backgroundColor: item.cor || GOLD }]}>
+          <Text style={[s.cardBtnText, { color: '#000' }]}>
+            Agendar Horário →
+          </Text>
+        </View>
+
+      </View>
+    </LinearGradient>
+  </TouchableOpacity>
+);
   }, [navigation, user, renderStars]);
 
   if (loading) return <View style={s.loadingWrap}><ActivityIndicator size="large" color={GOLD} /></View>;
@@ -369,88 +441,119 @@ export default function HomeScreen() {
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-      <View style={s.header}>
-        <View style={s.headerTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.headerSub}>
-              {user ? `Olá, ${user.displayName?.split(' ')[0] || user.email?.split('@')[0]} 👋` : 'Bem-vindo 👋'}
-            </Text>
-            <Text style={s.headerTitulo}>Encontre seu espaço</Text>
-          </View>
-
-          <View style={s.headerAcoes}>
-            {user && (
-              <TouchableOpacity style={s.notifBtn} onPress={() => navigation.navigate('NotificacoesCliente')}>
-                <Icon name="bell-outline" size={24} color={GOLD} />
-                {notificacoesNaoLidas > 0 && (
-                  <View style={s.notifBadge}>
-                    <Text style={s.notifBadgeText}>{notificacoesNaoLidas > 9 ? '9+' : notificacoesNaoLidas}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            )}
-
-            {user ? (
-              <TouchableOpacity 
-  style={s.sairBtn} 
-  onPress={() => {
-    Alert.alert('Sair', 'Deseja realmente sair da sua conta?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { 
-        text: 'Sair', 
-        style: 'destructive', 
-        onPress: async () => {
-          try {
-            // 1. Limpa a sessão do Firebase
-            await auth().signOut();
-            
-            // 2. Limpa a sessão do Google (se existir) de forma segura
-            // Usamos o try/catch interno para que se o Google falhar, 
-            // o usuário ainda seja deslogado do app
-            try {
-              const isSignedIn = await GoogleSignin.isSignedIn();
-              if (isSignedIn) {
-                await GoogleSignin.revokeAccess();
-                await GoogleSignin.signOut();
-              }
-            } catch (googleError) {
-              console.log("Erro ao sair do Google (ignorar se não logado via Google):", googleError);
-            }
-
-            // 3. Força o reset do estado local caso o listener demore
-            setUser(null);
-            
-          } catch (error) {
-            Alert.alert('Erro', 'Não foi possível sair da conta.');
-            console.error(error);
-          }
-        } 
-      },
-    ]);
-  }}
+      <LinearGradient
+  colors={['#000000', '#1A1A1A']}
+  style={s.header}
 >
-  <Text style={s.sairBtnText}>Sair</Text>
-</TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={s.loginBtn} onPress={() => navigation.navigate('ClienteLogin')}>
-                <Icon name="account-outline" size={16} color="#000" style={{ marginRight: 6 }} />
-                <Text style={s.loginBtnText}>Entrar</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
+  <View style={s.headerTop}>
+    <View style={{ flex: 1 }}>
+      <Text style={s.headerSub}>
+        {user
+          ? `Olá, ${user.displayName?.split(' ')[0] || user.email?.split('@')[0]} 👋`
+          : 'Bem-vindo 👋'}
+      </Text>
 
-        <View style={s.buscaWrap}>
-          <Icon name="magnify" size={20} color="#666" style={{ marginRight: 8 }} />
-          <TextInput
-            style={s.buscaInput}
-            placeholder="Buscar salão, serviço..."
-            placeholderTextColor="#666"
-            value={busca}
-            onChangeText={setBusca}
-          />
-        </View>
-      </View>
+      <Text style={s.headerTitulo}>
+        Encontre seu espaço
+      </Text>
+    </View>
+
+    <View style={s.headerAcoes}>
+      
+      {user && (
+        <TouchableOpacity
+          style={s.notifBtn}
+          onPress={() => navigation.navigate('NotificacoesCliente')}
+        >
+          <Icon name="bell-outline" size={24} color={GOLD} />
+
+          {notificacoesNaoLidas > 0 && (
+            <View style={s.notifBadge}>
+              <Text style={s.notifBadgeText}>
+                {notificacoesNaoLidas > 9 ? '9+' : notificacoesNaoLidas}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+
+      {user ? (
+        <TouchableOpacity 
+          style={s.sairBtn} 
+          onPress={() => {
+            Alert.alert('Sair', 'Deseja realmente sair da sua conta?', [
+              { text: 'Cancelar', style: 'cancel' },
+              { 
+                text: 'Sair', 
+                style: 'destructive', 
+                onPress: async () => {
+                  try {
+                    await auth().signOut();
+
+                    try {
+                      const isSignedIn = await GoogleSignin.isSignedIn();
+                      if (isSignedIn) {
+                        await GoogleSignin.revokeAccess();
+                        await GoogleSignin.signOut();
+                      }
+                    } catch (googleError) {
+                      console.log("Erro ao sair do Google:", googleError);
+                    }
+
+                    setUser(null);
+
+                  } catch (error) {
+                    Alert.alert('Erro', 'Não foi possível sair da conta.');
+                    console.error(error);
+                  }
+                } 
+              },
+            ]);
+          }}
+        >
+          <Text style={s.sairBtnText}>Sair</Text>
+        </TouchableOpacity>
+      ) : (
+        <LinearGradient
+          colors={GOLD_GRADIENT}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{ borderRadius: 10 }}
+        >
+          <TouchableOpacity
+            style={[s.loginBtn, { backgroundColor: 'transparent' }]}
+            onPress={() => navigation.navigate('ClienteLogin')}
+          >
+            <Icon
+              name="account-outline"
+              size={16}
+              color="#000"
+              style={{ marginRight: 6 }}
+            />
+            <Text style={s.loginBtnText}>Entrar</Text>
+          </TouchableOpacity>
+        </LinearGradient>
+      )}
+
+    </View>
+  </View>
+
+  <View style={s.buscaWrap}>
+    <Icon
+      name="magnify"
+      size={20}
+      color="#C9A96E"
+      style={{ marginRight: 8 }}
+    />
+    <TextInput
+      style={s.buscaInput}
+      placeholder="Buscar salão, serviço..."
+      placeholderTextColor="#666"
+      value={busca}
+      onChangeText={setBusca}
+    />
+  </View>
+</LinearGradient>
 
       <FlatList
         data={filtrados}
@@ -464,17 +567,56 @@ export default function HomeScreen() {
         ListHeaderComponent={
           <>
             <View style={s.filtroWrap}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
-                {TIPOS.map(t => (
-                  <TouchableOpacity key={t} onPress={() => setFiltro(t)} style={[s.chip, filtro === t && s.chipAtivo]}>
-                    <Text style={s.chipIcon}>{TIPO_ICONS[t] || '✦'}</Text>
-                    <Text style={[s.chipText, filtro === t && s.chipTextAtivo]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-            <StoriesHeader />
-            <VerificadosSection navigation={navigation} user={user} />
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    contentContainerStyle={s.filtroScroll}
+  >
+    {TIPOS.map(t => {
+      const ativo = filtro === t;
+
+      return ativo ? (
+        <LinearGradient
+          key={t}
+          colors={GOLD_GRADIENT}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{ borderRadius: 24, marginRight: 10 }}
+        >
+          <TouchableOpacity
+            onPress={() => setFiltro(t)}
+            style={[s.chip, { backgroundColor: 'transparent' }]}
+          >
+            <Text style={s.chipIcon}>
+              {TIPO_ICONS[t] || '✦'}
+            </Text>
+
+            <Text style={[s.chipText, { color: '#000', fontWeight: '700' }]}>
+              {t}
+            </Text>
+          </TouchableOpacity>
+        </LinearGradient>
+      ) : (
+        <TouchableOpacity
+          key={t}
+          onPress={() => setFiltro(t)}
+          style={s.chip}
+        >
+          <Text style={s.chipIcon}>
+            {TIPO_ICONS[t] || '✦'}
+          </Text>
+
+          <Text style={s.chipText}>
+            {t}
+          </Text>
+        </TouchableOpacity>
+      );
+    })}
+  </ScrollView>
+</View>
+
+<StoriesHeader />
+<VerificadosSection navigation={navigation} user={user} />
           </>
         }
       />

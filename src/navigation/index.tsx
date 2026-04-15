@@ -14,6 +14,7 @@ import ClienteLoginScreen from '../screens/ClienteLoginScreen';
 import AvaliarScreen from '../screens/AvaliarScreen';
 import NotificacoesCliente from '../screens/NotificacoesCliente';
 import StoryView from '../screens/StoryView';
+import PagamentoClienteScreen from '../screens/PagamentoClienteScreen';
 
 // Telas Admin
 import AdminLoginScreen from '../screens/AdminLoginScreen';
@@ -148,6 +149,7 @@ export default function Navigation() {
             <Stack.Screen name="Avaliar" component={AvaliarScreen} />
             <Stack.Screen name="NotificacoesCliente" component={NotificacoesCliente} />
             <Stack.Screen name="StoryView" component={StoryView} />
+			<Stack.Screen name="PagamentoCliente" component={PagamentoClienteScreen}/>
           </Stack.Group>
         )}
 

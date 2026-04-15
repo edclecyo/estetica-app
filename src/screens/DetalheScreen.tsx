@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import functions from '@react-native-firebase/functions';
+import { firebase } from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Estabelecimento } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -31,7 +32,6 @@ const getDatas = () => {
   return lista;
 };
 
-const fn = functions();
 
 const BannerMedia = ({ data, style }: { data: any, style: any }) => {
   const [imgErro, setImgErro] = useState(false);
@@ -122,56 +122,92 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
   }, [dataSel, estabelecimentoId]);
 
   const confirmar = async () => {
-    if (!servicoSel || !dataSel || !horarioSel || !nome) {
-      Alert.alert('Atenção', 'Preencha todos os campos!');
-      return;
+  if (!servicoSel || !dataSel || !horarioSel || !nome || !formaPagamento) {
+    Alert.alert('Atenção', 'Preencha todos os campos!');
+    return;
+  }
+
+  const user = auth().currentUser;
+  if (!user?.uid) {
+    Alert.alert('Erro', 'Usuário não autenticado.');
+    return;
+  }
+
+  try {
+    setSalvando(true);
+
+    const servicos = Array.isArray(estab?.servicos) ? estab.servicos : [];
+    const servico = servicos.find(s => s.nome === servicoSel);
+
+    if (!servico) {
+      throw new Error('Serviço não encontrado');
     }
 
-    const user = auth().currentUser;
-    if (!user?.uid) {
-      Alert.alert('Erro', 'Usuário não autenticado.');
-      return;
-    }
-
-    try {
-      setSalvando(true);
-
-      const servicos = Array.isArray(estab?.servicos) ? estab.servicos : [];
-      const servico = servicos.find(s => s.nome === servicoSel);
-
-      if (!servico) {
-        throw new Error('Serviço não encontrado');
-      }
-
-      // Converte o preço para número garantindo compatibilidade com a Function
-      const precoLimpo = typeof servico.preco === 'number' 
-        ? servico.preco 
+    const precoLimpo =
+      typeof servico.preco === 'number'
+        ? servico.preco
         : Number(String(servico.preco || 0).replace(',', '.'));
 
-      await fn.httpsCallable('criarAgendamento')({
+    // ✅ CHAMADA CORRETA COM REGIÃO
+    const callable = firebase
+  .app()
+  .functions('southamerica-east1')
+  .httpsCallable('criarAgendamento');
+
+    const res = await callable({
+      estabelecimentoId,
+      estabelecimentoNome: estab?.nome || 'Estabelecimento',
+      servicoId: servico.id || '',
+      servicoNome: servicoSel,
+      servicoPreco: precoLimpo,
+      clienteNome: nome,
+      data: dataSel.full,
+      horario: horarioSel,
+      formaPagamento,
+    });
+
+    const agendamentoId = res?.data?.id;
+
+    await AsyncStorage.setItem('clienteNome', nome);
+
+    // 💳 PAGAR NO APP
+    if (formaPagamento === 'app') {
+      navigation.navigate('PagamentoCliente', {
+        agendamentoId,
         estabelecimentoId,
-        estabelecimentoNome: estab?.nome || 'Estabelecimento',
-        servicoId: servico.id || '', // Enviando o ID conforme esperado pela Function
         servicoNome: servicoSel,
-        servicoPreco: precoLimpo,
-        clienteNome: nome,
-        clienteUid: user.uid,
-        data: dataSel.full,
-        horario: horarioSel,
-		 formaPagamento,
+        valor: precoLimpo,
+        nomeEstabelecimento: estab?.nome,
       });
-
-      await AsyncStorage.setItem('clienteNome', nome);
-      setConfirmado(true);
-
-    } catch (e: any) {
-      console.error('Erro ao agendar:', e);
-      const msg = e?.message || e?.details || 'Não foi possível agendar. Tente novamente.';
-      Alert.alert('Erro', msg);
-    } finally {
-      setSalvando(false);
+      return;
     }
-  };
+
+    // 🏢 PAGAR NO LOCAL
+    setConfirmado(true);
+
+  } catch (e: any) {
+    console.error('Erro ao agendar:', e);
+
+    if (e?.code === 'failed-precondition') {
+      Alert.alert('Plano inativo', e?.message || e?.details);
+      return;
+    }
+
+    // 🚨 ESSE AQUI É IMPORTANTE PRA DEBUG
+    if (e?.code === 'not-found') {
+      Alert.alert('Erro', 'Função não encontrada (deploy ou região errada)');
+      return;
+    }
+
+    Alert.alert(
+      'Erro',
+      e?.details || e?.message || 'Não foi possível agendar.'
+    );
+
+  } finally {
+    setSalvando(false);
+  }
+};
 
   const abrirWhatsApp = () => {
     const tel = estab?.telefone?.replace(/\D/g, '');

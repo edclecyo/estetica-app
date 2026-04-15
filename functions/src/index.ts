@@ -435,6 +435,7 @@ export const criarAgendamento = onCall(
         notificado: false,
         notificarEm,
         fcmTokenCliente,
+		formaPagamento: body.formaPagamento || 'local',
         criadoEm: admin.firestore.FieldValue.serverTimestamp(),
       });
     });
@@ -1007,7 +1008,68 @@ export const responderSolicitacaoSelo = onCall({ region: REGION }, async (reques
 
   return { ok: true };
 });
+export const criarPagamentoCliente = onCall(
+  { region: REGION },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
 
+    const { agendamentoId } = request.data;
+
+    if (!agendamentoId) {
+      throw new HttpsError('invalid-argument', 'Agendamento obrigatório');
+    }
+
+    const agendSnap = await db.collection('agendamentos').doc(agendamentoId).get();
+    if (!agendSnap.exists) {
+      throw new HttpsError('not-found', 'Agendamento não encontrado');
+    }
+
+    const agend = agendSnap.data()!;
+
+    try {
+      const resp = await axios.post(
+        'https://api.mercadopago.com/v1/payments',
+        {
+          transaction_amount: Number(agend.servicoPreco),
+          description: agend.servicoNome,
+          payment_method_id: 'pix',
+          payer: {
+            email: 'cliente@email.com', // pode melhorar depois
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`
+          }
+        }
+      );
+
+      const data = resp.data;
+
+      const qr = data.point_of_interaction?.transaction_data;
+
+      // 🔥 salva no agendamento
+      await agendSnap.ref.update({
+        pagamentoId: data.id,
+        formaPagamento: 'pix',
+        statusPagamento: 'pendente',
+        qrCode: qr?.qr_code || null,
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      return {
+        qr_code: qr?.qr_code,
+        qr_code_base64: qr?.qr_code_base64,
+      };
+
+    } catch (error: any) {
+      console.error(error?.response?.data || error.message);
+      throw new HttpsError('internal', 'Erro ao gerar PIX');
+    }
+  }
+);
 // ─── WEBHOOK MERCADO PAGO ─────────────────────────────────────────────────────
 export const webhookMercadoPago = onRequest(
   { region: REGION },
@@ -1016,7 +1078,7 @@ export const webhookMercadoPago = onRequest(
       const segredoWebhook = process.env.MP_WEBHOOK_SECRET;
       const tokenWebhook = process.env.MP_WEBHOOK_TOKEN;
 
-      // ✅ 1. VALIDA TOKEN DA URL (primeira barreira)
+      // ✅ 1. VALIDA TOKEN
       const tokenQuery = Array.isArray(req.query.token)
         ? req.query.token[0]
         : req.query.token;
@@ -1027,10 +1089,7 @@ export const webhookMercadoPago = onRequest(
         return;
       }
 
-      const action = req.body?.action;
       const data = req.body?.data;
-
-      // ✅ 2. FILTRA EVENTOS
       if (!data?.id) {
         res.sendStatus(200);
         return;
@@ -1038,7 +1097,7 @@ export const webhookMercadoPago = onRequest(
 
       const id: string = data.id;
 
-      // 🔒 3. VALIDA ASSINATURA HMAC (anti-fraude forte)
+      // 🔒 2. VALIDA ASSINATURA
       if (segredoWebhook) {
         const assinaturaHeader =
           typeof req.headers["x-signature"] === "string"
@@ -1064,18 +1123,38 @@ export const webhookMercadoPago = onRequest(
         }
       }
 
-      // ⚡ 4. BUSCA STATUS REAL NO MP (NUNCA confia no webhook)
-      const resp = await axios.get<MercadoPagoPreapproval>(
-        `https://api.mercadopago.com/preapproval/${id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-          },
-          timeout: 8000,
-        }
-      );
+      // ⚡ 3. BUSCA STATUS REAL (TENTA PIX PRIMEIRO)
+      let mpData: any = null;
+      let tipo: 'pix' | 'assinatura' = 'assinatura';
 
-      const mpData = resp.data;
+      try {
+        // 🔥 TENTA COMO PAGAMENTO (PIX)
+        const resp = await axios.get(
+          `https://api.mercadopago.com/v1/payments/${id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+            },
+          }
+        );
+
+        mpData = resp.data;
+        tipo = 'pix';
+
+      } catch {
+        // 🔁 SE FALHAR → É ASSINATURA
+        const resp = await axios.get<MercadoPagoPreapproval>(
+          `https://api.mercadopago.com/preapproval/${id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+            },
+          }
+        );
+
+        mpData = resp.data;
+        tipo = 'assinatura';
+      }
 
       if (!mpData?.status) {
         console.error("❌ Resposta inválida MP");
@@ -1083,7 +1162,63 @@ export const webhookMercadoPago = onRequest(
         return;
       }
 
-      // 🔎 5. BUSCA ESTABELECIMENTO
+      // ============================
+      // 🔥 PIX CLIENTE
+      // ============================
+      if (tipo === 'pix') {
+        console.log("💰 PIX recebido:", mpData.status);
+
+        const snap = await db.collection("agendamentos")
+          .where("pagamentoId", "==", id)
+          .limit(1)
+          .get();
+
+        if (!snap.empty) {
+          const ref = snap.docs[0].ref;
+          const agend = snap.docs[0].data();
+
+          // 🧠 evita duplicação
+          if (agend.statusPagamento === mpData.status) {
+            res.sendStatus(200);
+            return;
+          }
+
+          await ref.update({
+            statusPagamento: mpData.status === 'approved' ? 'aprovado' : 'pendente',
+            pagoEm: mpData.status === 'approved'
+              ? admin.firestore.FieldValue.serverTimestamp()
+              : null,
+            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          // 🔔 notifica cliente
+          if (mpData.status === 'approved') {
+            await db.collection('notificacoes').add({
+              clienteId: agend.clienteUid,
+              titulo: "💰 Pagamento confirmado",
+              mensagem: `Pagamento do serviço ${agend.servicoNome} confirmado!`,
+              tipo: "pagamento_cliente",
+              lida: false,
+              criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+
+          console.log("✅ PIX atualizado no agendamento");
+          res.sendStatus(200);
+          return;
+        }
+
+        // ⚠️ não achou agendamento
+        console.warn("PIX sem agendamento vinculado");
+        res.sendStatus(200);
+        return;
+      }
+
+      // ============================
+      // 🔥 ASSINATURA (SEU FLUXO)
+      // ============================
+      console.log("📦 Assinatura:", mpData.status);
+
       const snap = await db.collection("estabelecimentos")
         .where("mercadoPagoId", "==", id)
         .limit(1)
@@ -1098,7 +1233,7 @@ export const webhookMercadoPago = onRequest(
       const docRef = snap.docs[0].ref;
       const dados = snap.docs[0].data();
 
-      // 🧠 6. PROTEÇÃO CONTRA REPLAY (webhook duplicado)
+      // 🧠 proteção replay
       const lastModifiedMP = (mpData as any).last_modified;
       const novaDataMP = new Date(lastModifiedMP || Date.now());
 
@@ -1112,7 +1247,7 @@ export const webhookMercadoPago = onRequest(
         }
       }
 
-      // 💰 7. LOG DE PAGAMENTO (anti duplicação)
+      // 💰 log pagamento
       const pagamentoExistente = await db.collection("pagamentos")
         .where("mercadoPagoId", "==", id)
         .limit(1)
@@ -1126,56 +1261,54 @@ export const webhookMercadoPago = onRequest(
         });
       }
 
-      // 🎯 8. ATUALIZA STATUS
+      // 🎯 atualização
       const agora = new Date();
 
-let novaExpiracao: Date | null = null;
-let assinaturaAtiva = false;
-let statusPagamento = mpData.status;
+      let novaExpiracao: Date | null = null;
+      let assinaturaAtiva = false;
+      let statusPagamento = mpData.status;
 
-// ✅ PAGAMENTO APROVADO / AUTORIZADO
-if (mpData.status === "authorized") {
-  assinaturaAtiva = true;
+      if (mpData.status === "authorized") {
+        assinaturaAtiva = true;
 
-  const expiraAtual = dados.expiraEm?.toDate?.();
+        const expiraAtual = dados.expiraEm?.toDate?.();
 
-  // 🔁 Se ainda não venceu → soma +30 dias
-  if (expiraAtual && expiraAtual > agora) {
-    novaExpiracao = new Date(expiraAtual);
-    novaExpiracao.setDate(novaExpiracao.getDate() + 30);
-  } else {
-    // 🆕 Novo ciclo
-    novaExpiracao = new Date();
-    novaExpiracao.setDate(novaExpiracao.getDate() + 30);
-  }
-}
+        if (expiraAtual && expiraAtual > agora) {
+          novaExpiracao = new Date(expiraAtual);
+          novaExpiracao.setDate(novaExpiracao.getDate() + 30);
+        } else {
+          novaExpiracao = new Date();
+          novaExpiracao.setDate(novaExpiracao.getDate() + 30);
+        }
+      }
 
-// ❌ CANCELADO OU PAUSADO
-if (mpData.status === "cancelled" || mpData.status === "paused") {
-  assinaturaAtiva = false;
-}
+      if (mpData.status === "cancelled" || mpData.status === "paused") {
+        assinaturaAtiva = false;
+      }
 
-await docRef.update({
-  assinaturaAtiva,
-  statusPagamento,
-  ...(novaExpiracao && {
-    expiraEm: admin.firestore.Timestamp.fromDate(novaExpiracao)
-  }),
-  ultimaAtualizacaoMP: admin.firestore.Timestamp.fromDate(new Date()),
-  atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-});
-// 🔔 Notificação de pagamento aprovado
-if (mpData.status === "authorized" && dados.statusPagamento !== "authorized") {
-  await db.collection('notificacoes').add({
-    adminId: dados.adminId,
-    titulo: "💰 Pagamento confirmado",
-    mensagem: "Seu plano foi renovado com sucesso!",
-    tipo: "pagamento",
-    lida: false,
-    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-  });
-}
-      console.log("✅ Webhook processado:", mpData.status);
+      await docRef.update({
+        assinaturaAtiva,
+        statusPagamento,
+        ...(novaExpiracao && {
+          expiraEm: admin.firestore.Timestamp.fromDate(novaExpiracao)
+        }),
+        ultimaAtualizacaoMP: admin.firestore.Timestamp.fromDate(new Date()),
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 🔔 notificação admin
+      if (mpData.status === "authorized" && dados.statusPagamento !== "authorized") {
+        await db.collection('notificacoes').add({
+          adminId: dados.adminId,
+          titulo: "💰 Pagamento confirmado",
+          mensagem: "Seu plano foi renovado com sucesso!",
+          tipo: "pagamento",
+          lida: false,
+          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      console.log("✅ Assinatura atualizada");
 
       res.sendStatus(200);
 

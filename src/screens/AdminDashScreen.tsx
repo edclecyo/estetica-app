@@ -4,27 +4,36 @@ import {
   StyleSheet, ActivityIndicator, Alert, Dimensions,
   StatusBar, Image, ScrollView, Platform
 } from 'react-native';
+
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { BarChart } from 'react-native-chart-kit';
 import functions from '@react-native-firebase/functions';
 import Share from 'react-native-share';
-import type { Estabelecimento, Agendamento } from '../types';
 
-// IMPORTAÇÃO DO SELO LOCAL
+import type { Estabelecimento, Agendamento } from '../types';
 import SeloVerificado from '../assets/selo_verificado.png';
 
 const { width } = Dimensions.get('window');
 const GOLD = '#C9A96E';
 
+// ===== COMPONENT =====
 const EstabImage = ({ item }: { item: Estabelecimento }) => {
   const [imgErro, setImgErro] = useState(false);
   const uri = item.fotoPerfil || item.img;
   const isUrl = typeof uri === 'string' && uri.startsWith('http');
+
   if (isUrl && !imgErro) {
-    return <Image source={{ uri }} style={s.estabFoto} onError={() => setImgErro(true)} />;
+    return (
+      <Image
+        source={{ uri }}
+        style={s.estabFoto}
+        onError={() => setImgErro(true)}
+      />
+    );
   }
+
   return (
     <View style={[s.estabIcon, { backgroundColor: (item.cor || GOLD) + '15' }]}>
       <Text style={s.estabEmoji}>{(!isUrl ? item.img : null) || '🏪'}</Text>
@@ -32,9 +41,11 @@ const EstabImage = ({ item }: { item: Estabelecimento }) => {
   );
 };
 
+// ===== SCREEN =====
 export default function AdminDashScreen() {
   const navigation = useNavigation<any>();
   const { admin, signOut } = useAuth();
+
   const [aba, setAba] = useState<'dash' | 'agends' | 'estabs' | 'stories'>('dash');
   const [estabs, setEstabs] = useState<Estabelecimento[]>([]);
   const [agends, setAgends] = useState<Agendamento[]>([]);
@@ -42,153 +53,125 @@ export default function AdminDashScreen() {
   const [totalLikes, setTotalLikes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [notifNaoLidas, setNotifNaoLidas] = useState(0);
+
   const [planoAtual, setPlanoAtual] = useState<string | null>(null);
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [verificado, setVerificado] = useState(false);
-  
+
   const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
- // --- LÓGICA DE BLOQUEIO SEGURO ---
- const temEstabelecimento = estabs.length > 0;
-const isNovoUsuario = !temEstabelecimento;
 
+  // ===== LÓGICA =====
+  const temEstabelecimento = estabs.length > 0;
+  const isNovoUsuario = !temEstabelecimento;
 
-// 🔥 AJUSTE FINO NA LÓGICA DE BLOQUEIO
-const isBloqueado = useMemo(() => {
-  if (loading) return true;
+  const isBloqueado = useMemo(() => {
+    if (loading) return true;
+    if (!temEstabelecimento) return true;
+    if (!planoAtual) return false;
 
-  // 🚫 sem estabelecimento → bloqueado total
-  if (!temEstabelecimento) return true;
-
-  // 🆕 usuário novo → libera trial
-  if (!planoAtual) return false;
-
-  // ⏳ TRIAL
-  if (planoAtual === 'trial') {
-    if (diasRestantes === null) return false;
-    return diasRestantes <= 0;
-  }
-
-  // 🆓 FREE sempre bloqueado
-  if (planoAtual === 'free') return true;
-
-  // 💳 planos pagos
-  if (!assinaturaAtiva) return true;
-
-  return false;
-}, [loading, temEstabelecimento, planoAtual, diasRestantes, assinaturaAtiva]);
-// --- 2. DECLARAÇÃO DA FUNÇÃO DE MUDAR ABA ---
-  // Esta função impede o clique nas outras abas se estiver bloqueado
-  const mudarAba = (novaAba: any) => {
-  if (loading) return;
-
-  // 🚨 LIBERA aba de estabelecimento SEMPRE
-  if (novaAba === 'estabs') {
-    setAba(novaAba);
-    return;
-  }
-
-  if (isBloqueado) {
-    Alert.alert(
-      'Acesso bloqueado 🔒',
-      'Ative seu plano para liberar essa função.'
-    );
-    return;
-  }
-
-  setAba(novaAba);
-};
- useEffect(() => {
-  if (!admin?.id) return;
-
-  setLoading(true); // 🔥 começa carregando corretamente
-
-  const unsubEstabs = firestore()
-  .collection('estabelecimentos')
-  .where('adminId', '==', admin.id)
-  .onSnapshot(
-    snap => {
-      const lista = snap.docs.map(d => ({
-        id: d.id,
-        ...d.data(),
-      })) as Estabelecimento[];
-
-      setEstabs(lista);
-
-      if (lista.length === 0) {
-        setPlanoAtual(null);
-        setAssinaturaAtiva(false);
-        setDiasRestantes(null);
-        setLoading(false);
-        return;
-      }
-
-      const principal =
-        lista.find(e => e.principal) || lista[0];
-
-      setPlanoAtual(principal?.plano ?? null);
-      setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
-
-      // ⏳ cálculo seguro
-if (principal?.expiraEm?.toDate && typeof principal.expiraEm.toDate === 'function') {
-  const agora = new Date();
-  const expira = principal.expiraEm.toDate();
-
-  const diffTempo = expira.getTime() - agora.getTime();
-
-  // calcula dias restantes (arredonda pra cima)
-  const diasCalculados = Math.ceil(diffTempo / (1000 * 60 * 60 * 24));
-
-  // 🔥 garante entre 0 e 7 dias
-  const diasFinal = Math.min(7, Math.max(0, diasCalculados));
-
-  setDiasRestantes(diasFinal);
-} else {
-  setDiasRestantes(null);
-}
-
-setLoading(false);
-    },
-    err => {
-      console.error('Erro estabs:', err);
-      setLoading(false);
+    if (planoAtual === 'trial') {
+      if (diasRestantes === null) return false;
+      return diasRestantes <= 0;
     }
-  );
 
+    if (planoAtual === 'free') return true;
+    if (!assinaturaAtiva) return true;
 
-  // 2. Ouvinte de Agendamentos
-  const unsubAgends = firestore()
-    .collection('agendamentos')
-    .where('adminId', '==', admin.id)
-    .orderBy('criadoEm', 'desc')
-    .limit(100)
-    .onSnapshot(snapA => {
-      if (snapA) {
+    return false;
+  }, [loading, temEstabelecimento, planoAtual, diasRestantes, assinaturaAtiva]);
+
+  // ===== ABA CONTROLE =====
+  const mudarAba = (novaAba: any) => {
+    if (loading) return;
+
+    if (novaAba === 'estabs') {
+      setAba(novaAba);
+      return;
+    }
+
+    if (isBloqueado) {
+      Alert.alert('Acesso bloqueado 🔒', 'Ative seu plano para liberar essa função.');
+      return;
+    }
+
+    setAba(novaAba);
+  };
+
+  // ===== LISTENERS =====
+  useEffect(() => {
+    if (!admin?.id) return;
+
+    setLoading(true);
+
+    const unsubEstabs = firestore()
+      .collection('estabelecimentos')
+      .where('adminId', '==', admin.id)
+      .onSnapshot(
+        snap => {
+          const lista = snap.docs.map(d => ({
+            id: d.id,
+            ...d.data(),
+          })) as Estabelecimento[];
+
+          setEstabs(lista);
+
+          if (lista.length === 0) {
+            setPlanoAtual(null);
+            setAssinaturaAtiva(false);
+            setDiasRestantes(null);
+            setLoading(false);
+            return;
+          }
+
+          const principal = lista.find(e => e.principal) || lista[0];
+
+          setPlanoAtual(principal?.plano ?? null);
+          setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
+
+          if (principal?.expiraEm?.toDate && typeof principal.expiraEm.toDate === 'function') {
+            const agora = new Date();
+            const expira = principal.expiraEm.toDate();
+
+            const diffTempo = expira.getTime() - agora.getTime();
+            const diasCalculados = Math.ceil(diffTempo / (1000 * 60 * 60 * 24));
+
+            const diasFinal = Math.min(7, Math.max(0, diasCalculados));
+            setDiasRestantes(diasFinal);
+          } else {
+            setDiasRestantes(null);
+          }
+
+          setLoading(false);
+        },
+        err => {
+          console.error(err);
+          setLoading(false);
+        }
+      );
+
+    const unsubAgends = firestore()
+      .collection('agendamentos')
+      .where('adminId', '==', admin.id)
+      .orderBy('criadoEm', 'desc')
+      .limit(100)
+      .onSnapshot(snap => {
         setAgends(
-          snapA.docs.map(d => ({
+          snap.docs.map(d => ({
             id: d.id,
             ...d.data()
           })) as Agendamento[]
         );
-      }
-    }, err => console.error('Erro agendamentos:', err));
+      });
 
-  // 3. Ouvinte de Stories
-  const unsubStories = firestore()
-    .collection('stories')
-    .where('adminId', '==', admin.id)
-    .onSnapshot(snapS => {
-      if (snapS) {
-        const storiesData = snapS.docs.map(d => ({
+    const unsubStories = firestore()
+      .collection('stories')
+      .where('adminId', '==', admin.id)
+      .onSnapshot(snap => {
+        const storiesData = snap.docs.map(d => ({
           id: d.id,
           ...d.data()
         })) as any[];
-
-        storiesData.sort(
-          (a, b) =>
-            (b.timestamp?.seconds || 0) -
-            (a.timestamp?.seconds || 0)
-        );
 
         setMeusStories(storiesData);
 
@@ -198,15 +181,14 @@ setLoading(false);
         );
 
         setTotalLikes(likes);
-      }
-    });
+      });
 
-  return () => {
-    unsubEstabs();
-    unsubAgends();
-    unsubStories();
-  };
-}, [admin?.id]);
+    return () => {
+      unsubEstabs();
+      unsubAgends();
+      unsubStories();
+    };
+  }, [admin?.id]);
 
   useEffect(() => {
     if (!admin?.id) return;
@@ -752,7 +734,7 @@ if (parts.length !== 3) return false;
   return;
 }
 
-if (!assinaturaAtiva) {
+if (!assinaturaAtiva && planoAtual !== 'trial') {
   Alert.alert(
     "Plano necessário",
     "Ative seu plano para criar mais estabelecimentos."
@@ -760,7 +742,25 @@ if (!assinaturaAtiva) {
   return;
 }
 
-          navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+// 🔥 NOVA REGRA AQUI
+const limitePorPlano: Record<string, number> = {
+  trial: 1,
+  essencial: 2,
+  pro: 5,
+  elite: Infinity,
+};
+
+const limite = limitePorPlano[planoAtual || 'trial'] ?? 0;
+
+if (estabs.length >= limite) {
+  Alert.alert(
+    "Limite atingido 🚫",
+    `Seu plano permite até ${limite} estabelecimento(s).`
+  );
+  return;
+}
+
+navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
         }}
       >
         <Text style={s.novoBtnText}>+ Novo Estabelecimento</Text>

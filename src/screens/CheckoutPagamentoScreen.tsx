@@ -1,221 +1,289 @@
 import React, { useState } from 'react';
-import { 
-  View, Text, StyleSheet, TextInput, TouchableOpacity, 
-  ActivityIndicator, Alert, ScrollView, Clipboard 
+import {
+  View, Text, StyleSheet,
+  TouchableOpacity, ActivityIndicator, Alert, Modal
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import functions from '@react-native-firebase/functions';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 export default function CheckoutPagamentoScreen({ route, navigation }: any) {
-  const { planoId, preco } = route.params;
+  const { planoId, preco, estabelecimentoId } = route.params;
+
   const [loading, setLoading] = useState(false);
-  const [metodo, setMetodo] = useState<'card' | 'pix'>('card');
-  
-  // Estados Cartão
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
-  const [holderName, setHolderName] = useState('');
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
 
-  // Estado Pix
-  const [pixData, setPixData] = useState<{ qrCode: string, copyPaste: string } | null>(null);
-
-  const realizarPagamentoCartao = async () => {
-    if (!cardNumber || !expiry || !cvv || !holderName) {
-      Alert.alert("Erro", "Preencha todos os dados do cartão.");
-      return;
-    }
-
+  const iniciarPagamento = async () => {
     setLoading(true);
     try {
       const user = auth().currentUser;
-      const { data } = await functions().httpsCallable('processarPagamentoCartao')({
-        email: user?.email,
-        planoId,
-        valor: preco,
-        cartao: {
-          numero: cardNumber.replace(/\s/g, ''),
-          vencimento: expiry,
-          cvv: cvv,
-          nome: holderName
-        }
+
+      if (!user?.email) {
+        Alert.alert('Erro', 'Usuário não autenticado');
+        return;
+      }
+
+      // ✅ Usa a function que JÁ EXISTE no seu backend: criarAssinatura
+      const fn = functions().httpsCallable('criarAssinatura');
+      const { data } = await fn({
+        estabelecimentoId,
+        email: user.email,
+        plano: planoId,
       });
 
-      if (data.sucesso) {
-        Alert.alert("Sucesso!", "Pagamento aprovado!");
-        navigation.navigate('AdminDash');
+      if (data?.url) {
+        setCheckoutUrl(data.url); // init_point do Mercado Pago
       } else {
-        throw new Error(data.message || "Pagamento recusado.");
+        Alert.alert('Erro', data?.message || 'Não foi possível iniciar o pagamento');
       }
-    } catch (error: any) {
-      Alert.alert("Falha no Pagamento", error.message);
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert('Erro', e.message || 'Erro ao iniciar pagamento');
     } finally {
       setLoading(false);
     }
   };
 
-  const gerarPix = async () => {
-    setLoading(true);
-    try {
-      const user = auth().currentUser;
-      const { data } = await functions().httpsCallable('gerarPagamentoPix')({
-        email: user?.email,
-        planoId,
-        valor: preco,
-      });
+  const handleNavigationChange = (navState: any) => {
+    const url: string = navState.url || '';
 
-      if (data.copy_paste) {
-        setPixData({ qrCode: data.qr_code_base64, copyPaste: data.copy_paste });
-      } else {
-        throw new Error("Erro ao gerar código Pix.");
-      }
-    } catch (error: any) {
-      Alert.alert("Erro", error.message);
-    } finally {
-      setLoading(false);
+    if (url.includes('/success') || url.includes('status=approved')) {
+      setCheckoutUrl(null);
+      Alert.alert('✅ Sucesso', 'Assinatura ativada!', [
+        {
+          text: 'OK',
+          onPress: () => navigation.replace('AdminDash', { estabelecimentoId }),
+        },
+      ]);
+    } else if (url.includes('/failure') || url.includes('status=rejected')) {
+      setCheckoutUrl(null);
+      Alert.alert('❌ Falha', 'Pagamento recusado. Tente novamente.');
+    } else if (url.includes('/pending') || url.includes('status=pending')) {
+      setCheckoutUrl(null);
+      Alert.alert('⏳ Pendente', 'Pagamento em análise. Você será notificado em breve.');
+      navigation.replace('AdminDash', { estabelecimentoId });
     }
   };
 
-  const copiarPix = () => {
-    if (pixData) {
-      Clipboard.setString(pixData.copyPaste);
-      Alert.alert("Copiado!", "Código Pix copiado para a área de transferência.");
-    }
+  const nomePlano = (planoId: string) => {
+    const nomes: Record<string, string> = {
+      essencial: 'Essencial',
+      pro: 'Pro',
+      elite: 'Elite',
+    };
+    return nomes[planoId] || planoId;
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
+    <View style={s.container}>
+
+      {/* HEADER */}
+      <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Icon name="arrow-left" size={24} color="#C9A96E" />
         </TouchableOpacity>
-        <Text style={styles.titulo}>Pagamento</Text>
+        <Text style={s.titulo}>Assinar Plano</Text>
       </View>
 
-      <View style={styles.resumoPlano}>
-        <Text style={styles.labelPlano}>Plano Selecionado: {planoId.toUpperCase()}</Text>
-        <Text style={styles.valorTotal}>R$ {preco}</Text>
+      {/* CARD DO PLANO */}
+      <View style={s.card}>
+        <View style={s.badgePlano}>
+          <Icon name="crown" size={16} color="#000" />
+          <Text style={s.badgeText}>Plano {nomePlano(planoId)}</Text>
+        </View>
+
+        <View style={s.divider} />
+
+        <View style={s.linha}>
+          <Text style={s.label}>Valor mensal</Text>
+          <Text style={s.preco}>R$ {preco}</Text>
+        </View>
+
+        <View style={s.linha}>
+          <Text style={s.label}>Renovação</Text>
+          <Text style={s.valor}>Automática (30 dias)</Text>
+        </View>
+
+        <View style={s.linha}>
+          <Text style={s.label}>Forma de pagamento</Text>
+          <Text style={s.valor}>Cartão ou PIX</Text>
+        </View>
       </View>
 
-      {/* Seletor de Método */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity 
-          style={[styles.tab, metodo === 'card' && styles.tabAtiva]} 
-          onPress={() => setMetodo('card')}
-        >
-          <Icon name="credit-card" size={20} color={metodo === 'card' ? "#000" : "#C9A96E"} />
-          <Text style={[styles.tabText, metodo === 'card' && styles.tabTextAtiva]}>Cartão</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.tab, metodo === 'pix' && styles.tabAtiva]} 
-          onPress={() => setMetodo('pix')}
-        >
-          <Icon name="pix" size={20} color={metodo === 'pix' ? "#000" : "#C9A96E"} />
-          <Text style={[styles.tabText, metodo === 'pix' && styles.tabTextAtiva]}>Pix</Text>
-        </TouchableOpacity>
+      {/* INFO */}
+      <View style={s.infoBox}>
+        <Icon name="shield-check" size={18} color="#C9A96E" />
+        <Text style={s.infoTxt}>
+          Você será redirecionado para o ambiente seguro do Mercado Pago
+        </Text>
       </View>
 
-      {metodo === 'card' ? (
-        <View style={styles.form}>
-          <Text style={styles.inputLabel}>Nome no Cartão</Text>
-          <TextInput 
-            style={styles.input} 
-            placeholder="Como está no cartão" 
-            placeholderTextColor="#666"
-            value={holderName}
-            onChangeText={setHolderName}
-          />
-          <Text style={styles.inputLabel}>Número do Cartão</Text>
-          <TextInput 
-            style={styles.input} 
-            keyboardType="numeric"
-            placeholder="0000 0000 0000 0000" 
-            placeholderTextColor="#666"
-            value={cardNumber}
-            onChangeText={setCardNumber}
-          />
-          <View style={styles.row}>
-            <View style={{ flex: 1, marginRight: 10 }}>
-              <Text style={styles.inputLabel}>Validade</Text>
-              <TextInput 
-                style={styles.input} 
-                placeholder="MM/AA" 
-                placeholderTextColor="#666"
-                value={expiry}
-                onChangeText={setExpiry}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.inputLabel}>CVV</Text>
-              <TextInput 
-                style={styles.input} 
-                placeholder="123" 
-                placeholderTextColor="#666"
-                keyboardType="numeric"
-                secureTextEntry
-                value={cvv}
-                onChangeText={setCvv}
-              />
-            </View>
-          </View>
-          <TouchableOpacity style={styles.btnPagar} onPress={realizarPagamentoCartao} disabled={loading}>
-            {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>PAGAR COM CARTÃO</Text>}
+      {/* BOTÃO */}
+      <TouchableOpacity
+        style={[s.botao, loading && { opacity: 0.7 }]}
+        onPress={iniciarPagamento}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#000" />
+        ) : (
+          <>
+            <Icon name="lock" size={18} color="#000" />
+            <Text style={s.botaoText}>Pagar R$ {preco} com segurança</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
+      {/* WEBVIEW MODAL — Checkout Pro */}
+      <Modal visible={!!checkoutUrl} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#0D0D0D' }}>
+
+          <TouchableOpacity style={s.closeBtn} onPress={() => setCheckoutUrl(null)}>
+            <Icon name="close" size={20} color="#C9A96E" />
+            <Text style={s.closeText}>Cancelar pagamento</Text>
           </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.pixContainer}>
-          {!pixData ? (
-            <TouchableOpacity style={styles.btnPagar} onPress={gerarPix} disabled={loading}>
-              {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>GERAR QR CODE PIX</Text>}
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.pixResult}>
-              <Text style={styles.pixInstrucao}>Copie o código abaixo para pagar no seu banco:</Text>
-              <View style={styles.copyPasteBox}>
-                <Text numberOfLines={1} style={styles.copyPasteText}>{pixData.copyPaste}</Text>
-              </View>
-              <TouchableOpacity style={styles.btnCopiar} onPress={copiarPix}>
-                <Icon name="content-copy" size={20} color="#000" />
-                <Text style={styles.btnCopiarText}>COPIAR CÓDIGO PIX</Text>
-              </TouchableOpacity>
-              <Text style={styles.pixAviso}>A liberação é instantânea após o pagamento.</Text>
-            </View>
+
+          {checkoutUrl && (
+            <WebView
+              source={{ uri: checkoutUrl }}
+              onNavigationStateChange={handleNavigationChange}
+              startInLoadingState
+              renderLoading={() => (
+                <View style={s.webviewLoader}>
+                  <ActivityIndicator size="large" color="#C9A96E" />
+                  <Text style={s.webviewLoaderTxt}>Carregando Mercado Pago...</Text>
+                </View>
+              )}
+            />
           )}
+
         </View>
-      )}
-    </ScrollView>
+      </Modal>
+
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000', padding: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', marginTop: 40, marginBottom: 30 },
-  titulo: { fontSize: 22, fontWeight: 'bold', color: '#FFF', marginLeft: 20 },
-  resumoPlano: { backgroundColor: '#1A1A1A', padding: 20, borderRadius: 10, marginBottom: 25, borderLeftWidth: 4, borderLeftColor: '#C9A96E' },
-  labelPlano: { color: '#AAA', fontSize: 14 },
-  valorTotal: { color: '#FFF', fontSize: 24, fontWeight: 'bold', marginTop: 5 },
-  
-  tabBar: { flexDirection: 'row', marginBottom: 25, backgroundColor: '#1A1A1A', borderRadius: 10, padding: 5 },
-  tab: { flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 12, borderRadius: 8 },
-  tabAtiva: { backgroundColor: '#C9A96E' },
-  tabText: { color: '#C9A96E', marginLeft: 8, fontWeight: 'bold' },
-  tabTextAtiva: { color: '#000' },
-
-  form: { marginTop: 10 },
-  inputLabel: { color: '#C9A96E', fontSize: 12, marginBottom: 5, fontWeight: 'bold' },
-  input: { backgroundColor: '#1A1A1A', color: '#FFF', borderRadius: 8, padding: 15, marginBottom: 20, fontSize: 16 },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
-  btnPagar: { backgroundColor: '#C9A96E', padding: 18, borderRadius: 8, alignItems: 'center', marginTop: 10 },
-  btnText: { color: '#000', fontWeight: 'bold', fontSize: 16 },
-
-  pixContainer: { marginTop: 10, alignItems: 'center' },
-  pixResult: { width: '100%', alignItems: 'center' },
-  pixInstrucao: { color: '#FFF', marginBottom: 15, textAlign: 'center' },
-  copyPasteBox: { backgroundColor: '#1A1A1A', padding: 15, borderRadius: 8, width: '100%', marginBottom: 15 },
-  copyPasteText: { color: '#666', fontSize: 12 },
-  btnCopiar: { flexDirection: 'row', backgroundColor: '#C9A96E', padding: 18, borderRadius: 8, alignItems: 'center', width: '100%', justifyContent: 'center' },
-  btnCopiarText: { color: '#000', fontWeight: 'bold', marginLeft: 10 },
-  pixAviso: { color: '#C9A96E', marginTop: 20, fontSize: 12, fontWeight: 'bold' }
+const s = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0D0D0D',
+    padding: 20,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 40,
+    marginBottom: 24,
+  },
+  titulo: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+    marginLeft: 14,
+  },
+  card: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 18,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#C9A96E33',
+  },
+  badgePlano: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#C9A96E',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginBottom: 4,
+  },
+  badgeText: {
+    color: '#000',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#2A2A2A',
+    marginVertical: 14,
+  },
+  linha: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  label: {
+    color: '#888',
+    fontSize: 13,
+  },
+  valor: {
+    color: '#fff',
+    fontSize: 13,
+  },
+  preco: {
+    color: '#C9A96E',
+    fontWeight: '800',
+    fontSize: 18,
+  },
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 24,
+  },
+  infoTxt: {
+    color: '#888',
+    fontSize: 12,
+    flex: 1,
+    lineHeight: 18,
+  },
+  botao: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#C9A96E',
+    padding: 16,
+    borderRadius: 14,
+  },
+  botaoText: {
+    fontWeight: '700',
+    fontSize: 15,
+    color: '#000',
+  },
+  closeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#1A1A1A',
+    padding: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  closeText: {
+    color: '#C9A96E',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  webviewLoader: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0D0D0D',
+  },
+  webviewLoaderTxt: {
+    color: '#888',
+    marginTop: 12,
+    fontSize: 13,
+  },
 });

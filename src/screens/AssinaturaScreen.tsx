@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import firestore from '@react-native-firebase/firestore';
+import {functions,httpsCallable } from '@react-native-firebase/functions';
 import auth from '@react-native-firebase/auth';
-import functions, { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const GOLD_GRADIENT = ['#D4AF37', '#F9E29B', '#B8860B'];
@@ -49,8 +49,8 @@ export default function AssinaturaScreen({ navigation }) {
   const [trialUsado, setTrialUsado] = useState(false);
 
   useEffect(() => {
-    const user = auth().currentUser;
-    if (!user) return;
+const user = auth().currentUser;
+if (!user) return;
 
     const unsub = firestore()
       .collection('estabelecimentos')
@@ -65,7 +65,8 @@ export default function AssinaturaScreen({ navigation }) {
           setTrialUsado(!!data.trialUsado);
           
           const expira = data.expiraEm?.toDate();
-          setAssinaturaAtiva(!!data.assinaturaAtiva && (expira ? expira > new Date() : true));
+		  const ativo = expira ? expira > new Date() : false;
+setAssinaturaAtiva(!!data.assinaturaAtiva && ativo);
         }
         setLoadingDados(false);
       }, () => setLoadingDados(false));
@@ -108,35 +109,22 @@ export default function AssinaturaScreen({ navigation }) {
   setLoadingAction('trial');
 
   try {
-    const user = auth().currentUser;
-    const token = await user?.getIdToken();
+    const iniciarTrial = httpsCallable(functions(), 'iniciarTrial');
 
-    console.log("Enviando estId:", estId);
+    const res = await iniciarTrial({
+      estabelecimentoId: estId
+    });
 
-    const response = await fetch(
-      'https://southamerica-east1-agenda-beleza-75106.cloudfunctions.net/iniciarTrial',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          data: { estabelecimentoId: estId }
-        }),
-      }
-    );
+    console.log("Resposta:", res.data);
 
-    const json = await response.json();
-    console.log("Resposta:", JSON.stringify(json));
-
-    if (json?.result?.ok) {
+   if (res?.data?.ok === true) {
       Alert.alert("Sucesso", "7 dias de Premium liberados!");
     } else {
-      Alert.alert("Erro", json?.error?.message || "Erro desconhecido");
+      Alert.alert("Erro", res.data?.message || "Erro desconhecido");
     }
-  } catch (e: any) {
-    console.log("ERRO:", e.message);
+
+  } catch (e) {
+    console.log("ERRO:", e);
     Alert.alert("Erro", e.message || "Erro desconhecido");
   } finally {
     setLoadingAction(null);

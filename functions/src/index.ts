@@ -24,6 +24,27 @@ interface MercadoPagoResponse {
   init_point: string;
   id: string;
 }
+interface MPQrResponse {
+  id: number;
+  point_of_interaction?: {
+    transaction_data?: {
+      qr_code: string;
+      qr_code_base64: string;
+    };
+  };
+}
+type MPCustomerResponse = {
+  id: string;
+};
+
+type MPCardResponse = {
+  id: string;
+};
+
+type MPPreapprovalResponse = {
+  id: string;
+  status: string;
+};
 
 // --- HELPERS ---
 function getBucket() {
@@ -47,16 +68,27 @@ function validarAssinaturaMercadoPago(
   segredo: string
 ): boolean {
   if (!assinaturaHeader || !requestIdHeader || !dataId || !segredo) return false;
+
   const parts = signatureHeaderToMap(assinaturaHeader);
-  const ts = parts.ts;
-  const v1 = parts.v1;
-  if (!ts || !v1) return false;
+const ts = parts.ts || parts.timestamp;
+const v1 = parts.v1 || parts.hash;
+
+if (!ts || !v1) return false;
 
   const manifesto = `id:${dataId};request-id:${requestIdHeader};ts:${ts};`;
-  const assinaturaEsperada = crypto.createHmac("sha256", segredo).update(manifesto).digest("hex");
+
+  const assinaturaEsperada = crypto
+    .createHmac("sha256", segredo)
+    .update(manifesto)
+    .digest("hex");
 
   try {
-    return crypto.timingSafeEqual(Buffer.from(assinaturaEsperada), Buffer.from(v1));
+   const a = Buffer.from(assinaturaEsperada, "hex");
+const b = Buffer.from(v1, "hex");
+
+    if (a.length !== b.length) return false;
+
+    return crypto.timingSafeEqual(a, b);
   } catch {
     return false;
   }
@@ -68,8 +100,8 @@ function signatureHeaderToMap(header?: string): Record<string, string> {
   if (!header) return map;
 
   header.split(",").forEach(part => {
-    const [k, v] = part.split("=");
-    if (k && v) map[k.trim()] = v.trim();
+   const [k, ...rest] = part.split("=");
+map[k.trim()] = rest.join("=").trim();
   });
 
   return map;
@@ -87,16 +119,21 @@ async function getTokenAdmin(uid: string) {
   return snap.data()?.fcmToken || null;
 }
 
-async function enviarPush(token: string, title: string, body: string, data?: any) {
+async function enviarPush(token: string | null, title: string, body: string, data?: any) {
   if (!token) return;
+
   try {
     await messaging.send({
       token,
       notification: { title, body },
-      ...(data && { data })
+      ...(data ? { data } : {})
     });
-  } catch (err) {
-    console.error("Erro ao enviar push:", err);
+  } catch (err: any) {
+    if (err?.code === 'messaging/registration-token-not-registered') {
+  console.log("Token expirado encontrado. Removendo...");
+  // Opcional: buscar onde esse token está e deletar, 
+  // ou simplesmente ignorar como você já faz.
+}
   }
 }
 
@@ -153,7 +190,7 @@ export const aoCriarNotificacao = onDocumentCreated(
 // AVISO: Requer índice composto no Firestore:
 // Coleção: agendamentos | Campos: status ASC, notificado ASC, notificarEm ASC
 export const lembreteAgendamento = onSchedule(
-  { region: REGION, schedule: "every 60 minutes" },
+  { region: REGION, schedule: "every 2 hours" },
   async () => {
     const agora = admin.firestore.Timestamp.now();
 
@@ -271,20 +308,46 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (request) 
 
   // 🔎 CONTAGEM
   const estabsSnap = await db
-    .collection('estabelecimentos')
-    .where('adminId', '==', adminId)
-    .get();
+  .collection('estabelecimentos')
+  .where('adminId', '==', adminId)
+  .get();
 
-  const totalEstabs = estabsSnap.size;
+const totalEstabs = estabsSnap.size;
 
-  // 🚫 BLOQUEIO FREE (SEM QUEBRAR APP)
-  if (isNovo && totalEstabs >= 1) {
-    return {
-      ok: false,
-      code: 'LIMITO_FREE',
-      message: 'Você já possui um estabelecimento no plano gratuito.'
-    };
+// 🔥 PLANO ATUAL
+let planoAtual = 'free';
+
+if (estabsSnap.docs.length > 0) {
+  planoAtual = estabsSnap.docs[0].data().plano || 'free';
+}
+
+// 🔥 FUNÇÃO LIMITE
+function getLimitePorPlano(plano: string): number {
+  switch (plano) {
+    case 'trial':
+      return 1;
+    case 'free':
+      return 1;
+    case 'essencial':
+      return 2;
+    case 'pro':
+      return 5;
+    case 'elite':
+      return Infinity;
+    default:
+      return 1;
   }
+}
+
+const limite = getLimitePorPlano(planoAtual);
+
+// 🚫 BLOQUEIO
+if (isNovo && totalEstabs >= limite) {
+  throw new HttpsError(
+    'failed-precondition',
+    `Seu plano (${planoAtual}) permite até ${limite} estabelecimento(s).`
+  );
+}
 
   // 🧼 LIMPEZA
   const cleanData = { ...data };
@@ -336,8 +399,14 @@ export const criarAgendamento = onCall(
     const dataBr = String(body.data || "").trim();
     const horario = String(body.horario || "").trim();
 
-    const [dia, mes, ano] = dataBr.split("/");
-    const mesRef = `${ano}_${mes.padStart(2, "0")}`;
+   const partes = dataBr.split("/");
+if (partes.length !== 3) {
+  throw new HttpsError('invalid-argument', 'Data inválida');
+}
+
+const [dia, mes, ano] = partes;
+
+const mesRef = `${ano}_${String(mes).padStart(2, "0")}`;
 
     if (clienteNome.length > 100) throw new HttpsError('invalid-argument', 'Nome muito grande');
     if (servicoNome.length > 100) throw new HttpsError('invalid-argument', 'Serviço inválido');
@@ -350,11 +419,18 @@ export const criarAgendamento = onCall(
 
     const est = estSnap.data() || {};
     const agora = new Date();
-    const expiraEm = est.expiraEm?.toDate();
+const expiraEm = est.expiraEm?.toDate?.() || null;
 
-    if (!est.assinaturaAtiva || (expiraEm && agora > expiraEm)) {
-      throw new HttpsError('failed-precondition', 'Este estabelecimento está com os agendamentos suspensos por falta de pagamento.');
-    }
+const podeUsar =
+  est.assinaturaAtiva === true ||
+  (est.plano === 'free' && !est.trialUsado);
+
+if (!podeUsar || (expiraEm && agora > expiraEm)) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Ative o período de teste para começar a usar o sistema.'
+  );
+}
 
     const servicos = Array.isArray(est.servicos) ? est.servicos : [];
     const servico = servicos.find((s: any) => String(s?.nome || "").trim() === servicoNome);
@@ -378,7 +454,10 @@ export const criarAgendamento = onCall(
       const snap = await t.get(rateRef);
       const now = Date.now();
       if (snap.exists) {
-        const diff = now - (snap.data()?.timestamp || 0);
+        const ts = snap.data()?.timestamp;
+const last = ts?.toMillis ? ts.toMillis() : 0;
+
+const diff = now - last;
         if (diff < RATE_LIMIT_MS) throw new HttpsError('resource-exhausted', 'Muitas requisições');
       }
       t.set(rateRef, { timestamp: now });
@@ -528,7 +607,7 @@ export const concluirAgendamento = onCall({ region: REGION }, async (request) =>
 
 // ─── LIMPAR STORIES ───────────────────────────────────────────────────────────
 export const limparStories = onSchedule(
-  { schedule: "every 1 hours", region: REGION },
+  { schedule: "every 3 hours", region: REGION },
   async () => {
     const agora = admin.firestore.Timestamp.now();
     const snap = await db.collection("stories")
@@ -821,7 +900,7 @@ export const iniciarTrial = onCall(
 // ─── 10. VERIFICAÇÃO DE SELO AUTOMÁTICA ───────────────────────────────────────
 // FIX AVISO: Promise.all em chunks de 20 para não estourar cota de escritas Firestore
 export const verificarSeloAutomatico = onSchedule(
-  { region: REGION, schedule: "every 6 hours" },
+  { region: REGION, schedule: "every 24 hours" },
   async () => {
     const snap = await db.collection('estabelecimentos')
       .where('plano', 'in', ['elite', 'pro'])
@@ -936,10 +1015,14 @@ export const solicitarSelo = onCall(
       });
 
       // Token lido direto do documento — sem getTokenAdmin() em loop
-      const tokenSuperAdmin = superAdmin.data().fcmToken || null;
+      const tokenSuperAdmin = superAdmin.data().fcmToken;
       if (tokenSuperAdmin) {
         pushPromises.push(
-          enviarPush(tokenSuperAdmin, '🔔 Nova solicitação de selo', `${est.nome} solicitou o selo verificado.`, { tela: 'dash' })
+          enviarPush(
+            tokenSuperAdmin,
+            '🔔 Nova solicitação de selo',
+            `${est.nome} solicitou o selo verificado`
+          )
         );
       }
     }
@@ -947,7 +1030,7 @@ export const solicitarSelo = onCall(
     await notifBatch.commit();
     await Promise.allSettled(pushPromises);
 
-    return { ok: true };
+    return { ok: true, message: 'Solicitação enviada com sucesso' };
   }
 );
 
@@ -1021,22 +1104,113 @@ export const criarPagamentoCliente = onCall(
       throw new HttpsError('invalid-argument', 'Agendamento obrigatório');
     }
 
-    const agendSnap = await db.collection('agendamentos').doc(agendamentoId).get();
+    const agendRef = db.collection('agendamentos').doc(agendamentoId);
+    const agendSnap = await agendRef.get();
+
     if (!agendSnap.exists) {
       throw new HttpsError('not-found', 'Agendamento não encontrado');
     }
 
     const agend = agendSnap.data()!;
 
+    // 🔥 BUSCA ESTABELECIMENTO
+    const estabSnap = await db
+      .collection('estabelecimentos')
+      .doc(agend.estabelecimentoId)
+      .get();
+
+    const estab = estabSnap.data();
+
+    if (!estab?.mpAccessToken) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Estabelecimento não conectado ao Mercado Pago'
+      );
+    }
+
     try {
-      const resp = await axios.post(
+      const resp = await axios.post<MPQrResponse>(
         'https://api.mercadopago.com/v1/payments',
         {
           transaction_amount: Number(agend.servicoPreco),
           description: agend.servicoNome,
           payment_method_id: 'pix',
+          external_reference: agendamentoId,
           payer: {
-            email: 'cliente@email.com', // pode melhorar depois
+            email: `cliente_${request.auth.uid}@app.com`,
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${estab.mpAccessToken}`
+          }
+        }
+      );
+
+      const data = resp.data;
+      const qr = data.point_of_interaction?.transaction_data;
+
+      // 💰 TAXA
+      const taxa = Number(agend.servicoPreco) * 0.10;
+
+      await agendRef.update({
+        pagamentoId: data.id,
+        formaPagamento: 'pix',
+        statusPagamento: 'pendente',
+
+        qrCode: qr?.qr_code || null,
+        qrCodeBase64: qr?.qr_code_base64 || null,
+
+        valorTotal: agend.servicoPreco,
+        taxaApp: taxa,
+
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      return {
+        qr_code: qr?.qr_code,
+        qr_code_base64: qr?.qr_code_base64,
+      };
+
+    } catch (error: any) {
+      console.error("Erro MP:", error?.response?.data || error.message);
+
+      throw new HttpsError(
+        'internal',
+        error?.response?.data?.message || 'Erro ao gerar PIX'
+      );
+    }
+  }
+);
+export const criarPagamentoPixAssinatura = onCall(
+  { region: REGION },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
+
+    const { estabelecimentoId, plano, valor } = request.data;
+
+    if (!estabelecimentoId || !plano || !valor) {
+      throw new HttpsError('invalid-argument', 'Dados inválidos');
+    }
+
+    // 🔥 DESCONTO 5%
+    const valorFinal = Number(valor) * 0.95;
+
+    try {
+const resp = await axios.post<MPQrResponse>(
+        'https://api.mercadopago.com/v1/payments',
+        {
+          transaction_amount: valorFinal,
+          description: `Plano ${plano} (PIX)`,
+
+          payment_method_id: 'pix',
+
+          external_reference: estabelecimentoId,
+
+          payer: {
+            email: `admin_${request.auth.uid}@app.com`,
           }
         },
         {
@@ -1047,26 +1221,171 @@ export const criarPagamentoCliente = onCall(
       );
 
       const data = resp.data;
-
       const qr = data.point_of_interaction?.transaction_data;
 
-      // 🔥 salva no agendamento
-      await agendSnap.ref.update({
-        pagamentoId: data.id,
-        formaPagamento: 'pix',
-        statusPagamento: 'pendente',
-        qrCode: qr?.qr_code || null,
-        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-      });
+      await db.collection('estabelecimentos')
+        .doc(estabelecimentoId)
+        .update({
+          pagamentoPixId: data.id,
+          planoTemp: plano,
+          valorPix: valorFinal,
+          statusPagamento: 'pendente',
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
 
       return {
         qr_code: qr?.qr_code,
         qr_code_base64: qr?.qr_code_base64,
+        valor: valorFinal
       };
 
     } catch (error: any) {
       console.error(error?.response?.data || error.message);
       throw new HttpsError('internal', 'Erro ao gerar PIX');
+    }
+  }
+);
+export const criarAssinaturaCartao = onCall(
+  { region: REGION },
+  async (request) => {
+
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
+
+    const { estabelecimentoId, plano, token, email } = request.data as {
+      estabelecimentoId: string;
+      plano: string;
+      token: string;
+      email: string;
+    };
+
+    if (!estabelecimentoId || !plano || !token || !email) {
+      throw new HttpsError('invalid-argument', 'Dados incompletos');
+    }
+
+    const adminId = request.auth.uid;
+
+    // 🔎 VALIDA ESTABELECIMENTO
+    const estRef = db.collection('estabelecimentos').doc(estabelecimentoId);
+    const estSnap = await estRef.get();
+
+    if (!estSnap.exists) {
+      throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+    }
+
+    const est = estSnap.data() as any;
+
+    if (est?.adminId !== adminId) {
+      throw new HttpsError('permission-denied', 'Sem permissão');
+    }
+
+    // 💰 PLANOS
+    const planos: Record<string, number> = {
+      essencial: 29.9,
+      pro: 49.9,
+      elite: 89.99,
+    };
+
+    const valor = planos[plano];
+
+    if (!valor) {
+      throw new HttpsError('invalid-argument', 'Plano inválido');
+    }
+
+    try {
+      // =========================
+      // 🧠 1. CRIAR / OBTER CUSTOMER
+      // =========================
+      let customerId: string | undefined = est?.mpCustomerId;
+
+      if (!customerId) {
+        const customerResp = await axios.post<MPCustomerResponse>(
+          'https://api.mercadopago.com/v1/customers',
+          { email },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+            },
+          }
+        );
+
+        customerId = customerResp.data.id;
+
+        await estRef.update({
+          mpCustomerId: customerId,
+        });
+      }
+
+      // =========================
+      // 💳 2. ASSOCIAR CARTÃO
+      // =========================
+      const cardResp = await axios.post<MPCardResponse>(
+        `https://api.mercadopago.com/v1/customers/${customerId}/cards`,
+        { token },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+          },
+        }
+      );
+
+      const cardId = cardResp.data.id;
+
+      // =========================
+      // 🔁 3. CRIAR ASSINATURA
+      // =========================
+      const preapprovalResp = await axios.post<MPPreapprovalResponse>(
+        'https://api.mercadopago.com/preapproval',
+        {
+          reason: `Plano ${plano}`,
+          auto_recurring: {
+            frequency: 1,
+            frequency_type: "months",
+            transaction_amount: valor,
+            currency_id: "BRL",
+          },
+          payer_email: email,
+          card_id: cardId,
+          status: "authorized",
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+          },
+        }
+      );
+
+      const assinatura = preapprovalResp.data;
+
+      // =========================
+      // 💾 4. SALVAR NO FIRESTORE
+      // =========================
+      const agora = new Date();
+      const expira = new Date();
+      expira.setDate(agora.getDate() + 30);
+
+      await estRef.update({
+        plano,
+        assinaturaAtiva: true,
+        mercadoPagoId: assinatura.id,
+        statusPagamento: 'authorized',
+        expiraEm: admin.firestore.Timestamp.fromDate(expira),
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return {
+        ok: true,
+        assinaturaId: assinatura.id,
+      };
+
+    } catch (error: any) {
+      console.error("Erro assinatura cartão:", error?.response?.data || error.message);
+
+      throw new HttpsError(
+        'internal',
+        error?.response?.data?.message || 'Erro ao processar pagamento'
+      );
     }
   }
 );
@@ -1078,7 +1397,9 @@ export const webhookMercadoPago = onRequest(
       const segredoWebhook = process.env.MP_WEBHOOK_SECRET;
       const tokenWebhook = process.env.MP_WEBHOOK_TOKEN;
 
-      // ✅ 1. VALIDA TOKEN
+      // =========================
+      // 🔐 1. VALIDA TOKEN
+      // =========================
       const tokenQuery = Array.isArray(req.query.token)
         ? req.query.token[0]
         : req.query.token;
@@ -1090,6 +1411,7 @@ export const webhookMercadoPago = onRequest(
       }
 
       const data = req.body?.data;
+
       if (!data?.id) {
         res.sendStatus(200);
         return;
@@ -1097,7 +1419,9 @@ export const webhookMercadoPago = onRequest(
 
       const id: string = data.id;
 
+      // =========================
       // 🔒 2. VALIDA ASSINATURA
+      // =========================
       if (segredoWebhook) {
         const assinaturaHeader =
           typeof req.headers["x-signature"] === "string"
@@ -1123,12 +1447,14 @@ export const webhookMercadoPago = onRequest(
         }
       }
 
-      // ⚡ 3. BUSCA STATUS REAL (TENTA PIX PRIMEIRO)
+      // =========================
+      // ⚡ 3. BUSCA DADOS REAIS
+      // =========================
       let mpData: any = null;
       let tipo: 'pix' | 'assinatura' = 'assinatura';
 
       try {
-        // 🔥 TENTA COMO PAGAMENTO (PIX)
+        // 🔥 PIX / pagamento único
         const resp = await axios.get(
           `https://api.mercadopago.com/v1/payments/${id}`,
           {
@@ -1142,8 +1468,8 @@ export const webhookMercadoPago = onRequest(
         tipo = 'pix';
 
       } catch {
-        // 🔁 SE FALHAR → É ASSINATURA
-        const resp = await axios.get<MercadoPagoPreapproval>(
+        // 🔁 ASSINATURA
+        const resp = await axios.get(
           `https://api.mercadopago.com/preapproval/${id}`,
           {
             headers: {
@@ -1162,61 +1488,78 @@ export const webhookMercadoPago = onRequest(
         return;
       }
 
-      // ============================
-      // 🔥 PIX CLIENTE
-      // ============================
+      // =====================================================
+      // 💰 PIX CLIENTE (AGENDAMENTO)
+      // =====================================================
       if (tipo === 'pix') {
-        console.log("💰 PIX recebido:", mpData.status);
+        console.log("💰 PIX:", mpData.status);
 
-        const snap = await db.collection("agendamentos")
-          .where("pagamentoId", "==", id)
-          .limit(1)
-          .get();
+        const agendamentoId = mpData.external_reference;
 
-        if (!snap.empty) {
-          const ref = snap.docs[0].ref;
-          const agend = snap.docs[0].data();
-
-          // 🧠 evita duplicação
-          if (agend.statusPagamento === mpData.status) {
-            res.sendStatus(200);
-            return;
-          }
-
-          await ref.update({
-            statusPagamento: mpData.status === 'approved' ? 'aprovado' : 'pendente',
-            pagoEm: mpData.status === 'approved'
-              ? admin.firestore.FieldValue.serverTimestamp()
-              : null,
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          // 🔔 notifica cliente
-          if (mpData.status === 'approved') {
-            await db.collection('notificacoes').add({
-              clienteId: agend.clienteUid,
-              titulo: "💰 Pagamento confirmado",
-              mensagem: `Pagamento do serviço ${agend.servicoNome} confirmado!`,
-              tipo: "pagamento_cliente",
-              lida: false,
-              criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-            });
-          }
-
-          console.log("✅ PIX atualizado no agendamento");
+        if (!agendamentoId) {
+          console.warn("⚠️ PIX sem external_reference");
           res.sendStatus(200);
           return;
         }
 
-        // ⚠️ não achou agendamento
-        console.warn("PIX sem agendamento vinculado");
+        const ref = db.collection('agendamentos').doc(agendamentoId);
+        const snap = await ref.get();
+
+        if (!snap.exists) {
+          console.warn("⚠️ Agendamento não encontrado");
+          res.sendStatus(200);
+          return;
+        }
+
+        const agend = snap.data();
+
+        // 🧠 evita duplicação
+        if (agend?.statusPagamento === mpData.status) {
+          res.sendStatus(200);
+          return;
+        }
+
+        const aprovado = mpData.status === 'approved';
+
+        await ref.update({
+          statusPagamento: aprovado ? 'aprovado' : 'pendente',
+          pagoEm: aprovado
+            ? admin.firestore.FieldValue.serverTimestamp()
+            : null,
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // 🔔 NOTIFICAÇÕES
+        if (aprovado) {
+          // Cliente
+          await db.collection('notificacoes').add({
+            clienteId: agend.clienteUid,
+            titulo: "💰 Pagamento confirmado",
+            mensagem: `Pagamento do serviço ${agend.servicoNome} aprovado!`,
+            tipo: "pagamento_cliente",
+            lida: false,
+            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          // Admin
+          await db.collection('notificacoes').add({
+            adminId: agend.adminId,
+            titulo: "💰 Novo pagamento recebido",
+            mensagem: `${agend.clienteNome} pagou ${agend.servicoNome}`,
+            tipo: "pagamento_admin",
+            lida: false,
+            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+
+        console.log("✅ PIX atualizado");
         res.sendStatus(200);
         return;
       }
 
-      // ============================
-      // 🔥 ASSINATURA (SEU FLUXO)
-      // ============================
+      // =====================================================
+      // 📦 ASSINATURA (PLANO)
+      // =====================================================
       console.log("📦 Assinatura:", mpData.status);
 
       const snap = await db.collection("estabelecimentos")
@@ -1225,48 +1568,31 @@ export const webhookMercadoPago = onRequest(
         .get();
 
       if (snap.empty) {
-        console.warn("⚠️ Nenhum estabelecimento encontrado");
-        res.sendStatus(404);
+        console.warn("⚠️ Estabelecimento não encontrado");
+        res.sendStatus(200);
         return;
       }
 
       const docRef = snap.docs[0].ref;
       const dados = snap.docs[0].data();
 
-      // 🧠 proteção replay
-      const lastModifiedMP = (mpData as any).last_modified;
+      // 🧠 anti replay
+      const lastModifiedMP = mpData.last_modified;
       const novaDataMP = new Date(lastModifiedMP || Date.now());
 
       if (dados.ultimaAtualizacaoMP) {
         const dataLocal = dados.ultimaAtualizacaoMP.toDate();
-
         if (dataLocal >= novaDataMP) {
-          console.log("⏭️ Webhook antigo ignorado");
+          console.log("⏭️ Evento duplicado ignorado");
           res.sendStatus(200);
           return;
         }
       }
 
-      // 💰 log pagamento
-      const pagamentoExistente = await db.collection("pagamentos")
-        .where("mercadoPagoId", "==", id)
-        .limit(1)
-        .get();
-
-      if (pagamentoExistente.empty) {
-        await db.collection("pagamentos").add({
-          mercadoPagoId: id,
-          status: mpData.status,
-          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-
-      // 🎯 atualização
       const agora = new Date();
 
       let novaExpiracao: Date | null = null;
       let assinaturaAtiva = false;
-      let statusPagamento = mpData.status;
 
       if (mpData.status === "authorized") {
         assinaturaAtiva = true;
@@ -1282,13 +1608,13 @@ export const webhookMercadoPago = onRequest(
         }
       }
 
-      if (mpData.status === "cancelled" || mpData.status === "paused") {
+      if (["cancelled", "paused"].includes(mpData.status)) {
         assinaturaAtiva = false;
       }
 
       await docRef.update({
         assinaturaAtiva,
-        statusPagamento,
+        statusPagamento: mpData.status,
         ...(novaExpiracao && {
           expiraEm: admin.firestore.Timestamp.fromDate(novaExpiracao)
         }),
@@ -1296,13 +1622,13 @@ export const webhookMercadoPago = onRequest(
         atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // 🔔 notificação admin
+      // 🔔 NOTIFICA ADMIN
       if (mpData.status === "authorized" && dados.statusPagamento !== "authorized") {
         await db.collection('notificacoes').add({
           adminId: dados.adminId,
-          titulo: "💰 Pagamento confirmado",
-          mensagem: "Seu plano foi renovado com sucesso!",
-          tipo: "pagamento",
+          titulo: "💰 Assinatura ativa",
+          mensagem: "Seu plano foi ativado com sucesso!",
+          tipo: "assinatura",
           lida: false,
           criadoEm: admin.firestore.FieldValue.serverTimestamp(),
         });

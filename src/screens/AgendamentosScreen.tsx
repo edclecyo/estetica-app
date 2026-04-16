@@ -32,25 +32,24 @@ export default function AgendamentosScreen() {
   useEffect(() => {
     if (!user) return;
 
+    // Otimizado: Ordenação feita no Servidor (Exige Índice Composto)
     const unsubscribe = firestore()
       .collection('agendamentos')
       .where('clienteUid', '==', user.uid)
+      .orderBy('criadoEm', 'desc') 
       .onSnapshot(
         snap => {
           if (!snap) { setLoading(false); return; }
+          
           const lista = snap.docs
-  .map(d => ({ id: d.id, ...d.data() }))
-  .filter(d => !d.deletado) as Agendamento[]; // Ignora os marcados para exclusão
-          lista.sort((a, b) => {
-            const da = a.criadoEm?.toDate?.().getTime() || 0;
-            const db = (b.criadoEm as any)?.seconds || 0;
-            return db - da;
-          });
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter((d: any) => !d.deletado) as Agendamento[];
+            
           setAgendamentos(lista);
           setLoading(false);
         },
         error => {
-          console.log('Erro agendamentos:', error);
+          console.error('Erro ao buscar agendamentos:', error);
           setLoading(false);
         }
       );
@@ -68,10 +67,10 @@ export default function AgendamentosScreen() {
           try {
             await auth().signOut();
             try { await GoogleSignin.signOut(); } catch {}
+            navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] });
           } catch (e) {
             console.log('Erro logout:', e);
           }
-          navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] });
         },
       },
     ]);
@@ -86,23 +85,21 @@ export default function AgendamentosScreen() {
     }
   };
 
+  const formatarDataConclusao = (timestamp: any) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('pt-BR');
+  };
+
   const filtrados = agendamentos.filter(a => {
     if (filtro === 'Todos') return true;
-    if (filtro === 'Confirmado') return a.status === 'confirmado';
-    if (filtro === 'Concluído') return a.status === 'concluido';
-    if (filtro === 'Cancelado') return a.status === 'cancelado';
-    return true;
+    return a.status.toLowerCase() === filtro.toLowerCase().replace('ú', 'u');
   });
-
-  const total = agendamentos.length;
-  const confirmados = agendamentos.filter(a => a.status === 'confirmado').length;
-  const concluidos = agendamentos.filter(a => a.status === 'concluido').length;
-  const cancelados = agendamentos.filter(a => a.status === 'cancelado').length;
 
   if (loading) {
     return (
       <View style={s.center}>
-        <ActivityIndicator size="large" color="#1A1A1A" />
+        <ActivityIndicator size="large" color="#D4AF37" />
       </View>
     );
   }
@@ -112,10 +109,7 @@ export default function AgendamentosScreen() {
       <View style={s.center}>
         <Text style={s.emptyEmoji}>🔒</Text>
         <Text style={s.emptyTitulo}>Faça login para ver seus horários</Text>
-        <Text style={s.emptySub}>Agende um serviço para criar sua conta</Text>
-        <TouchableOpacity
-          style={s.btnPrimario}
-          onPress={() => navigation.navigate('ClienteLogin', {})}>
+        <TouchableOpacity style={s.btnPrimario} onPress={() => navigation.navigate('ClienteLogin')}>
           <Text style={s.btnPrimarioText}>Entrar / Criar conta</Text>
         </TouchableOpacity>
       </View>
@@ -124,33 +118,14 @@ export default function AgendamentosScreen() {
 
   return (
     <View style={s.container}>
-      {/* Header */}
       <View style={s.header}>
         <View>
           <Text style={s.headerSub}>SEUS HORÁRIOS</Text>
-          <Text style={s.headerTitulo}>
-            Olá, {user.displayName?.split(' ')[0] || user.email?.split('@')[0]} 👋
-          </Text>
+          <Text style={s.headerTitulo}>Olá, {user.displayName?.split(' ')[0] || 'Cliente'} 👋</Text>
         </View>
         <TouchableOpacity style={s.sairBtn} onPress={handleLogout}>
           <Text style={s.sairText}>Sair</Text>
         </TouchableOpacity>
-      </View>
-
-      {/* Resumo */}
-      <View style={s.resumoWrap}>
-        {[
-          { ic: '📅', v: total, l: 'Total' },
-          { ic: '✓', v: confirmados, l: 'Confirmados', cor: '#4CAF50' },
-          { ic: '★', v: concluidos, l: 'Concluídos', cor: '#2196F3' },
-          { ic: '✕', v: cancelados, l: 'Cancelados', cor: '#F44336' },
-        ].map(({ ic, v, l, cor }) => (
-          <View key={l} style={s.resumoCard}>
-            <Text style={[s.resumoIc, cor ? { color: cor } : {}]}>{ic}</Text>
-            <Text style={s.resumoV}>{v}</Text>
-            <Text style={s.resumoL}>{l}</Text>
-          </View>
-        ))}
       </View>
 
       {/* Filtros */}
@@ -169,23 +144,12 @@ export default function AgendamentosScreen() {
 
       <FlatList
         data={filtrados}
-        keyExtractor={a => a.id}
+        keyExtractor={item => item.id}
         contentContainerStyle={s.lista}
-        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={s.emptyCard}>
             <Text style={s.emptyEmoji}>📭</Text>
-            <Text style={s.emptyTitulo}>Nenhum agendamento{filtro !== 'Todos' ? ` ${filtro.toLowerCase()}` : ''}</Text>
-            <Text style={s.emptySub}>
-              {filtro === 'Todos' ? 'Explore os estabelecimentos e agende!' : `Você não tem agendamentos ${filtro.toLowerCase()}s`}
-            </Text>
-            {filtro === 'Todos' && (
-              <TouchableOpacity
-                style={s.btnPrimario}
-                onPress={() => navigation.navigate('HomeTabs', { screen: 'Home' })}>
-                <Text style={s.btnPrimarioText}>Agendar agora</Text>
-              </TouchableOpacity>
-            )}
+            <Text style={s.emptyTitulo}>Nenhum agendamento encontrado</Text>
           </View>
         }
         renderItem={({ item }) => {
@@ -194,38 +158,27 @@ export default function AgendamentosScreen() {
 
           return (
             <View style={[s.card, { borderLeftColor: st.cor }]}>
-  <View style={s.cardConteudo}>
-    {/* Foto Real ou Emoji de fallback */}
-    <View style={s.cardImagemLateral}>
-      {item.estabelecimentoFoto ? (
-        <Image 
-          source={{ uri: item.estabelecimentoFoto }} 
-          style={s.fotoReal} 
-          resizeMode="cover"
-        />
-      ) : (
-        <Text style={s.emojiLateral}>🏢</Text>
-      )}
-    </View>
+              <View style={s.cardConteudo}>
+                <View style={s.cardImagemLateral}>
+                  {item.estabelecimentoFoto ? (
+                    <Image source={{ uri: item.estabelecimentoFoto }} style={s.fotoReal} />
+                  ) : (
+                    <Text style={s.emojiLateral}>🏢</Text>
+                  )}
+                </View>
 
-                {/* Info Central */}
                 <View style={s.cardCorpo}>
                   <Text style={s.cardEstab}>{item.estabelecimentoNome}</Text>
                   <Text style={s.cardServico}>{item.servicoNome}</Text>
-                  
                   <View style={s.cardInfo}>
-                    <View style={s.cardInfoItem}>
-                      <Text style={s.cardInfoIc}>📅</Text>
-                      <Text style={s.cardInfoTxt}>{item.data}</Text>
-                    </View>
-                    <View style={s.cardInfoItem}>
-                      <Text style={s.cardInfoIc}>⏰</Text>
-                      <Text style={s.cardInfoTxt}>{item.horario}</Text>
-                    </View>
+                    <Text style={s.cardInfoTxt}>📅 {item.data}</Text>
+                    <Text style={s.cardInfoTxt}>⏰ {item.horario}</Text>
                   </View>
+                  {item.status === 'concluido' && item.concluidoEm && (
+                    <Text style={s.concluidoData}>Finalizado em: {formatarDataConclusao(item.concluidoEm)}</Text>
+                  )}
                 </View>
 
-                {/* Preço à direita */}
                 <View style={s.cardDireita}>
                    <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
                 </View>
@@ -235,14 +188,6 @@ export default function AgendamentosScreen() {
                 <View style={[s.statusBadge, { backgroundColor: st.bg }]}>
                   <Text style={[s.statusText, { color: st.cor }]}>{st.label}</Text>
                 </View>
-
-                {item.avaliacao && (
-                  <View style={s.avaliacaoWrap}>
-                    {[1, 2, 3, 4, 5].map(i => (
-                      <Text key={i} style={[s.estrelinha, i <= item.avaliacao!.estrelas && s.estrelinhaAtiva]}>★</Text>
-                    ))}
-                  </View>
-                )}
 
                 {podeAvaliar && (
                   <TouchableOpacity
@@ -266,76 +211,40 @@ export default function AgendamentosScreen() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 24 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   header: { backgroundColor: '#1A1A1A', padding: 20, paddingTop: 52, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerSub: { color: '#C9A96E', fontSize: 10, letterSpacing: 1.5, marginBottom: 2 },
+  headerSub: { color: '#D4AF37', fontSize: 10, letterSpacing: 1.5, fontWeight: '700' },
   headerTitulo: { color: '#FAF7F4', fontSize: 20, fontWeight: '700' },
   sairBtn: { backgroundColor: '#2A2A2A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  sairText: { color: '#C9A96E', fontSize: 12, fontWeight: '600' },
-  resumoWrap: { flexDirection: 'row', backgroundColor: '#1A1A1A', paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
-  resumoCard: { flex: 1, backgroundColor: '#2A2A2A', borderRadius: 12, padding: 10, alignItems: 'center' },
-  resumoIc: { fontSize: 14, color: '#C9A96E', marginBottom: 2 },
-  resumoV: { fontSize: 18, fontWeight: '700', color: '#FAF7F4' },
-  resumoL: { fontSize: 9, color: '#666', marginTop: 2 },
+  sairText: { color: '#D4AF37', fontSize: 12, fontWeight: '600' },
   filtroWrap: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   filtroScroll: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
-  chip: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20, backgroundColor: '#F5F5F5', borderWidth: 1.5, borderColor: 'transparent' },
-  chipAtivo: { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
-  chipText: { fontSize: 12, color: '#888', fontWeight: '500' },
+  chip: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20, backgroundColor: '#F5F5F5' },
+  chipAtivo: { backgroundColor: '#1A1A1A' },
+  chipText: { fontSize: 12, color: '#888' },
   chipTextAtivo: { color: '#fff', fontWeight: '700' },
   lista: { padding: 16, paddingBottom: 32 },
-  // Estilo do Card Melhorado
-  card: { backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 16, elevation: 2, borderLeftWidth: 5 },
+  card: { backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 16, elevation: 3, borderLeftWidth: 5 },
   cardConteudo: { flexDirection: 'row', alignItems: 'center' },
-  cardImagemLateral: { width: 50, height: 50, borderRadius: 12, backgroundColor: '#F8F9FA', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  emojiLateral: { fontSize: 24 },
+  cardImagemLateral: { width: 55, height: 55, borderRadius: 12, backgroundColor: '#F0F0F0', marginRight: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#EAEAEA', justifyContent: 'center', alignItems: 'center' },
+  fotoReal: { width: '100%', height: '100%' },
+  emojiLateral: { fontSize: 26 },
   cardCorpo: { flex: 1 },
-  cardDireita: { alignItems: 'flex-end', justifyContent: 'center' },
-  cardEstab: { fontSize: 12, color: '#999', fontWeight: '600', textTransform: 'uppercase', marginBottom: 2 },
-  cardServico: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginBottom: 6 },
-  cardPreco: { fontSize: 15, fontWeight: '700', color: '#1A1A1A', backgroundColor: '#F5F5F5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  cardInfo: { flexDirection: 'row', gap: 12 },
-  cardInfoItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  cardInfoIc: { fontSize: 12 },
-  cardInfoTxt: { fontSize: 12, color: '#666', fontWeight: '600' },
-  cardRodape: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F5F5F5' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+  cardEstab: { fontSize: 11, color: '#999', fontWeight: '700', textTransform: 'uppercase' },
+  cardServico: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginVertical: 2 },
+  cardInfo: { flexDirection: 'row', gap: 10 },
+  cardInfoTxt: { fontSize: 12, color: '#666' },
+  concluidoData: { fontSize: 10, color: '#2196F3', marginTop: 4, fontWeight: '600' },
+  cardDireita: { alignItems: 'flex-end' },
+  cardPreco: { fontSize: 14, fontWeight: 'bold', color: '#1A1A1A' },
+  cardRodape: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F5F5F5', alignItems: 'center' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   statusText: { fontSize: 11, fontWeight: '700' },
-  avaliacaoWrap: { flexDirection: 'row', gap: 2 },
-  estrelinha: { fontSize: 16, color: '#E0E0E0' },
-  estrelinhaAtiva: { color: '#F4A261' },
-  avaliarBtn: { backgroundColor: '#1A1A1A', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
-  avaliarBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  emptyCard: { alignItems: 'center', paddingTop: 60 },
-  emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyTitulo: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 4, textAlign: 'center' },
-  emptySub: { fontSize: 13, color: '#aaa', marginBottom: 4, textAlign: 'center' },
-  btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 13, marginTop: 16 },
-  btnPrimarioText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-cardImagemLateral: { 
-    width: 55, 
-    height: 55, 
-    borderRadius: 12, 
-    backgroundColor: '#F0F0F0', // Fundo neutro para fotos com transparência
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    marginRight: 12,
-    overflow: 'hidden', // Importante para a imagem respeitar o borderRadidus
-    borderWidth: 1,
-    borderColor: '#EAEAEA'
-  },
-  fotoReal: {
-    width: '100%',
-    height: '100%',
-  },
-  emojiLateral: { 
-    fontSize: 26 
-  },
-  // Dica: Ajuste o dourado para um tom mais "Premium"
-  headerSub: { 
-    color: '#D4AF37', // Dourado Metálico clássico
-    fontSize: 10, 
-    letterSpacing: 1.5, 
-    fontWeight: '700' 
-  },
+  avaliarBtn: { backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  avaliarBtnText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+  emptyCard: { alignItems: 'center', marginTop: 50 },
+  emptyEmoji: { fontSize: 40 },
+  emptyTitulo: { color: '#999', marginTop: 10 },
+  btnPrimario: { backgroundColor: '#1A1A1A', padding: 15, borderRadius: 12, marginTop: 20 },
+  btnPrimarioText: { color: '#fff', fontWeight: 'bold' }
 });

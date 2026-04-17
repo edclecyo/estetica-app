@@ -105,50 +105,47 @@ export default function AdminDashScreen() {
     setLoading(true);
 
     const unsubEstabs = firestore()
-      .collection('estabelecimentos')
-      .where('adminId', '==', admin.id)
-      .onSnapshot(
-        snap => {
-          const lista = snap.docs.map(d => ({
-            id: d.id,
-            ...d.data(),
-          })) as Estabelecimento[];
+  .collection('estabelecimentos')
+  .where('adminId', '==', admin.id)
+  .onSnapshot(
+    snap => {
+      const lista = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+      })) as Estabelecimento[];
 
-          setEstabs(lista);
+      setEstabs(lista);
 
-          if (lista.length === 0) {
-            setPlanoAtual(null);
-            setAssinaturaAtiva(false);
-            setDiasRestantes(null);
-            setLoading(false);
-            return;
-          }
+      if (lista.length === 0) {
+        setPlanoAtual(null);
+        setAssinaturaAtiva(false);
+        setDiasRestantes(null);
+      } else {
+        const principal = lista.find(e => e.principal) || lista[0];
 
-          const principal = lista.find(e => e.principal) || lista[0];
+        setPlanoAtual(principal?.plano ?? null);
+        setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
 
-          setPlanoAtual(principal?.plano ?? null);
-          setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
+        if (principal?.expiraEm?.toDate) {
+          const agora = new Date();
+          const expira = principal.expiraEm.toDate();
 
-          if (principal?.expiraEm?.toDate && typeof principal.expiraEm.toDate === 'function') {
-            const agora = new Date();
-            const expira = principal.expiraEm.toDate();
+          const diff = expira.getTime() - agora.getTime();
+          const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
 
-            const diffTempo = expira.getTime() - agora.getTime();
-            const diasCalculados = Math.ceil(diffTempo / (1000 * 60 * 60 * 24));
-
-            const diasFinal = Math.min(7, Math.max(0, diasCalculados));
-            setDiasRestantes(diasFinal);
-          } else {
-            setDiasRestantes(null);
-          }
-
-          setLoading(false);
-        },
-        err => {
-          console.error(err);
-          setLoading(false);
+          setDiasRestantes(Math.min(7, Math.max(0, dias)));
+        } else {
+          setDiasRestantes(null);
         }
-      );
+      }
+
+      setLoading(false);
+    },
+    err => {
+      console.error('Erro Firestore:', err);
+      setLoading(false);
+    }
+  );
 
     const unsubAgends = firestore()
       .collection('agendamentos')
@@ -252,7 +249,8 @@ Gerado pelo BeautyHub`;
         try {
           setLoading(true);
           const functionName = novoStatus === 'concluido' ? 'concluirAgendamento' : 'cancelarAgendamento';
-          await functions().httpsCallable(functionName)({ agendamentoId: id });
+          const fn = functions().httpsCallable(functionName);
+await fn({ agendamentoId: id });
           // O onSnapshot cuidará de atualizar a lista automaticamente
         } catch (e: any) {
           console.error(e);
@@ -292,26 +290,33 @@ Gerado pelo BeautyHub`;
       labels.push(d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
       const ds = d.toLocaleDateString('pt-BR');
       valores.push(
-        agends.filter(a => a.data === ds && (a.status === 'confirmado' || a.status === 'concluido'))
+        agends.filter(a => formatDate(a.data) === ds && (a.status === 'confirmado' || a.status === 'concluido'))
           .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
       );
     }
     return { labels, datasets: [{ data: valores }] };
   }, [agends]);
   
+  const formatDate = (date: any) => {
+  if (!date) return '';
+  if (typeof date === 'string') return date;
+  if (date?.toDate) return date.toDate().toLocaleDateString('pt-BR');
+  return '';
+};
 const safeChartData = useMemo(() => {
-  if (
-    !chartData?.datasets ||
-    !chartData.datasets[0]?.data ||
-    chartData.datasets[0].data.length === 0
-  ) {
+  const data = chartData?.datasets?.[0]?.data;
+
+  if (!data || data.length === 0) {
     return {
       labels: ['Sem dados'],
       datasets: [{ data: [0] }],
     };
   }
 
-  return chartData;
+  return {
+    labels: chartData.labels ?? [],
+    datasets: [{ data }],
+  };
 }, [chartData]);
 
 const planoBadge = () => {
@@ -480,7 +485,7 @@ const planoBadge = () => {
     ? 'Carregando plano...'
     : (isBloqueado 
         ? 'Assinatura Expirada' 
-        : `Plano ${planoAtual.toUpperCase()}`
+        : `Plano ${(planoAtual ?? '').toUpperCase()}`
       )
 }
           </Text>
@@ -533,7 +538,7 @@ const planoBadge = () => {
     try {
       if (!a.data || typeof a.data !== 'string') return false;
 
-const parts = a.data.split('/');
+const parts = formatDate(a.data).split('/');
 if (parts.length !== 3) return false;
 
       const dAgend = new Date(

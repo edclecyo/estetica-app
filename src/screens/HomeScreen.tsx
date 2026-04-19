@@ -12,6 +12,8 @@ import StoriesHeader from '../components/StoriesHeader';
 import type { Estabelecimento } from '../types';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
+import { escutarNotificacoes } from '../services/notificacao.Service';
 // Constantes mantidas conforme original
 const TIPOS = [
   'Todos', 'Salão de Beleza', 'Barbearia Premium', 'Espaço de Unhas', 'Manicure & Pedicure',
@@ -210,6 +212,12 @@ export default function HomeScreen() {
   const [localizacao, setLocalizacao] = useState<{ lat: number; lng: number } | null>(null);
   const [notificacoesNaoLidas, setNotificacoesNaoLidas] = useState(0);
 
+ useFocusEffect(
+  React.useCallback(() => {
+    const unsubscribe = escutarNotificacoes();
+    return () => unsubscribe && unsubscribe();
+  }, [])
+);
   // Monitora Notificações
   useEffect(() => {
     if (!user?.uid) { setNotificacoesNaoLidas(0); return; }

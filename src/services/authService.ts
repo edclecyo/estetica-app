@@ -1,7 +1,7 @@
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import type { Admin } from '../types';
-import { registrarTokenPush } from './notificacao.service';
+import { registrarTokenPush } from './notificacao.Service';
 
 export async function cadastrarAdmin(dados: {
   nome: string;

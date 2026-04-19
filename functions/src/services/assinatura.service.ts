@@ -48,8 +48,8 @@ export const iniciarTrial = onCall(
       trialUsado: true,
 
       // ✅ PADRÃO FIREBASE (ESSENCIAL)
-      trialInicio: admin.firestore.Timestamp.fromDate(agora),
-      expiraEm: admin.firestore.Timestamp.fromDate(expira),
+      trialInicio: Timestamp.fromDate(agora),
+expiraEm: Timestamp.fromDate(expira),
     });
 
     return { ok: true };
@@ -137,7 +137,7 @@ if (isNovo && totalEstabs >= limite) {
   const payload: any = {
     ...cleanData,
     adminId,
-    atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    atualizadoEm: FieldValue.serverTimestamp(),
   };
 
   if (isNovo) {

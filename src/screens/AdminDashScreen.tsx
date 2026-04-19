@@ -11,7 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { BarChart } from 'react-native-chart-kit';
 import functions from '@react-native-firebase/functions';
 import Share from 'react-native-share';
-
+import auth from '@react-native-firebase/auth';
 import type { Estabelecimento, Agendamento } from '../types';
 import SeloVerificado from '../assets/selo_verificado.png';
 
@@ -249,17 +249,23 @@ Gerado pelo BeautyHub`;
         try {
           setLoading(true);
           const functionName = novoStatus === 'concluido' ? 'concluirAgendamento' : 'cancelarAgendamento';
-          const fn = functions().httpsCallable(functionName);
-await fn({ agendamentoId: id });
-          // O onSnapshot cuidará de atualizar a lista automaticamente
+          const token = await auth().currentUser?.getIdToken();
+          const res = await fetch(
+            `https://southamerica-east1-agenda-beleza-75106.cloudfunctions.net/${functionName}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({ data: { agendamentoId: id } }),
+            }
+          );
+          const json = await res.json();
+          if (json?.error) throw new Error(json.error.message);
         } catch (e: any) {
           console.error(e);
-          // Mensagem personalizada vinda da Cloud Function
-          const errorMsg =
-  e?.details?.message ||
-  e?.message ||
-  'Erro ao atualizar. Verifique sua assinatura.';
-          Alert.alert('Atenção', errorMsg);
+          Alert.alert('Atenção', e?.message || 'Erro ao atualizar.');
         } finally {
           setLoading(false);
         }
@@ -267,7 +273,6 @@ await fn({ agendamentoId: id });
     },
   ]);
 };
-
   const handleLogout = () => {
     Alert.alert('Sair', 'Deseja sair do painel?', [
       { text: 'Cancelar', style: 'cancel' },
@@ -279,7 +284,13 @@ await fn({ agendamentoId: id });
     agends.filter(a => a.status === 'confirmado' || a.status === 'concluido')
       .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
   , [agends]);
-
+  
+const formatDate = (date: any) => {
+  if (!date) return '';
+  if (typeof date === 'string') return date;
+  if (date?.toDate) return date.toDate().toLocaleDateString('pt-BR');
+  return '';
+};
   const chartData = useMemo(() => {
     const labels: string[] = [];
     const valores: number[] = [];
@@ -297,12 +308,6 @@ await fn({ agendamentoId: id });
     return { labels, datasets: [{ data: valores }] };
   }, [agends]);
   
-  const formatDate = (date: any) => {
-  if (!date) return '';
-  if (typeof date === 'string') return date;
-  if (date?.toDate) return date.toDate().toLocaleDateString('pt-BR');
-  return '';
-};
 const safeChartData = useMemo(() => {
   const data = chartData?.datasets?.[0]?.data;
 

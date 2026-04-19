@@ -76,6 +76,7 @@ export default function AdminLoginScreen() {
 
     // ✅ Aguarda o Firestore salvar antes de continuar
     await firestore().collection('admins').doc(user.uid).set({
+		uid: user.uid,
       nome: cNome,
       email: cEmail,
       telefone: cTel || '',

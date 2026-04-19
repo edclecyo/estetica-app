@@ -5,7 +5,6 @@ import {
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import functions from '@react-native-firebase/functions';
-import { firebase } from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Estabelecimento } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -149,24 +148,39 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
         : Number(String(servico.preco || 0).replace(',', '.'));
 
     // ✅ CHAMADA CORRETA COM REGIÃO
-    const callable = firebase
-  .app()
-  .functions('southamerica-east1')
-  .httpsCallable('criarAgendamento');
+   const token = await auth().currentUser?.getIdToken();
 
-    const res = await callable({
-      estabelecimentoId,
-      estabelecimentoNome: estab?.nome || 'Estabelecimento',
-      servicoId: servico.id || '',
-      servicoNome: servicoSel,
-      servicoPreco: precoLimpo,
-      clienteNome: nome,
-      data: dataSel.full,
-      horario: horarioSel,
-      formaPagamento,
-    });
+const res = await fetch(
+  'https://criaragendamento-eoqa32y7ca-rj.a.run.app',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      data: {
+        estabelecimentoId,
+        estabelecimentoNome: estab?.nome || 'Estabelecimento',
+        servicoId: servico.id || '',
+        servicoNome: servicoSel,
+        servicoPreco: precoLimpo,
+        clienteNome: nome,
+        data: dataSel.full,
+        horario: horarioSel,
+        formaPagamento,
+      }
+    }),
+  }
+);
 
-    const agendamentoId = res?.data?.id;
+const json = await res.json();
+console.log('Resposta:', JSON.stringify(json));
+const agendamentoId = json?.result?.id;
+
+if (!agendamentoId) {
+  throw new Error('ID do agendamento não retornado');
+}
 
     await AsyncStorage.setItem('clienteNome', nome);
 
@@ -323,7 +337,7 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
                   const agora = new Date();
                   const isHoje = dataSel?.full === agora.toLocaleDateString('pt-BR');
                   const jaPassou = isHoje && (agora.getHours() > hora || (agora.getHours() === hora && agora.getMinutes() >= minuto));
-                  const ocupado = horariosOcupados.includes(h) || jaPassou;
+                 const ocupado = (horariosOcupados || []).includes(h) || jaPassou;
                   
                   return (
                     <TouchableOpacity key={h} disabled={ocupado} onPress={() => { setHorarioSel(h); setStep(Math.max(step, 4)); }} style={[s.horarioChip, horarioSel === h && s.horarioChipAtivo, ocupado && s.horarioChipOcupado]}>

@@ -67,7 +67,7 @@ if (!podeUsar || (expiraEm && agora > expiraEm)) {
 
     const dataHora = parseDataHoraBR(dataBr, horario);
     const notificarEmDate = new Date(dataHora.getTime() - (60 * 60 * 1000));
-    const notificarEm = admin.firestore.Timestamp.fromDate(notificarEmDate);
+    const notificarEm = Timestamp.fromDate(notificarEmDate);
 
     const fcmTokenCliente = await getTokenCliente(clienteUid);
 

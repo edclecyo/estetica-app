@@ -1,7 +1,7 @@
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import { registrarTokenPush } from './notificacaoService';
+import { registrarTokenPush } from './notificacao.Service';
 
 GoogleSignin.configure({
   webClientId: '1043439367326-jp6d5smhkvjtnpnusj59g7c7hv33v2o7.apps.googleusercontent.com',

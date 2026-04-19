@@ -6,11 +6,12 @@ import axios from 'axios';
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
 import { 
+  MercadoPagoResponse, 
   MPQrResponse, 
-  MPPreapprovalResponse, 
-  MPCustomerResponse, 
-  MPCardResponse 
-} from '../types';
+  MPPreapprovalResponse,
+  MPCustomerResponse, // Adicione este
+  MPCardResponse      // Adicione este
+} from '../types/mercadopago';
 
 /**
  * ─── 1. PAGAMENTO CLIENTE -> ESTABELECIMENTO (PIX) ───

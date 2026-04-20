@@ -227,7 +227,7 @@ Geolocation.requestAuthorization?.();
   const handleCepChange = async (text: string) => {
     const cleanCep = text.replace(/\D/g, '');
     setCep(cleanCep);
-    if (cleanCep.length === 8) {
+    if (cleanCep.length === 8 && !buscandoCep) {
       try {
         setBuscandoCep(true);
         const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
@@ -501,7 +501,9 @@ await reference.putFile(uri);
             <View style={{ flex: 1 }}>
               <View style={s.rowBetween}>
                 <Text style={s.statLabel}>Financeiro (Concluído / Previsto)</Text>
-                <Text style={[s.statValue, { color: cor }]}>R$ {stats.total}</Text>
+                <Text style={[s.statValue, { color: cor }]}>
+  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.total)}
+</Text>
               </View>
               <View style={s.barContainer}>
                 <View style={[s.bar, { flex: stats.concluido || 0.1, backgroundColor: '#4CAF50' }]} />

@@ -25,7 +25,7 @@ export default function CheckoutPagamentoScreen({ route, navigation }: any) {
       }
 
       // ✅ Usa a function que JÁ EXISTE no seu backend: criarAssinatura
-      const fn = functions().httpsCallable('criarAssinatura');
+      const fn = functions('southamerica-east1').httpsCallable('criarAssinatura');
       const { data } = await fn({
         estabelecimentoId,
         email: user.email,
@@ -135,31 +135,31 @@ export default function CheckoutPagamentoScreen({ route, navigation }: any) {
         )}
       </TouchableOpacity>
 
-      {/* WEBVIEW MODAL — Checkout Pro */}
       <Modal visible={!!checkoutUrl} animationType="slide">
-        <View style={{ flex: 1, backgroundColor: '#0D0D0D' }}>
+  <View style={{ flex: 1, backgroundColor: '#0D0D0D' }}>
+    <TouchableOpacity style={s.closeBtn} onPress={() => setCheckoutUrl(null)}>
+      <Icon name="close" size={20} color="#C9A96E" />
+      <Text style={s.closeText}>Cancelar pagamento</Text>
+    </TouchableOpacity>
 
-          <TouchableOpacity style={s.closeBtn} onPress={() => setCheckoutUrl(null)}>
-            <Icon name="close" size={20} color="#C9A96E" />
-            <Text style={s.closeText}>Cancelar pagamento</Text>
-          </TouchableOpacity>
-
-          {checkoutUrl && (
-            <WebView
-              source={{ uri: checkoutUrl }}
-              onNavigationStateChange={handleNavigationChange}
-              startInLoadingState
-              renderLoading={() => (
-                <View style={s.webviewLoader}>
-                  <ActivityIndicator size="large" color="#C9A96E" />
-                  <Text style={s.webviewLoaderTxt}>Carregando Mercado Pago...</Text>
-                </View>
-              )}
-            />
-          )}
-
-        </View>
-      </Modal>
+    {checkoutUrl && (
+      <WebView
+        source={{ uri: checkoutUrl }}
+        onNavigationStateChange={handleNavigationChange}
+        startInLoadingState
+        domStorageEnabled={true}
+        javaScriptEnabled={true}
+        allowsBackForwardNavigationGestures={true}
+        renderLoading={() => (
+          <View style={s.webviewLoader}>
+            <ActivityIndicator size="large" color="#C9A96E" />
+            <Text style={s.webviewLoaderTxt}>Carregando Mercado Pago...</Text>
+          </View>
+        )}
+      />
+    )}
+  </View>
+</Modal>
 
     </View>
   );

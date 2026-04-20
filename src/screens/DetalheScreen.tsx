@@ -175,11 +175,30 @@ const res = await fetch(
 );
 
 const json = await res.json();
-console.log('Resposta:', JSON.stringify(json));
-const agendamentoId = json?.result?.id;
+console.log('Resposta completa:', JSON.stringify(json));
 
-if (!agendamentoId) {
-  throw new Error('ID do agendamento não retornado');
+// ✅ Trata erros retornados pela função
+if (json?.error) {
+  const status = json.error.status;
+  const message = json.error.message;
+
+  if (status === 'ALREADY_EXISTS') {
+    Alert.alert('Horário indisponível', 'Esse horário já foi reservado. Escolha outro.');
+    return;
+  }
+  if (status === 'FAILED_PRECONDITION') {
+    Alert.alert('Plano inativo', message);
+    return;
+  }
+  if (status === 'RESOURCE_EXHAUSTED') {
+    Alert.alert('Aguarde um momento', 'Você fez muitas tentativas seguidas. Aguarde alguns segundos e tente novamente.');
+    return;
+  }
+  if (status === 'UNAUTHENTICATED') {
+    Alert.alert('Sessão expirada', 'Faça login novamente para continuar.');
+    return;
+  }
+  throw new Error(message);
 }
 
     await AsyncStorage.setItem('clienteNome', nome);

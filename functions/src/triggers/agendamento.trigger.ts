@@ -1,9 +1,8 @@
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
-
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-import { enviarPush } from '../services/notificacao.service'; // Ajuste o path se necessário
+import { enviarPush } from '../services/notificacao.service';
 
 export const onAgendamentoUpdate = onDocumentUpdated(
   { document: "agendamentos/{docId}", region: REGION },
@@ -16,12 +15,34 @@ export const onAgendamentoUpdate = onDocumentUpdated(
     // 1. Lógica de Notificação Push
     if (antes.status !== depois.status) {
       let titulo = '';
-      if (depois.status === 'concluido') titulo = '✅ Atendimento Concluído!';
-      else if (depois.status === 'cancelado') titulo = '❌ Agendamento Cancelado';
+      let mensagem = '';
 
-      if (titulo && depois.fcmTokenCliente) {
-        // Não precisamos de await aqui se não quisermos travar a execução da função
-        enviarPush(depois.fcmTokenCliente, titulo, `Serviço: ${depois.servicoNome}`).catch(console.error);
+      if (depois.status === 'concluido') {
+        titulo = '✅ Atendimento Concluído!';
+        mensagem = `Seu atendimento de ${depois.servicoNome} foi concluído. Avalie sua experiência!`;
+      } else if (depois.status === 'cancelado') {
+        titulo = '❌ Agendamento Cancelado';
+        mensagem = `Seu agendamento de ${depois.servicoNome} foi cancelado.`;
+      }
+
+      if (titulo) {
+        // Envia push
+        if (depois.fcmTokenCliente) {
+          enviarPush(depois.fcmTokenCliente, titulo, mensagem).catch(console.error);
+        }
+
+        // ✅ Cria documento na coleção notificacoes
+        await db.collection('notificacoes').add({
+          clienteId: depois.clienteUid,
+          adminId: depois.adminId || null,
+          agendamentoId: event.params.docId,
+          estabelecimentoId: depois.estabelecimentoId,
+          estabelecimentoNome: depois.estabelecimentoNome,
+          titulo,
+          mensagem,
+          lida: false,
+          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        });
       }
     }
 
@@ -29,7 +50,6 @@ export const onAgendamentoUpdate = onDocumentUpdated(
     // Isso evita que edições de comentário dupliquem a contagem no estabelecimento
     const notaNova = depois.avaliacaoCliente;
     const notaAntiga = antes.avaliacaoCliente;
-
     if (depois.status === 'concluido' && notaNova && notaNova !== notaAntiga) {
       const estRef = db.collection('estabelecimentos').doc(depois.estabelecimentoId);
       
@@ -47,7 +67,6 @@ export const onAgendamentoUpdate = onDocumentUpdated(
         const somaNotas = (d.somaNotas || 0) - (notaAntiga || 0) + notaNova;
         
         const novaMedia = somaNotas / totalAvaliacoes;
-
         t.update(estRef, {
           avaliacao: Math.round(novaMedia * 10) / 10,
           quantidadeAvaliacoes: totalAvaliacoes,

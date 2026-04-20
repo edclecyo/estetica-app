@@ -73,7 +73,8 @@ export default function NotificacoesClienteScreen() {
                 marcarComoLida(item.id, item.lida);
                 navigation.navigate('AvaliarScreen', { 
                   agendamentoId: item.agendamentoId, // A Function deve salvar isso na notificação
-                  estabelecimentoNome: item.estabelecimentoNome 
+                  estabelecimentoNome: item.estabelecimentoNome, 
+				   estabelecimentoId: item.estabelecimentoId
                 });
               }}
             >
@@ -86,7 +87,7 @@ export default function NotificacoesClienteScreen() {
               style={styles.btnAgendar}
               onPress={() => {
                 marcarComoLida(item.id, item.lida);
-                navigation.navigate('HomeTabs', { screen: 'Explorar' });
+                navigation.navigate('HomeTabs', { screen: 'Home' });
               }}
             >
               <Text style={styles.btnAgendarText}>Ver Horários Disponíveis 📅</Text>

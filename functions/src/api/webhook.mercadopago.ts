@@ -127,7 +127,7 @@ export const webhookMercadoPago = onRequest(
 
         const agendSnap = await db
           .collection("agendamentos")
-          .where("paymentId", "==", id)
+          .where("pagamentoId", "==", id)
           .limit(1)
           .get();
 

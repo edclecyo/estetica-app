@@ -36,6 +36,7 @@ export default function AgendamentosScreen() {
     const unsubscribe = firestore()
       .collection('agendamentos')
       .where('clienteUid', '==', user.uid)
+	  .where('deletado', '==', false)
       .orderBy('criadoEm', 'desc') 
       .onSnapshot(
         snap => {

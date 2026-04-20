@@ -198,20 +198,44 @@ export const cancelarAgendamento = onCall(
 
     const agendRef = db.collection('agendamentos').doc(agendamentoId);
     const snap = await agendRef.get();
+    
     if (!snap.exists) throw new HttpsError('not-found', 'Agendamento não encontrado');
 
     const agend = snap.data()!;
     const isAdmin = agend.adminId === req.auth.uid;
     const isCliente = agend.clienteUid === req.auth.uid;
+
     if (!isAdmin && !isCliente) throw new HttpsError('permission-denied', 'Sem permissão');
     if (agend.status === 'concluido') throw new HttpsError('failed-precondition', 'Não pode cancelar concluído');
     if (agend.status === 'cancelado') return { ok: true };
 
-    await agendRef.update({
+    // --- 1. DEFINIÇÃO DAS VARIÁVEIS QUE ESTAVAM FALTANDO ---
+    // Usamos os dados vindos do snapshot do agendamento
+    const uniqueLockId = `${agend.clienteUid}_${agend.data}_${agend.horario}`;
+    const conflitoId = `${agend.estabelecimentoId}_${agend.data}_${agend.horario}`;
+
+    // --- 2. INICIALIZAÇÃO DO BATCH ---
+    const batch = db.batch();
+
+    // --- 3. ADICIONANDO OPERAÇÕES AO BATCH ---
+    
+    // Atualiza o status do agendamento
+    batch.update(agendRef, {
       status: 'cancelado',
       canceladoEm: admin.firestore.FieldValue.serverTimestamp(),
       canceladoPor: req.auth.uid,
     });
+
+    // Remove as travas de horário (Locks)
+    const lockRef = db.collection('agendamentoLocks').doc(uniqueLockId);
+    const ocupadoRef = db.collection('horariosOcupados').doc(conflitoId);
+
+    batch.delete(lockRef);
+    batch.delete(ocupadoRef);
+
+    // --- 4. EXECUÇÃO ATÔMICA ---
+    // Isso garante que ou tudo acontece, ou nada acontece.
+    await batch.commit();
 
     return { ok: true };
   }

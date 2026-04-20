@@ -4,14 +4,14 @@ import {
   StyleSheet, ActivityIndicator, Alert, Dimensions,
   StatusBar, Image, ScrollView, Platform
 } from 'react-native';
-
+import functions from '@react-native-firebase/functions';
 import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { BarChart } from 'react-native-chart-kit';
-import functions from '@react-native-firebase/functions';
 import Share from 'react-native-share';
-import auth from '@react-native-firebase/auth';
+
 import type { Estabelecimento, Agendamento } from '../types';
 import SeloVerificado from '../assets/selo_verificado.png';
 
@@ -57,7 +57,6 @@ export default function AdminDashScreen() {
   const [planoAtual, setPlanoAtual] = useState<string | null>(null);
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [verificado, setVerificado] = useState(false);
-
   const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
 
@@ -67,7 +66,7 @@ export default function AdminDashScreen() {
 
   const isBloqueado = useMemo(() => {
     if (loading) return true;
-    if (!temEstabelecimento) return true;
+    if (!temEstabelecimento) return false;
     if (!planoAtual) return false;
 
     if (planoAtual === 'trial') {
@@ -105,47 +104,46 @@ export default function AdminDashScreen() {
     setLoading(true);
 
     const unsubEstabs = firestore()
-  .collection('estabelecimentos')
-  .where('adminId', '==', admin.id)
-  .onSnapshot(
-    snap => {
-      const lista = snap.docs.map(d => ({
-        id: d.id,
-        ...d.data(),
-      })) as Estabelecimento[];
+      .collection('estabelecimentos')
+      .where('adminId', '==', admin.id)
+      .onSnapshot(
+        snap => {
+          const lista = snap.docs.map(d => ({
+            id: d.id,
+            ...d.data(),
+          })) as Estabelecimento[];
 
-      setEstabs(lista);
+          setEstabs(lista);
 
-      if (lista.length === 0) {
-        setPlanoAtual(null);
-        setAssinaturaAtiva(false);
-        setDiasRestantes(null);
-      } else {
-        const principal = lista.find(e => e.principal) || lista[0];
+          if (lista.length === 0) {
+            setPlanoAtual(null);
+            setAssinaturaAtiva(false);
+            setDiasRestantes(null);
+          } else {
+            const principal = lista.find(e => e.principal) || lista[0];
 
-        setPlanoAtual(principal?.plano ?? null);
-        setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
+            setPlanoAtual(principal?.plano ?? null);
+            setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
+            setVerificado(Boolean((principal as any)?.verificado));
 
-        if (principal?.expiraEm?.toDate) {
-          const agora = new Date();
-          const expira = principal.expiraEm.toDate();
+            if (principal?.expiraEm?.toDate) {
+              const agora = new Date();
+              const expira = principal.expiraEm.toDate();
+              const diff = expira.getTime() - agora.getTime();
+              const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+              setDiasRestantes(Math.min(7, Math.max(0, dias)));
+            } else {
+              setDiasRestantes(null);
+            }
+          }
 
-          const diff = expira.getTime() - agora.getTime();
-          const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
-
-          setDiasRestantes(Math.min(7, Math.max(0, dias)));
-        } else {
-          setDiasRestantes(null);
+          setLoading(false);
+        },
+        err => {
+          console.error('Erro Firestore:', err);
+          setLoading(false);
         }
-      }
-
-      setLoading(false);
-    },
-    err => {
-      console.error('Erro Firestore:', err);
-      setLoading(false);
-    }
-  );
+      );
 
     const unsubAgends = firestore()
       .collection('agendamentos')
@@ -180,10 +178,25 @@ export default function AdminDashScreen() {
         setTotalLikes(likes);
       });
 
+    // ✅ Busca status da solicitação de selo
+    const unsubSelo = firestore()
+      .collection('solicitacoesVerificacao')
+      .where('adminId', '==', admin.id)
+      .orderBy('criadoEm', 'desc')
+      .limit(1)
+      .onSnapshot(snap => {
+        if (snap && snap.docs.length > 0) {
+          setSolicitacaoStatus(snap.docs[0].data().status || null);
+        } else {
+          setSolicitacaoStatus(null);
+        }
+      });
+
     return () => {
       unsubEstabs();
       unsubAgends();
       unsubStories();
+      unsubSelo();
     };
   }, [admin?.id]);
 
@@ -196,6 +209,15 @@ export default function AdminDashScreen() {
       .onSnapshot(snap => snap && setNotifNaoLidas(snap.docs.length));
     return unsubNotif;
   }, [admin?.id]);
+
+  // ===== HELPERS =====
+  // ✅ formatDate declarado ANTES do chartData
+  const formatDate = (date: any) => {
+    if (!date) return '';
+    if (typeof date === 'string') return date;
+    if (date?.toDate) return date.toDate().toLocaleDateString('pt-BR');
+    return '';
+  };
 
   const gerarRelatorioPDF = async () => {
     try {
@@ -240,39 +262,29 @@ Gerado pelo BeautyHub`;
     ]);
   };
 
-  const atualizarStatus = (id: string, novoStatus: 'concluido' | 'cancelado') => {
-  Alert.alert('Confirmar', `Deseja marcar como ${novoStatus}?`, [
-    { text: 'Não', style: 'cancel' },
-    {
-      text: 'Sim',
-      onPress: async () => {
-        try {
-          setLoading(true);
-          const functionName = novoStatus === 'concluido' ? 'concluirAgendamento' : 'cancelarAgendamento';
-          const token = await auth().currentUser?.getIdToken();
-          const res = await fetch(
-            `https://southamerica-east1-agenda-beleza-75106.cloudfunctions.net/${functionName}`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              body: JSON.stringify({ data: { agendamentoId: id } }),
-            }
-          );
-          const json = await res.json();
-          if (json?.error) throw new Error(json.error.message);
-        } catch (e: any) {
-          console.error(e);
-          Alert.alert('Atenção', e?.message || 'Erro ao atualizar.');
-        } finally {
-          setLoading(false);
-        }
-      },
-    },
-  ]);
+  // ✅ atualizarStatus usando fetch direto com token (sem SDK functions)
+  const atualizarStatus = async (id, novoStatus) => {
+  try {
+    setLoading(true);
+
+    const fn = functions('southamerica-east1').httpsCallable(
+      novoStatus === 'concluido'
+        ? 'concluirAgendamento'
+        : 'cancelarAgendamento'
+    );
+
+    const res = await fn({ agendamentoId: id });
+
+    console.log('RES:', res.data);
+
+  } catch (e: any) {
+    console.error(e);
+    Alert.alert('Erro', e?.message || 'Erro ao atualizar status');
+  } finally {
+    setLoading(false);
+  }
 };
+
   const handleLogout = () => {
     Alert.alert('Sair', 'Deseja sair do painel?', [
       { text: 'Cancelar', style: 'cancel' },
@@ -284,13 +296,8 @@ Gerado pelo BeautyHub`;
     agends.filter(a => a.status === 'confirmado' || a.status === 'concluido')
       .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
   , [agends]);
-  
-const formatDate = (date: any) => {
-  if (!date) return '';
-  if (typeof date === 'string') return date;
-  if (date?.toDate) return date.toDate().toLocaleDateString('pt-BR');
-  return '';
-};
+
+  // ✅ chartData usa formatDate que agora está declarado antes
   const chartData = useMemo(() => {
     const labels: string[] = [];
     const valores: number[] = [];
@@ -307,128 +314,94 @@ const formatDate = (date: any) => {
     }
     return { labels, datasets: [{ data: valores }] };
   }, [agends]);
-  
-const safeChartData = useMemo(() => {
-  const data = chartData?.datasets?.[0]?.data;
 
-  if (!data || data.length === 0) {
+  const safeChartData = useMemo(() => {
+    const data = chartData?.datasets?.[0]?.data;
+
+    if (!data || data.length === 0) {
+      return {
+        labels: ['Sem dados'],
+        datasets: [{ data: [0] }],
+      };
+    }
+
     return {
-      labels: ['Sem dados'],
-      datasets: [{ data: [0] }],
+      labels: chartData.labels ?? [],
+      datasets: [{ data }],
     };
-  }
+  }, [chartData]);
 
-  return {
-    labels: chartData.labels ?? [],
-    datasets: [{ data }],
+  const planoBadge = () => {
+    if (!temEstabelecimento) {
+      return { label: 'COMEÇAR GRÁTIS', cor: GOLD, bg: 'rgba(201,169,110,0.12)' };
+    }
+
+    if (!planoAtual) {
+      return { label: 'CARREGANDO...', cor: '#999', bg: 'rgba(0,0,0,0.05)' };
+    }
+
+    if (planoAtual === 'trial') {
+      let dias = diasRestantes ?? 7;
+      if (dias > 7) dias = 7;
+      if (dias < 0) dias = 0;
+      const expirado = dias <= 0;
+      return {
+        label: expirado ? 'TRIAL ENCERRADO' : `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} DE TESTE`,
+        cor: expirado ? '#FF3B30' : '#FF9800',
+        bg: expirado ? 'rgba(255,59,48,0.12)' : 'rgba(255,152,0,0.12)',
+      };
+    }
+
+    if (planoAtual === 'free') {
+      return { label: 'PLANO FREE', cor: '#777', bg: 'rgba(0,0,0,0.05)' };
+    }
+
+    const nomes: Record<string, string> = {
+      essencial: 'PLANO ESSENCIAL',
+      pro: 'PLANO PRO',
+      elite: 'PLANO ELITE',
+    };
+
+    const nomePlano = nomes[planoAtual] || 'PLANO ATIVO';
+
+    if (!assinaturaAtiva) {
+      return {
+        label: `${nomePlano} (INATIVO)`,
+        cor: '#FF3B30',
+        bg: 'rgba(255,59,48,0.12)',
+      };
+    }
+
+    return {
+      label: nomePlano,
+      cor: planoAtual === 'elite' ? '#9C27B0' : planoAtual === 'pro' ? GOLD : '#4CAF50',
+      bg: 'rgba(100,100,100,0.1)',
+    };
   };
-}, [chartData]);
-
-const planoBadge = () => {
-  // 🚫 Sem estabelecimento
-  if (!temEstabelecimento) {
-    return {
-      label: 'COMEÇAR GRÁTIS',
-      cor: GOLD,
-      bg: 'rgba(201,169,110,0.12)',
-    };
-  }
-
-  // ⏳ Ainda carregando
-  if (!planoAtual) {
-    return {
-      label: 'CARREGANDO...',
-      cor: '#999',
-      bg: 'rgba(0,0,0,0.05)',
-    };
-  }
-
-  // 🎯 TRIAL (ÚNICO BLOCO - corrigido)
-  if (planoAtual === 'trial') {
-    // garante limite entre 0 e 7
-    let dias = diasRestantes ?? 7;
-    if (dias > 7) dias = 7;
-    if (dias < 0) dias = 0;
-
-    const expirado = dias <= 0;
-
-    return {
-      label: expirado
-        ? 'TRIAL ENCERRADO'
-        : `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} DE TESTE`,
-      cor: expirado ? '#FF3B30' : '#FF9800',
-      bg: expirado
-        ? 'rgba(255,59,48,0.12)'
-        : 'rgba(255,152,0,0.12)',
-    };
-  }
-
-  // 🆓 FREE
-  if (planoAtual === 'free') {
-    return {
-      label: 'PLANO FREE',
-      cor: '#777',
-      bg: 'rgba(0,0,0,0.05)',
-    };
-  }
-
-  // 💳 PLANOS PAGOS
-  const nomes: Record<string, string> = {
-    essencial: 'PLANO ESSENCIAL',
-    pro: 'PLANO PRO',
-    elite: 'PLANO ELITE',
-  };
-
-  const nomePlano = nomes[planoAtual] || 'PLANO ATIVO';
-
-  // 🔴 Plano inativo
-  if (!assinaturaAtiva) {
-    return {
-      label: `${nomePlano} (INATIVO)`,
-      cor: '#FF3B30',
-      bg: 'rgba(255,59,48,0.12)',
-    };
-  }
-
-  // ✅ Plano ativo
-  return {
-    label: nomePlano,
-    cor:
-      planoAtual === 'elite'
-        ? '#9C27B0'
-        : planoAtual === 'pro'
-        ? GOLD
-        : '#4CAF50',
-    bg: 'rgba(100,100,100,0.1)',
-  };
-};
 
   const seloInfo = () => {
-  if (verificado) return { titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado', cor: '#4CAF50', emoji: '✅' };
-  if (solicitacaoStatus === 'pendente') return { titulo: 'Solicitação em Análise', sub: 'Aguardando aprovação do BeautyHub', cor: '#FF9800', emoji: '⏳' };
-  if (solicitacaoStatus === 'rejeitado') return { titulo: 'Solicitação Rejeitada', sub: 'Verifique os critérios e tente novamente', cor: '#F44336', emoji: '❌' };
-  if (planoAtual === 'elite') return { titulo: 'Selo Elite Automático', sub: 'Incluído no seu plano Elite', cor: '#9C27B0', emoji: '👑' };
-  return { titulo: 'Obter Selo Verificado', sub: 'Plano Pro — solicite o selo por R$ 14,90', cor: GOLD, emoji: '⭐' };
-};
+    if (verificado) return { titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado', cor: '#4CAF50', emoji: '✅' };
+    if (solicitacaoStatus === 'pendente') return { titulo: 'Solicitação em Análise', sub: 'Aguardando aprovação do BeautyHub', cor: '#FF9800', emoji: '⏳' };
+    if (solicitacaoStatus === 'rejeitado') return { titulo: 'Solicitação Rejeitada', sub: 'Verifique os critérios e tente novamente', cor: '#F44336', emoji: '❌' };
+    if (planoAtual === 'elite') return { titulo: 'Selo Elite Automático', sub: 'Incluído no seu plano Elite', cor: '#9C27B0', emoji: '👑' };
+    return { titulo: 'Obter Selo Verificado', sub: 'Plano Pro — solicite o selo por R$ 14,90', cor: GOLD, emoji: '⭐' };
+  };
 
   const badge = planoBadge();
   const selo = seloInfo();
   const mostrarCardSelo = planoAtual === 'pro' || planoAtual === 'elite';
+
   return (
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1A1A1A" />
 
-      {/* HEADER ATUALIZADO COM SELO LOCAL */}
       <View style={s.header}>
         <View>
           <Text style={s.headerSub}>PAINEL ADMINISTRATIVO</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
             <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]}</Text>
             {verificado && (
-              <Image 
-                source={SeloVerificado} 
-                style={{ width: 20, height: 20, resizeMode: 'contain' }} 
-              />
+              <Image source={SeloVerificado} style={{ width: 20, height: 20, resizeMode: 'contain' }} />
             )}
           </View>
         </View>
@@ -446,80 +419,111 @@ const planoBadge = () => {
       </View>
 
       {/* ABAS */}
-<View style={s.abasContainer}>
-  <View style={s.abasInner}>
-    {([['dash', '📊 Dash'], ['agends', '📅 Agenda'], ['stories', '🎬 Posts'], ['estabs', '🏪 Locais']] as [string, string][])
-      .map(([k, l]) => (
-        <TouchableOpacity 
-          key={k} 
-          // TROCADO: Agora chama a função de validação antes de mudar
-          onPress={() => mudarAba(k as any)} 
-          // ADICIONADO: Se estiver bloqueado e não for a aba dash, fica opaco (0.3)
-          style={[
-            s.aba, 
-            aba === k && s.abaAtiva,
-            (isBloqueado && k !== 'dash') && { opacity: 0.3 }
-          ]}
-        >
-          <Text style={[s.abaText, aba === k && s.abaTextAtiva]}>{l}</Text>
-        </TouchableOpacity>
-      ))}
-  </View>
-</View>
+      <View style={s.abasContainer}>
+        <View style={s.abasInner}>
+          {([['dash', '📊 Dash'], ['agends', '📅 Agenda'], ['stories', '🎬 Posts'], ['estabs', '🏪 Locais']] as [string, string][])
+            .map(([k, l]) => (
+              <TouchableOpacity
+                key={k}
+                onPress={() => mudarAba(k as any)}
+                style={[
+                  s.aba,
+                  aba === k && s.abaAtiva,
+                  (isBloqueado && k !== 'dash') && { opacity: 0.3 }
+                ]}
+              >
+                <Text style={[s.abaText, aba === k && s.abaTextAtiva]}>{l}</Text>
+              </TouchableOpacity>
+            ))}
+        </View>
+      </View>
 
       {/* ─── ABA DASH ─── */}
       {aba === 'dash' && (
-  <ScrollView contentContainerStyle={s.lista} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={s.lista} showsVerticalScrollIndicator={false}>
 
-    {/* CARD DE PLANO ATUALIZADO */}
-    <TouchableOpacity
-      style={[s.planoCard, { borderColor: badge.cor, backgroundColor: badge.bg }]}
-      onPress={() => navigation.navigate('Assinatura')}
-    >
-      <View style={s.planoCardLeft}>
-        <View style={[s.planoBadge, { backgroundColor: badge.cor }]}>
-          <Text style={s.planoBadgeText}>
-            {badge.label}
-          </Text>
-        </View>
-        <View style={{ marginLeft: 12 }}>
-          <Text style={s.planoCardTitulo}>
-            {isNovoUsuario
-  ? 'Comece seus 7 dias grátis'
-  : !planoAtual
-    ? 'Carregando plano...'
-    : (isBloqueado 
-        ? 'Assinatura Expirada' 
-        : `Plano ${(planoAtual ?? '').toUpperCase()}`
-      )
-}
-          </Text>
-      <Text style={s.planoCardSub}>
-  {isNovoUsuario
-    ? 'Toque para ativar seu período de teste.'
-    : planoAtual === 'trial'
-      ? diasRestantes === 7
-        ? 'Parabéns! Seu período de 7 dias começou hoje.'
-        : diasRestantes === 0
-          ? 'Seu período de teste terminou.'
-          : `Você tem ${diasRestantes} dias restantes.`
-      : planoAtual === 'free'
-        ? 'Plano gratuito ativo. Atualize para liberar recursos.'
-      : !assinaturaAtiva
-        ? 'Sua assinatura expirou.'
-        : 'Plano ativo.'
+          <TouchableOpacity
+  style={[s.planoCard, { borderColor: badge.cor, backgroundColor: badge.bg }]}
+  onPress={async () => {
+
+  if (!planoAtual && temEstabelecimento) {
+    try {
+      setLoading(true);
+
+      const estabelecimentoId = estabs[0]?.id;
+
+      const fn = functions('southamerica-east1').httpsCallable('iniciarTrial');
+
+      const res = await fn({ estabelecimentoId });
+
+      console.log('TRIAL:', res.data);
+
+      Alert.alert('Sucesso 🚀', 'Seu período de teste foi ativado!');
+
+    } catch (e: any) {
+      console.error(e);
+
+      if (e?.code === 'failed-precondition') {
+        Alert.alert('Trial já usado', e?.message);
+      } else {
+        Alert.alert('Erro', e?.message || 'Erro ao ativar trial');
+      }
+    } finally {
+      setLoading(false);
+    }
+
+    return;
   }
+
+  navigation.navigate('Assinatura');
+}}
+>
+            <View style={s.planoCardLeft}>
+              <View style={[s.planoBadge, { backgroundColor: badge.cor }]}>
+                <Text style={s.planoBadgeText}>{badge.label}</Text>
+              </View>
+              <View style={{ marginLeft: 12 }}>
+                <Text style={s.planoCardTitulo}>
+  {loading
+  ? 'Carregando informações...'
+  : !temEstabelecimento
+    ? 'Crie seu primeiro estabelecimento'
+    : !planoAtual
+      ? 'Comece seus 7 dias grátis'
+      : (isBloqueado
+          ? 'Assinatura Expirada'
+          : `Plano ${(planoAtual ?? '').toUpperCase()}`)}
 </Text>
-        </View>
-      </View>
-      <Text style={{ color: badge.cor, fontSize: 18, fontWeight: 'bold' }}>→</Text>
-    </TouchableOpacity>
+           <Text style={s.planoCardSub}>
+  {loading
+    ? 'Aguarde...'
+    : !planoAtual && temEstabelecimento
+      ? 'Toque para ativar seu período de teste.'
+      : planoAtual === 'trial'
+        ? diasRestantes === 7
+          ? 'Parabéns! Seu período de 7 dias começou hoje.'
+          : diasRestantes === 0
+            ? 'Seu período de teste terminou.'
+            : `Você tem ${diasRestantes} dias restantes.`
+        : planoAtual === 'free'
+          ? 'Plano gratuito ativo. Atualize para liberar recursos.'
+          : !assinaturaAtiva
+            ? 'Sua assinatura expirou.'
+            : 'Plano ativo.'}
+</Text>
+              </View>
+            </View>
+            <Text style={{ color: badge.cor, fontSize: 18, fontWeight: 'bold' }}>→</Text>
+          </TouchableOpacity>
 
           {/* ✅ CARD DE SELO */}
           {mostrarCardSelo && (
             <TouchableOpacity
               style={[s.seloCard, { borderLeftColor: selo.cor }]}
-              onPress={() => navigation.navigate('SeloVerificacao')}
+              onPress={() => {
+                // ✅ Rota corrigida — navega para Assinatura se SeloVerificacao não existir
+                Alert.alert('Selo Verificado', 'Entre em contato com o suporte do BeautyHub para solicitar o selo.');
+              }}
               activeOpacity={0.85}
             >
               <Text style={s.seloEmoji}>{selo.emoji}</Text>
@@ -537,31 +541,22 @@ const planoBadge = () => {
             <View style={s.periodoRow}>
               {['dia', 'semana', 'mes'].map((p) => {
                 const hoje = new Date();
-               const valor = agends
-  .filter(a => (a.status === 'concluido' || a.status === 'confirmado') && a.data)
-  .filter(a => {
-    try {
-      if (!a.data || typeof a.data !== 'string') return false;
-
-const parts = formatDate(a.data).split('/');
-if (parts.length !== 3) return false;
-
-      const dAgend = new Date(
-        Number(parts[2]),
-        Number(parts[1]) - 1,
-        Number(parts[0])
-      );
-
-      if (isNaN(dAgend.getTime())) return false;
-
-      const diff = (hoje.getTime() - dAgend.getTime()) / (1000 * 60 * 60 * 24);
-
-      return p === 'dia' ? diff <= 1 : p === 'semana' ? diff <= 7 : diff <= 30;
-    } catch {
-      return false;
-    }
-  })
-  .reduce((acc, curr) => acc + (curr.servicoPreco || 0), 0);
+                const valor = agends
+                  .filter(a => (a.status === 'concluido' || a.status === 'confirmado') && a.data)
+                  .filter(a => {
+                    try {
+                      if (!a.data || typeof a.data !== 'string') return false;
+                      const parts = formatDate(a.data).split('/');
+                      if (parts.length !== 3) return false;
+                      const dAgend = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+                      if (isNaN(dAgend.getTime())) return false;
+                      const diff = (hoje.getTime() - dAgend.getTime()) / (1000 * 60 * 60 * 24);
+                      return p === 'dia' ? diff <= 1 : p === 'semana' ? diff <= 7 : diff <= 30;
+                    } catch {
+                      return false;
+                    }
+                  })
+                  .reduce((acc, curr) => acc + (curr.servicoPreco || 0), 0);
                 return (
                   <View key={p} style={s.periodoItem}>
                     <Text style={s.periodoLabel}>{p === 'dia' ? 'HOJE' : p === 'semana' ? '7 DIAS' : '30 DIAS'}</Text>
@@ -570,7 +565,6 @@ if (parts.length !== 3) return false;
                 );
               })}
             </View>
-
             <TouchableOpacity style={s.btnRelatorioFaturamento} onPress={gerarRelatorioPDF} activeOpacity={0.8}>
               <Text style={s.btnRelatorioFaturamentoText}>📊 Gerar relatório mensal</Text>
             </TouchableOpacity>
@@ -583,52 +577,46 @@ if (parts.length !== 3) return false;
               <Text style={s.chartTotal}>Total: R$ {receitaTotal.toLocaleString('pt-BR')}</Text>
             </View>
             <BarChart
-  data={safeChartData} // ⚠️ antes estava chartData (pode quebrar)
-  width={width - 40}
-  height={180}
-  yAxisLabel="R$"
-  chartConfig={{ ...chartConfig, fillShadowGradient: GOLD, fillShadowGradientOpacity: 1 }}
-  fromZero
-  withInnerLines={false}
-  style={s.chartStyle}
-  flatColor
-  showValuesOnTopOfBars
-/>
+              data={safeChartData}
+              width={width - 40}
+              height={180}
+              yAxisLabel="R$"
+              chartConfig={{ ...chartConfig, fillShadowGradient: GOLD, fillShadowGradientOpacity: 1 }}
+              fromZero
+              withInnerLines={false}
+              style={s.chartStyle}
+              flatColor
+              showValuesOnTopOfBars
+            />
           </View>
 
           {/* POSTAR STORY COM BLOQUEIO */}
-<TouchableOpacity 
-  style={[
-    s.storyBtnPremium, 
-    isBloqueado && { opacity: 0.6 } // Estilo visual de desativado
-  ]} 
-  activeOpacity={0.8} 
-  onPress={() => {
-    if (isBloqueado) {
-      Alert.alert(
-        'Recurso Bloqueado 📸', 
-        'Ative seu período de teste ou escolha um plano para postar stories.'
-      );
-    } else {
-      navigation.navigate('PostarStory');
-    }
-  }}
->
-  <View style={[s.storyGradientBorder, isBloqueado && { backgroundColor: '#666' }]}>
-    <View style={s.storyIconInner}>
-      <Text style={s.storyEmoji}>{isBloqueado ? '🔒' : '📸'}</Text>
-    </View>
-  </View>
-  <View style={s.storyTextContent}>
-    <Text style={s.storyTitlePremium}>Postar novo Story</Text>
-    <Text style={s.storySubPremium}>
-      {isBloqueado ? 'Ative seu plano para liberar' : 'Divulgue novidades para os clientes'}
-    </Text>
-  </View>
-  {!isBloqueado && (
-    <View style={s.storyBadgeNovo}><Text style={s.storyBadgeNovoText}>NOVO</Text></View>
-  )}
-</TouchableOpacity>
+          <TouchableOpacity
+            style={[s.storyBtnPremium, isBloqueado && { opacity: 0.6 }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              if (isBloqueado) {
+                Alert.alert('Recurso Bloqueado 📸', 'Ative seu período de teste ou escolha um plano para postar stories.');
+              } else {
+                navigation.navigate('PostarStory');
+              }
+            }}
+          >
+            <View style={[s.storyGradientBorder, isBloqueado && { backgroundColor: '#666' }]}>
+              <View style={s.storyIconInner}>
+                <Text style={s.storyEmoji}>{isBloqueado ? '🔒' : '📸'}</Text>
+              </View>
+            </View>
+            <View style={s.storyTextContent}>
+              <Text style={s.storyTitlePremium}>Postar novo Story</Text>
+              <Text style={s.storySubPremium}>
+                {isBloqueado ? 'Ative seu plano para liberar' : 'Divulgue novidades para os clientes'}
+              </Text>
+            </View>
+            {!isBloqueado && (
+              <View style={s.storyBadgeNovo}><Text style={s.storyBadgeNovoText}>NOVO</Text></View>
+            )}
+          </TouchableOpacity>
 
           {/* STATS */}
           <View style={s.statsRow}>
@@ -703,12 +691,12 @@ if (parts.length !== 3) return false;
               <View style={[
                 s.statusBadge,
                 item.status === 'confirmado' ? s.bgConfirmado :
-                item.status === 'cancelado'  ? s.bgCancelado  : s.bgConcluido,
+                item.status === 'cancelado' ? s.bgCancelado : s.bgConcluido,
               ]}>
                 <Text style={[
                   s.statusText,
                   item.status === 'confirmado' ? s.txtConfirmado :
-                  item.status === 'cancelado'  ? s.txtCancelado  : s.txtConcluido,
+                  item.status === 'cancelado' ? s.txtCancelado : s.txtConcluido,
                 ]}>
                   {item.status?.toUpperCase()}
                 </Text>
@@ -729,53 +717,45 @@ if (parts.length !== 3) return false;
       )}
 
       {/* ─── ABA ESTABELECIMENTOS ─── */}
-{aba === 'estabs' && (
-  <FlatList
-    data={estabs}
-    keyExtractor={e => e.id}
-    contentContainerStyle={s.lista}
-    ListHeaderComponent={
-      <TouchableOpacity 
-        style={s.novoBtn}
-        onPress={() => {
-          // 🚨 SEM estabelecimento → pode criar
-          if (!temEstabelecimento) {
-  navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
-  return;
-}
+      {aba === 'estabs' && (
+        <FlatList
+          data={estabs}
+          keyExtractor={e => e.id}
+          contentContainerStyle={s.lista}
+          ListHeaderComponent={
+            <TouchableOpacity
+              style={s.novoBtn}
+              onPress={() => {
+                if (!temEstabelecimento) {
+                  navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+                  return;
+                }
 
-if (!assinaturaAtiva && planoAtual !== 'trial') {
-  Alert.alert(
-    "Plano necessário",
-    "Ative seu plano para criar mais estabelecimentos."
-  );
-  return;
-}
+                if (!assinaturaAtiva && planoAtual !== 'trial') {
+                  Alert.alert('Plano necessário', 'Ative seu plano para criar mais estabelecimentos.');
+                  return;
+                }
 
-// 🔥 NOVA REGRA AQUI
-const limitePorPlano: Record<string, number> = {
-  trial: 1,
-  essencial: 2,
-  pro: 5,
-  elite: Infinity,
-};
+                const limitePorPlano: Record<string, number> = {
+                  trial: 1,
+                  essencial: 2,
+                  pro: 5,
+                  elite: Infinity,
+                };
 
-const limite = limitePorPlano[planoAtual || 'trial'] ?? 0;
+                const limite = limitePorPlano[planoAtual || 'trial'] ?? 0;
 
-if (estabs.length >= limite) {
-  Alert.alert(
-    "Limite atingido 🚫",
-    `Seu plano permite até ${limite} estabelecimento(s).`
-  );
-  return;
-}
+                if (estabs.length >= limite) {
+                  Alert.alert('Limite atingido 🚫', `Seu plano permite até ${limite} estabelecimento(s).`);
+                  return;
+                }
 
-navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
-        }}
-      >
-        <Text style={s.novoBtnText}>+ Novo Estabelecimento</Text>
-      </TouchableOpacity>
-    }
+                navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+              }}
+            >
+              <Text style={s.novoBtnText}>+ Novo Estabelecimento</Text>
+            </TouchableOpacity>
+          }
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[s.estabCard, { borderLeftColor: item.cor || GOLD }]}
@@ -805,17 +785,13 @@ navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
           activeOpacity={0.88}
         >
           <View style={s.fabGlow} />
-          <Text style={s.fabIcon}>
-            {planoAtual === 'essencial' ? '🚀' : '⭐'}
-          </Text>
+          <Text style={s.fabIcon}>{planoAtual === 'essencial' ? '🚀' : '⭐'}</Text>
           <View>
             <Text style={s.fabText}>
               {planoAtual === 'essencial' ? 'Fazer upgrade' : 'Assinar agora'}
             </Text>
             <Text style={s.fabSub}>
-              {planoAtual === 'essencial'
-                ? 'Desbloqueie recursos Pro e Elite'
-                : 'Apareça para mais clientes'}
+              {planoAtual === 'essencial' ? 'Desbloqueie recursos Pro e Elite' : 'Apareça para mais clientes'}
             </Text>
           </View>
           <Text style={s.fabArrow}>→</Text>
@@ -835,11 +811,9 @@ const chartConfig = {
   decimalPlaces: 0,
 };
 
-// 2. Estilos do Aplicativo
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA' },
-
   header: {
     backgroundColor: '#1A1A1A',
     paddingHorizontal: 20,
@@ -860,21 +834,14 @@ const s = StyleSheet.create({
   badgeText: { color: '#FFF', fontSize: 10, fontWeight: '900' },
   sairBtn: { backgroundColor: 'rgba(201,169,110,0.15)', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10 },
   sairText: { color: GOLD, fontSize: 13, fontWeight: '700' },
-
   abasContainer: { marginTop: -20, paddingHorizontal: 20 },
   abasInner: { flexDirection: 'row', backgroundColor: '#FFF', borderRadius: 16, padding: 6, elevation: 4 },
   aba: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 12 },
   abaAtiva: { backgroundColor: '#1A1A1A' },
   abaText: { color: '#999', fontSize: 13, fontWeight: '600' },
   abaTextAtiva: { color: GOLD, fontWeight: '800' },
-
   lista: { padding: 20, paddingBottom: 120 },
-
-  planoCard: {
-    borderRadius: 18, borderWidth: 1.5, padding: 16,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: 12,
-  },
+  planoCard: { borderRadius: 18, borderWidth: 1.5, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   planoCardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   planoBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
   planoBadgeText: { color: '#FFF', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
@@ -882,44 +849,28 @@ const s = StyleSheet.create({
   planoCardSub: { color: '#888', fontSize: 11, marginTop: 2, maxWidth: 180 },
   upgradePill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
   upgradePillText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
-
-  seloCard: {
-    backgroundColor: '#FFF', borderRadius: 16, padding: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginBottom: 16, elevation: 2,
-    borderLeftWidth: 4,
-  },
+  seloCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16, elevation: 2, borderLeftWidth: 4 },
   seloEmoji: { fontSize: 28 },
   seloTitulo: { color: '#1A1A1A', fontSize: 14, fontWeight: '700' },
   seloSub: { color: '#888', fontSize: 11, marginTop: 2 },
-
-  financeiroCardDash: { backgroundColor: '#FFF', borderRadius: 24, padding: 20, marginBottom: 15, elevation: 3 },
+  // No seu StyleSheet (s.financeiroCardDash ou s.agendCard)
+shadowColor: "#000",
+shadowOffset: { width: 0, height: 4 },
+shadowOpacity: 0.05,
+shadowRadius: 10,
+elevation: 3, // Mantém o suporte para Android
   financeiroTitulo: { color: '#AAA', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 15, textAlign: 'center' },
   periodoRow: { flexDirection: 'row', justifyContent: 'space-between' },
   periodoItem: { alignItems: 'center', flex: 1 },
   periodoLabel: { color: GOLD, fontSize: 10, fontWeight: '700', marginBottom: 4 },
   periodoValor: { color: '#1A1A1A', fontSize: 15, fontWeight: '800' },
-
-  btnRelatorioFaturamento: {
-    marginTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    paddingTop: 15,
-    alignItems: 'center',
-    backgroundColor: 'rgba(201,169,110,0.08)',
-    borderRadius: 12,
-    paddingVertical: 13,
-    borderWidth: 1,
-    borderColor: 'rgba(201,169,110,0.25)',
-  },
+  btnRelatorioFaturamento: { marginTop: 20, borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingTop: 15, alignItems: 'center', backgroundColor: 'rgba(201,169,110,0.08)', borderRadius: 12, paddingVertical: 13, borderWidth: 1, borderColor: 'rgba(201,169,110,0.25)' },
   btnRelatorioFaturamentoText: { color: GOLD, fontWeight: '800', fontSize: 13, letterSpacing: 0.3 },
-
   chartWrapper: { backgroundColor: '#1A1A1A', borderRadius: 24, padding: 20, marginBottom: 20 },
   chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 },
   chartTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
   chartTotal: { color: GOLD, fontSize: 14, fontWeight: '600' },
   chartStyle: { marginLeft: -20, borderRadius: 16 },
-
   storyBtnPremium: { backgroundColor: '#1A1A1A', borderRadius: 24, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   storyGradientBorder: { width: 58, height: 58, borderRadius: 29, padding: 3, backgroundColor: GOLD, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   storyIconInner: { width: '100%', height: '100%', borderRadius: 29, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center' },
@@ -929,13 +880,11 @@ const s = StyleSheet.create({
   storySubPremium: { color: GOLD, fontSize: 12, opacity: 0.8 },
   storyBadgeNovo: { backgroundColor: '#FF3B30', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, position: 'absolute', top: 12, right: 12 },
   storyBadgeNovoText: { color: '#FFF', fontSize: 9, fontWeight: '900' },
-
   statsRow: { flexDirection: 'row', gap: 10 },
   statCard: { flex: 1, backgroundColor: '#FFF', borderRadius: 18, padding: 12, alignItems: 'center', elevation: 2 },
   statIc: { fontSize: 18, marginBottom: 4 },
   statV: { color: '#1A1A1A', fontSize: 16, fontWeight: '800' },
   statL: { color: '#AAA', fontSize: 9, fontWeight: '600' },
-
   secTitulo: { color: '#1A1A1A', fontSize: 18, fontWeight: '800', marginBottom: 15 },
   storyManageCard: { backgroundColor: '#FFF', borderRadius: 18, padding: 12, flexDirection: 'row', alignItems: 'center', marginBottom: 10, elevation: 1 },
   storyMiniatura: { width: 50, height: 70, borderRadius: 10, backgroundColor: '#EEE' },
@@ -943,7 +892,6 @@ const s = StyleSheet.create({
   storyInfoSub: { color: GOLD, fontSize: 12, fontWeight: '600', marginTop: 4 },
   btnLixo: { backgroundColor: '#FFF0F0', width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   emptyText: { textAlign: 'center', color: '#AAA', marginTop: 30, fontSize: 14 },
-
   agendCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 16, marginBottom: 12 },
   agendTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   agendNome: { color: '#1A1A1A', fontSize: 15, fontWeight: '700' },
@@ -953,14 +901,13 @@ const s = StyleSheet.create({
   statusBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
   statusText: { fontSize: 10, fontWeight: '800' },
   bgConfirmado: { backgroundColor: '#E8F5E9' }, txtConfirmado: { color: '#2E7D32' },
-  bgCancelado:  { backgroundColor: '#FFEBEE' }, txtCancelado:  { color: '#C62828' },
-  bgConcluido:  { backgroundColor: '#E3F2FD' }, txtConcluido:  { color: '#1565C0' },
+  bgCancelado: { backgroundColor: '#FFEBEE' }, txtCancelado: { color: '#C62828' },
+  bgConcluido: { backgroundColor: '#E3F2FD' }, txtConcluido: { color: '#1565C0' },
   acoesWrap: { flexDirection: 'row', gap: 10, marginTop: 15, borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingTop: 15 },
   btnConcluir: { flex: 1, backgroundColor: '#1A1A1A', borderRadius: 12, padding: 12, alignItems: 'center' },
   btnConcluirText: { color: GOLD, fontSize: 13, fontWeight: '700' },
   btnCancelar: { flex: 1, backgroundColor: '#F5F5F5', borderRadius: 12, padding: 12, alignItems: 'center' },
   btnCancelarText: { color: '#999', fontSize: 13, fontWeight: '700' },
-
   novoBtn: { backgroundColor: GOLD, borderRadius: 16, padding: 18, alignItems: 'center', marginVertical: 20 },
   novoBtnText: { color: '#1A1A1A', fontSize: 15, fontWeight: '800' },
   estabCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 12, flexDirection: 'row', alignItems: 'center', borderLeftWidth: 6 },
@@ -971,29 +918,12 @@ const s = StyleSheet.create({
   estabFoto: { width: 50, height: 50, borderRadius: 14, marginRight: 15 },
   estabIcon: { borderRadius: 14, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   estabEmoji: { fontSize: 24 },
-
-  fab: {
-    position: 'absolute',
-    bottom: 28, left: 20, right: 20,
-    backgroundColor: '#1A1A1A',
-    borderRadius: 22,
-    paddingHorizontal: 20, paddingVertical: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    elevation: 16, shadowColor: GOLD,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.55, shadowRadius: 20,
-    borderWidth: 1.5, borderColor: GOLD,
-  },
-  fabGlow: {
-    position: 'absolute', top: -3, left: -3, right: -3, bottom: -3,
-    borderRadius: 25, borderWidth: 1, borderColor: 'rgba(201,169,110,0.3)',
-  },
+  fab: { position: 'absolute', bottom: 28, left: 20, right: 20, backgroundColor: '#1A1A1A', borderRadius: 22, paddingHorizontal: 20, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 12, elevation: 16, shadowColor: GOLD, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.55, shadowRadius: 20, borderWidth: 1.5, borderColor: GOLD },
+  fabGlow: { position: 'absolute', top: -3, left: -3, right: -3, bottom: -3, borderRadius: 25, borderWidth: 1, borderColor: 'rgba(201,169,110,0.3)' },
   fabIcon: { fontSize: 22 },
   fabText: { color: GOLD, fontWeight: '900', fontSize: 15, letterSpacing: 0.4 },
   fabSub: { color: 'rgba(201,169,110,0.6)', fontSize: 10, fontWeight: '600', marginTop: 1 },
   fabArrow: { color: GOLD, fontSize: 20, fontWeight: '800', marginLeft: 'auto' },
-
   btnPdf: { backgroundColor: '#1A1A1A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: GOLD },
   btnPdfText: { color: GOLD, fontSize: 12, fontWeight: '800' },
-}); // <--- FECHAMENTO ESSENCIAL AQUI
-
+});

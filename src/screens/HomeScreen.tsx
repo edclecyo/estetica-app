@@ -275,7 +275,10 @@ export default function HomeScreen() {
       
       // --- NOVA VALIDAÇÃO DE ASSINATURA NO FRONT ---
       const expiraEm = (e as any).expiraEm?.toDate?.() || null;
-      const assinaturaValida = e.assinaturaAtiva && (!expiraEm || agora < expiraEm);
+      
+const assinaturaValida =
+  e.assinaturaAtiva === true &&
+  (!expiraEm || agora < expiraEm);
       
       return mb && mt && assinaturaValida; // Só mostra se a assinatura estiver OK
     })

@@ -24,6 +24,7 @@ import AdminNotifScreen from '../screens/AdminNotifScreen';
 import PostarStory from '../screens/PostarStory';
 import AssinaturaScreen from '../screens/AssinaturaScreen';
 import CheckoutPagamentoScreen from '../screens/CheckoutPagamentoScreen';
+import CartaoScreen from '../screens/CartaoScreen';
 
 // Telas Super Admin
 import SuperAdminDashScreen from '../screens/SuperAdminDashScreen';
@@ -137,6 +138,7 @@ export default function Navigation() {
             <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
             <Stack.Screen name="Assinatura" component={AssinaturaScreen} />
 			   <Stack.Screen name="CheckoutPagamentoScreen" component={CheckoutPagamentoScreen} />
+			   <Stack.Screen name="CartaoScreen" component={CartaoScreen} />
           </Stack.Group>
 
         // ─── CLIENTE ───

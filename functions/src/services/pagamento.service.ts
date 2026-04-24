@@ -1,212 +1,216 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import axios from 'axios';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-import { 
-  MercadoPagoResponse, 
-  MPQrResponse, 
-  MPPreapprovalResponse,
-  MPCustomerResponse, // Adicione este
-  MPCardResponse      // Adicione este
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+import {
+  MPQrResponse,
+  MPCustomerResponse,
+  MPCardResponse,
+  MPPreapprovalResponse
 } from '../types/mercadopago';
 
-/**
- * ─── 1. PAGAMENTO CLIENTE -> ESTABELECIMENTO (PIX) ───
- * Não precisa do segredo global porque usa o token do próprio estabelecimento
- */
+function parseValor(valor: any): number {
+  if (typeof valor === 'number') return valor;
+  const n = Number(String(valor || 0).replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+
+const axiosInstance = axios.create({
+  timeout: 12000,
+});
+
+// =====================================================
+// 1. PIX CLIENTE
+// =====================================================
 export const criarPagamentoCliente = onCall(
   { region: REGION },
-  async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
 
-    const { agendamentoId } = request.data;
-    if (!agendamentoId) throw new HttpsError('invalid-argument', 'Agendamento obrigatório');
+    const { agendamentoId } = req.data || {};
+    if (!agendamentoId) throw new HttpsError('invalid-argument', 'ID obrigatório');
 
-    const agendRef = db.collection('agendamentos').doc(agendamentoId);
-    const agendSnap = await agendRef.get();
+    const ref = db.collection('agendamentos').doc(agendamentoId);
+    const lockRef = db.collection('locks').doc(`pix_${agendamentoId}`);
 
-    if (!agendSnap.exists) throw new HttpsError('not-found', 'Agendamento não encontrado');
+    return db.runTransaction(async (tx) => {
+      const [snap, lock] = await Promise.all([
+        tx.get(ref),
+        tx.get(lockRef),
+      ]);
 
-    const agend = agendSnap.data()!;
-    const estabSnap = await db.collection('estabelecimentos').doc(agend.estabelecimentoId).get();
-    const estab = estabSnap.data();
+      if (!snap.exists) throw new HttpsError('not-found', 'Agendamento não existe');
 
-    if (!estab?.mpAccessToken) {
-      throw new HttpsError('failed-precondition', 'Estabelecimento não conectado ao Mercado Pago');
-    }
+      const ag = snap.data()!;
 
-    try {
-      const resp = await axios.post<MPQrResponse>(
-        'https://api.mercadopago.com/v1/payments',
-        {
-          transaction_amount: Number(agend.servicoPreco),
-          description: `Serviço: ${agend.servicoNome}`,
-          payment_method_id: 'pix',
-          external_reference: agendamentoId,
-          payer: { email: `cliente_${request.auth.uid}@app.com` }
-        },
-        { headers: { Authorization: `Bearer ${estab.mpAccessToken}` } }
-      );
-
-      const data = resp.data;
-      const qr = data.point_of_interaction?.transaction_data;
-      const taxa = Number(agend.servicoPreco) * 0.10;
-
-      await agendRef.update({
-        pagamentoId: data.id,
-        formaPagamento: 'pix',
-        statusPagamento: 'pendente',
-        qrCode: qr?.qr_code || null,
-        qrCodeBase64: qr?.qr_code_base64 || null,
-        valorTotal: agend.servicoPreco,
-        taxaApp: taxa,
-        atualizadoEm: FieldValue.serverTimestamp()
-      });
-
-      return {
-        qr_code: qr?.qr_code,
-        qr_code_base64: qr?.qr_code_base64,
-      };
-
-    } catch (error: any) {
-      console.error("Erro MP Cliente:", error?.response?.data || error.message);
-      throw new HttpsError('internal', 'Erro ao gerar PIX para o cliente');
-    }
-  }
-);
-
-/**
- * ─── 2. PAGAMENTO ASSINATURA PIX (ESTABELECIMENTO -> APP) ───
- */
-export const criarPagamentoPixAssinatura = onCall(
-  { 
-    region: REGION,
-    secrets: ["MP_ACCESS_TOKEN"] // 👈 CRÍTICO: Dá permissão à função
-  },
-  async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
-
-    const { estabelecimentoId, plano, valor } = request.data;
-    if (!estabelecimentoId || !plano || !valor) throw new HttpsError('invalid-argument', 'Dados inválidos');
-
-    const valorFinal = Number(valor) * 0.95;
-
-    try {
-      const resp = await axios.post<MPQrResponse>(
-        'https://api.mercadopago.com/v1/payments',
-        {
-          transaction_amount: valorFinal,
-          description: `Assinatura Plano ${plano} - BeautyHub`,
-          payment_method_id: 'pix',
-          external_reference: estabelecimentoId,
-          payer: { email: `admin_${request.auth.uid}@app.com` }
-        },
-        { headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
-      );
-
-      const data = resp.data;
-      const qr = data.point_of_interaction?.transaction_data;
-
-      await db.collection('estabelecimentos').doc(estabelecimentoId).update({
-        pagamentoPixId: data.id,
-        planoTemp: plano,
-        valorPix: valorFinal,
-        statusPagamento: 'pendente',
-        atualizadoEm: FieldValue.serverTimestamp()
-      });
-
-      return {
-        qr_code: qr?.qr_code,
-        qr_code_base64: qr?.qr_code_base64,
-        valor: valorFinal
-      };
-
-    } catch (error: any) {
-      throw new HttpsError('internal', 'Erro ao gerar PIX da assinatura');
-    }
-  }
-);
-
-/**
- * ─── 3. ASSINATURA RECORRENTE CARTÃO ───
- */
-export const criarAssinaturaCartao = onCall(
-  { 
-    region: REGION,
-    secrets: ["MP_ACCESS_TOKEN"] // 👈 CRÍTICO: Dá permissão à função
-  },
-  async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
-
-    const { estabelecimentoId, plano, token, email } = request.data;
-    const adminId = request.auth.uid;
-
-    const estRef = db.collection('estabelecimentos').doc(estabelecimentoId);
-    const estSnap = await estRef.get();
-
-    if (!estSnap.exists || estSnap.data()?.adminId !== adminId) {
-      throw new HttpsError('permission-denied', 'Sem permissão');
-    }
-
-    const planos: Record<string, number> = { essencial: 29.9, pro: 49.9, elite: 89.99 };
-    const valor = planos[plano];
-    if (!valor) throw new HttpsError('invalid-argument', 'Plano inválido');
-
-    try {
-      let customerId = estSnap.data()?.mpCustomerId;
-
-      if (!customerId) {
-        const cResp = await axios.post<MPCustomerResponse>(
-          'https://api.mercadopago.com/v1/customers',
-          { email },
-          { headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
-        );
-        customerId = cResp.data.id;
-        await estRef.update({ mpCustomerId: customerId });
+      if (ag.clienteUid !== req.auth!.uid) {
+        throw new HttpsError('permission-denied', 'Sem permissão');
       }
 
-      const cardResp = await axios.post<MPCardResponse>(
-        `https://api.mercadopago.com/v1/customers/${customerId}/cards`,
-        { token },
-        { headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
-      );
+      const now = Date.now();
+      if (lock.exists) {
+        const created = lock.data()?.createdAt?.toMillis?.() || 0;
+        if (now - created < 60000) {
+          throw new HttpsError('resource-exhausted', 'Em processamento');
+        }
+      }
 
-      const preResp = await axios.post<MPPreapprovalResponse>(
-        'https://api.mercadopago.com/preapproval',
+      tx.set(lockRef, {
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      const estab = (
+        await tx.get(db.collection('estabelecimentos').doc(ag.estabelecimentoId))
+      ).data();
+
+      const valor = parseValor(ag.servicoPreco);
+
+      const resp = await axiosInstance.post<MPQrResponse>(
+        'https://api.mercadopago.com/v1/payments',
         {
-          reason: `Plano ${plano} - BeautyHub`,
-          auto_recurring: {
-            frequency: 1,
-            frequency_type: "months",
-            transaction_amount: valor,
-            currency_id: "BRL",
+          transaction_amount: valor,
+          payment_method_id: 'pix',
+          description: ag.servicoNome,
+          external_reference: agendamentoId,
+          payer: {
+            email: req.auth!.token.email || 'cliente@app.com',
           },
-          payer_email: email,
-          card_id: cardResp.data.id,
-          status: "authorized",
         },
-        { headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
+        {
+          headers: {
+            Authorization: `Bearer ${estab.mpAccessToken}`,
+            'X-Idempotency-Key': `pix_${agendamentoId}_${Date.now()}`,
+          },
+        }
       );
 
-      const expira = new Date();
-      expira.setDate(expira.getDate() + 30);
+      const data: any = resp.data; // 🔥 FIX TS
+      const qr = data?.point_of_interaction?.transaction_data;
 
-      await estRef.update({
-        plano,
-        assinaturaAtiva: true,
-        mercadoPagoId: preResp.data.id,
-        statusPagamento: 'authorized',
-        expiraEm: Timestamp.fromDate(expira),
+      tx.update(ref, {
+        pagamentoId: data?.id,
+        statusPagamento: 'pending',
+        qrCode: qr?.qr_code,
+        qrCodeBase64: qr?.qr_code_base64,
         atualizadoEm: FieldValue.serverTimestamp(),
       });
 
-      return { ok: true, assinaturaId: preResp.data.id };
+      return {
+        qr_code: qr?.qr_code,
+        qr_code_base64: qr?.qr_code_base64,
+      };
+    });
+  }
+);
 
-    } catch (error: any) {
-      throw new HttpsError('internal', 'Erro ao processar assinatura no cartão');
+// =====================================================
+// 2. PIX ASSINATURA
+// =====================================================
+export const criarPagamentoPixAssinatura = onCall(
+  { region: REGION },
+  async (req) => {
+    if (!req.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
     }
+
+    const { estabelecimentoId, plano, valor } = req.data || {};
+
+    if (!estabelecimentoId || !plano || !valor) {
+      throw new HttpsError('invalid-argument', 'Dados inválidos');
+    }
+
+    const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
+    const lockRef = db.collection('locks').doc(`pix_assinatura_${estabelecimentoId}`);
+
+    return db.runTransaction(async (tx) => {
+      const [snap, lockSnap] = await Promise.all([
+        tx.get(ref),
+        tx.get(lockRef),
+      ]);
+
+      if (!snap.exists) {
+        throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+      }
+
+      const est = snap.data()!;
+
+      if (est.adminId !== req.auth!.uid) {
+        throw new HttpsError('permission-denied', 'Sem permissão');
+      }
+
+      const now = Date.now();
+
+      if (lockSnap.exists) {
+        const created = lockSnap.data()?.createdAt?.toMillis?.() || 0;
+        if (now - created < 60000) {
+          throw new HttpsError('resource-exhausted', 'Pagamento em processamento');
+        }
+      }
+
+      tx.set(lockRef, {
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      const valorFinal = parseValor(valor);
+
+      const MP = process.env.MP_ACCESS_TOKEN;
+      if (!MP) throw new HttpsError('internal', 'Mercado Pago não configurado');
+
+      const resp = await axiosInstance.post(
+        'https://api.mercadopago.com/v1/payments',
+        {
+          transaction_amount: valorFinal,
+          payment_method_id: 'pix',
+          description: `Assinatura plano ${plano}`,
+          external_reference: estabelecimentoId,
+          payer: {
+            email: req.auth!.token.email || 'cliente@app.com',
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${MP}`,
+            'X-Idempotency-Key': `pix_sub_${estabelecimentoId}_${Date.now()}`,
+          },
+        }
+      );
+
+      const data: any = resp.data; // 🔥 FIX TS
+      const qr = data?.point_of_interaction?.transaction_data;
+
+      const qrBase64 = qr?.qr_code_base64 || null;
+      const qrText = qr?.qr_code || null;
+
+      if (!qrBase64 && !qrText) {
+        throw new HttpsError('internal', 'PIX inválido retornado pelo Mercado Pago');
+      }
+
+      const expira = new Date();
+      expira.setMinutes(expira.getMinutes() + 30);
+
+      tx.update(ref, {
+        plano,
+        pixStatus: 'pending',
+        assinaturaAtiva: false,
+        pixPagamentoId: data?.id,
+        pixQrCode: qrText,
+        pixQrCodeBase64: qrBase64,
+        pixCriadoEm: FieldValue.serverTimestamp(),
+        pixExpiraEm: Timestamp.fromDate(expira),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+
+      return {
+        qr_code: qrText,
+        qr_code_base64: qrBase64,
+      };
+    });
   }
 );

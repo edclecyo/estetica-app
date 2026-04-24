@@ -1,242 +1,219 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore'; // Importação limpa
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
 
-// ─── 7. INICIAR TRIAL ─────────────────────────────────────────────────────────
-export const iniciarTrial = onCall(
-  { region: REGION },
-  async (req) => {
-    if (!req.auth) {
-      throw new HttpsError('unauthenticated', 'Acesso negado');
+// ─────────────────────────────────────────────
+// 🔐 LOCK SYSTEM (ATÔMICO + EXPIRAÇÃO)
+// ─────────────────────────────────────────────
+
+export async function acquireLock(id: string, ttlSec = 30) {
+  const ref = db.collection('locks').doc(id);
+
+  const now = Date.now();
+  const expiresAt = now + ttlSec * 1000;
+
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+
+    if (snap.exists) {
+      const data = snap.data()!;
+      const current = data.expiresAt?.toMillis?.() || 0;
+
+      if (current > now) {
+        throw new HttpsError('resource-exhausted', 'LOCKED');
+      }
     }
 
-    const { estabelecimentoId } = req.data;
+    t.set(ref, {
+      status: 'locked',
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt: Timestamp.fromMillis(expiresAt),
+    });
 
-    if (!estabelecimentoId) {
-      throw new HttpsError('invalid-argument', 'estabelecimentoId é obrigatório');
+    return true;
+  });
+}
+
+export async function releaseLock(id: string) {
+  await db.collection('locks').doc(id).delete().catch(() => null);
+}
+
+// ─────────────────────────────────────────────
+// 🧪 TRIAL (VERSÃO CONSISTENTE)
+// ─────────────────────────────────────────────
+
+export const iniciarTrial = onCall({ region: REGION }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+
+  const { estabelecimentoId } = req.data || {};
+  if (!estabelecimentoId) throw new HttpsError('invalid-argument', 'ID obrigatório');
+
+  const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
+
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    if (!snap.exists) throw new HttpsError('not-found', 'Não encontrado');
+
+    const data = snap.data()!;
+
+    if (data.adminId !== req.auth!.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissão');
     }
 
-    const estRef = db.collection('estabelecimentos').doc(estabelecimentoId);
-    const estSnap = await estRef.get();
-
-    if (!estSnap.exists) {
-      throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+    if (data.trialUsado) {
+      throw new HttpsError('failed-precondition', 'Trial já usado');
     }
 
-    const data = estSnap.data();
+    const now = new Date();
+    const exp = new Date();
+    exp.setDate(now.getDate() + 7);
 
-    if (data?.trialUsado) {
-      throw new HttpsError('failed-precondition', 'Trial já utilizado');
-    }
-
-    if (data?.adminId !== req.auth.uid) {
-      throw new HttpsError('permission-denied', 'Você não pode iniciar trial deste estabelecimento');
-    }
-
-    // 🔥 DATA CORRETA
-    const agora = new Date();
-
-    const expira = new Date();
-    expira.setDate(agora.getDate() + 7);
-
-    await estRef.update({
+    t.update(ref, {
       plano: 'trial',
+      statusPlano: 'trial', // 🔥 NOVO (consistência UI)
       assinaturaAtiva: true,
       trialUsado: true,
-
-      // ✅ PADRÃO FIREBASE (ESSENCIAL)
-      trialInicio: Timestamp.fromDate(agora),
-expiraEm: Timestamp.fromDate(expira),
+      trialInicio: Timestamp.fromDate(now),
+      expiraEm: Timestamp.fromDate(exp),
+      atualizadoEm: FieldValue.serverTimestamp(),
     });
 
     return { ok: true };
+  });
+});
+
+// ─────────────────────────────────────────────
+// 🏢 SALVAR ESTABELECIMENTO (SEGURO)
+// ─────────────────────────────────────────────
+
+export const salvarEstabelecimento = onCall({ region: REGION }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+
+  const adminId = req.auth.uid;
+  const { estabelecimentoId, ...raw } = req.data || {};
+
+  const isNew = !estabelecimentoId;
+  const ref = db.collection('estabelecimentos').doc(estabelecimentoId || undefined);
+
+  const snapAll = await db.collection('estabelecimentos')
+    .where('adminId', '==', adminId)
+    .get();
+
+  const limite = 1;
+
+  if (isNew && snapAll.size >= limite) {
+    throw new HttpsError('failed-precondition', 'Limite atingido');
   }
-);
-// ─── 3. SALVAR/EDITAR ESTABELECIMENTO ─────────────────────────────────────────
-export const salvarEstabelecimento = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Acesso negado');
+
+  if (!isNew) {
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
+
+    if (snap.data()?.adminId !== adminId) {
+      throw new HttpsError('permission-denied', 'Sem permissão');
+    }
   }
 
-  const adminId = request.auth.uid;
-  const data = request.data || {};
-  const { estabelecimentoId } = data;
-  const isNovo = !estabelecimentoId;
+  const forbidden = ['plano', 'assinaturaAtiva', 'expiraEm', 'adminId', 'statusPlano'];
+  forbidden.forEach(k => delete (raw as any)[k]);
 
-  const docRef = isNovo
-    ? db.collection('estabelecimentos').doc()
-    : db.collection('estabelecimentos').doc(estabelecimentoId);
+  const payload = {
+    ...raw,
+    adminId,
+    atualizadoEm: FieldValue.serverTimestamp(),
 
-  const docSnap = await docRef.get();
+    ...(isNew && {
+      criadoEm: FieldValue.serverTimestamp(),
+      plano: 'free',
+      statusPlano: 'free',
+      assinaturaAtiva: false,
+      trialUsado: false,
+    }),
+  };
 
-  // 🔒 SEGURANÇA
-  if (!isNovo && docSnap.exists && docSnap.data()?.adminId !== adminId) {
+  await ref.set(payload, { merge: true });
+
+  return { ok: true, id: ref.id };
+});
+
+// ─────────────────────────────────────────────
+// ✔ CONCLUIR AGENDAMENTO (ROBUSTO)
+// ─────────────────────────────────────────────
+
+export const concluirAgendamento = onCall({ region: REGION }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+
+  const { agendamentoId } = req.data || {};
+  if (!agendamentoId) throw new HttpsError('invalid-argument', 'ID obrigatório');
+
+  const ref = db.collection('agendamentos').doc(agendamentoId);
+
+  await db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
+
+    const data = snap.data()!;
+
+    if (data.adminId !== req.auth!.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissão');
+    }
+
+    const estRef = db.collection('estabelecimentos').doc(data.estabelecimentoId);
+    const estSnap = await t.get(estRef);
+
+    if (!estSnap.exists || !estSnap.data()?.assinaturaAtiva) {
+      throw new HttpsError('failed-precondition', 'Assinatura inativa');
+    }
+
+    if (data.status === 'concluido') return; // 🔥 idempotência
+
+    t.update(ref, {
+      status: 'concluido',
+      concluidoEm: FieldValue.serverTimestamp(),
+    });
+  });
+
+  return { ok: true };
+});
+
+// ─────────────────────────────────────────────
+// ❌ CANCELAMENTO (ANTI DUPLICAÇÃO)
+// ─────────────────────────────────────────────
+
+export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+
+  const { agendamentoId } = req.data || {};
+  if (!agendamentoId) throw new HttpsError('invalid-argument', 'ID obrigatório');
+
+  const ref = db.collection('agendamentos').doc(agendamentoId);
+
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError('not-found', 'Não encontrado');
+
+  const ag = snap.data()!;
+
+  if (ag.status === 'cancelado' || ag.status === 'concluido') {
+    throw new HttpsError('failed-precondition', 'Estado inválido');
+  }
+
+  if (ag.adminId !== req.auth.uid && ag.clienteUid !== req.auth.uid) {
     throw new HttpsError('permission-denied', 'Sem permissão');
   }
 
-  // 🔎 CONTAGEM
-  const estabsSnap = await db
-  .collection('estabelecimentos')
-  .where('adminId', '==', adminId)
-  .get();
-
-const totalEstabs = estabsSnap.size;
-
-// 🔥 PLANO ATUAL
-let planoAtual = 'free';
-
-if (estabsSnap.docs.length > 0) {
-  planoAtual = estabsSnap.docs[0].data().plano || 'free';
-}
-
-// 🔥 FUNÇÃO LIMITE
-function getLimitePorPlano(plano: string): number {
-  switch (plano) {
-    case 'trial':
-      return 1;
-    case 'free':
-      return 1;
-    case 'essencial':
-      return 2;
-    case 'pro':
-      return 5;
-    case 'elite':
-      return Infinity;
-    default:
-      return 1;
-  }
-}
-
-const limite = getLimitePorPlano(planoAtual);
-
-// 🚫 BLOQUEIO
-if (isNovo && totalEstabs >= limite) {
-  throw new HttpsError(
-    'failed-precondition',
-    `Seu plano (${planoAtual}) permite até ${limite} estabelecimento(s).`
-  );
-}
-
-  // 🧼 LIMPEZA
-  const cleanData = { ...data };
-  const camposProtegidos = [
-    'plano',
-    'assinaturaAtiva',
-    'expiraEm',
-    'verificado',
-    'adminId',
-    'principal',
-    'estabelecimentoId'
-  ];
-  camposProtegidos.forEach(key => delete cleanData[key]);
-
-  // 🏗️ PAYLOAD
-  const payload: any = {
-    ...cleanData,
-    adminId,
-    atualizadoEm: FieldValue.serverTimestamp(),
-  };
-
-  if (isNovo) {
-    payload.criadoEm = admin.firestore.FieldValue.serverTimestamp();
-    payload.principal = totalEstabs === 0;
-    payload.plano = 'free';
-    payload.assinaturaAtiva = false;
-    payload.expiraEm = null;
-  }
-
-  await docRef.set(payload, { merge: true });
-
-  return { ok: true, id: docRef.id };
-});
-// ─── 5. CONCLUIR AGENDAMENTO ──────────────────────────────────────────────────
-export const concluirAgendamento = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
-
-  const { agendamentoId } = request.data;
-  if (!agendamentoId) throw new HttpsError('invalid-argument', 'O ID do agendamento é obrigatório');
-
-  try {
-    const agendRef = db.collection('agendamentos').doc(agendamentoId);
-    const snap = await agendRef.get();
-    if (!snap.exists) throw new HttpsError('not-found', 'Agendamento não encontrado');
-
-    const agendData = snap.data();
-    if (agendData?.adminId !== request.auth.uid) {
-      throw new HttpsError('permission-denied', 'Você não tem permissão para alterar este agendamento');
-    }
-
-    const estSnap = await db.collection('estabelecimentos').doc(agendData.estabelecimentoId).get();
-    if (!estSnap.data()?.assinaturaAtiva) {
-      throw new HttpsError('failed-precondition', 'Sua assinatura expirou. Regularize o pagamento para gerir seus agendamentos.');
-    }
-
-    await agendRef.update({
-      status: 'concluido',
-      concluidoEm: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    return { ok: true, message: 'Agendamento concluído com sucesso' };
-
-  } catch (error: any) {
-    console.error("Erro ao concluir agendamento:", error);
-    if (error instanceof HttpsError) throw error;
-    throw new HttpsError('internal', 'Erro interno ao processar a conclusão');
-  }
-});
-// ─── CANCELAR AGENDAMENTO ─────────────────────────────────────────────────────
-export const cancelarAgendamento = onCall(
-  { region: REGION },
-  async (req) => {
-    if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
-
-    const { agendamentoId } = req.data;
-    if (!agendamentoId) throw new HttpsError('invalid-argument', 'Dados inválidos');
-
-    const agendRef = db.collection('agendamentos').doc(agendamentoId);
-    const snap = await agendRef.get();
-    
-    if (!snap.exists) throw new HttpsError('not-found', 'Agendamento não encontrado');
-
-    const agend = snap.data()!;
-    const isAdmin = agend.adminId === req.auth.uid;
-    const isCliente = agend.clienteUid === req.auth.uid;
-
-    if (!isAdmin && !isCliente) throw new HttpsError('permission-denied', 'Sem permissão');
-    if (agend.status === 'concluido') throw new HttpsError('failed-precondition', 'Não pode cancelar concluído');
-    if (agend.status === 'cancelado') return { ok: true };
-
-    // --- 1. DEFINIÇÃO DAS VARIÁVEIS QUE ESTAVAM FALTANDO ---
-    // Usamos os dados vindos do snapshot do agendamento
-    const uniqueLockId = `${agend.clienteUid}_${agend.data}_${agend.horario}`;
-    const conflitoId = `${agend.estabelecimentoId}_${agend.data}_${agend.horario}`;
-
-    // --- 2. INICIALIZAÇÃO DO BATCH ---
-    const batch = db.batch();
-
-    // --- 3. ADICIONANDO OPERAÇÕES AO BATCH ---
-    
-    // Atualiza o status do agendamento
-    batch.update(agendRef, {
+  await db.runTransaction(async (t) => {
+    t.update(ref, {
       status: 'cancelado',
-      canceladoEm: admin.firestore.FieldValue.serverTimestamp(),
+      canceladoEm: FieldValue.serverTimestamp(),
       canceladoPor: req.auth.uid,
     });
 
-    // Remove as travas de horário (Locks)
-    const lockRef = db.collection('agendamentoLocks').doc(uniqueLockId);
-    const ocupadoRef = db.collection('horariosOcupados').doc(conflitoId);
+    t.delete(db.collection('agendamentoLocks').doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`));
+    t.delete(db.collection('horariosOcupados').doc(`${ag.estabelecimentoId}_${ag.data}_${ag.horario}`));
+  });
 
-    batch.delete(lockRef);
-    batch.delete(ocupadoRef);
-
-    // --- 4. EXECUÇÃO ATÔMICA ---
-    // Isso garante que ou tudo acontece, ou nada acontece.
-    await batch.commit();
-
-    return { ok: true };
-  }
-);
+  return { ok: true };
+});

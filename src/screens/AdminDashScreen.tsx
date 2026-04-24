@@ -61,41 +61,43 @@ export default function AdminDashScreen() {
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
 
   // ===== LÓGICA =====
-  const temEstabelecimento = estabs.length > 0;
-  const isNovoUsuario = !temEstabelecimento;
+  // ===== LÓGICA =====
+const temEstabelecimento = estabs.length > 0;
+const isNovoUsuario = !temEstabelecimento;
 
-  const isBloqueado = useMemo(() => {
-    if (loading) return true;
-    if (!temEstabelecimento) return false;
-    if (!planoAtual) return false;
+// 👉 NOVA REGRA CENTRAL
+const trialAtivo =
+  planoAtual === 'trial' && (diasRestantes ?? 0) > 0;
 
-    if (planoAtual === 'trial') {
-      if (diasRestantes === null) return false;
-      return diasRestantes <= 0;
-    }
+const isBloqueado = useMemo(() => {
+  if (loading) return true;
 
-    if (planoAtual === 'free') return true;
-    if (!assinaturaAtiva) return true;
+  // 🔓 nunca bloqueia quem ainda não tem estabelecimento
+  if (!temEstabelecimento) return false;
 
-    return false;
-  }, [loading, temEstabelecimento, planoAtual, diasRestantes, assinaturaAtiva]);
+  // 🔓 libera tudo se tiver assinatura ou trial ativo
+  if (assinaturaAtiva || trialAtivo) return false;
+
+  // 🔒 resto bloqueado
+  return true;
+}, [loading, temEstabelecimento, assinaturaAtiva, trialAtivo]);
 
   // ===== ABA CONTROLE =====
   const mudarAba = (novaAba: any) => {
-    if (loading) return;
+  if (loading) return;
 
-    if (novaAba === 'estabs') {
-      setAba(novaAba);
-      return;
-    }
-
-    if (isBloqueado) {
-      Alert.alert('Acesso bloqueado 🔒', 'Ative seu plano para liberar essa função.');
-      return;
-    }
-
+  if (novaAba === 'estabs') {
     setAba(novaAba);
-  };
+    return;
+  }
+
+  if (isBloqueado) {
+    Alert.alert('Acesso bloqueado 🔒', 'Ative seu plano para liberar essa função.');
+    return;
+  }
+
+  setAba(novaAba);
+};
 
   // ===== LISTENERS =====
   useEffect(() => {
@@ -595,12 +597,12 @@ Gerado pelo BeautyHub`;
             style={[s.storyBtnPremium, isBloqueado && { opacity: 0.6 }]}
             activeOpacity={0.8}
             onPress={() => {
-              if (isBloqueado) {
-                Alert.alert('Recurso Bloqueado 📸', 'Ative seu período de teste ou escolha um plano para postar stories.');
-              } else {
-                navigation.navigate('PostarStory');
-              }
-            }}
+  if (isBloqueado) {
+    Alert.alert('Recurso Bloqueado 📸', 'Ative seu período de teste ou plano.');
+  } else {
+    navigation.navigate('PostarStory');
+  }
+}}
           >
             <View style={[s.storyGradientBorder, isBloqueado && { backgroundColor: '#666' }]}>
               <View style={s.storyIconInner}>
@@ -727,9 +729,14 @@ Gerado pelo BeautyHub`;
               style={s.novoBtn}
               onPress={() => {
                 if (!temEstabelecimento) {
-                  navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
-                  return;
-                }
+  navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+  return;
+}
+
+if (isBloqueado) {
+  Alert.alert('Plano necessário', 'Ative seu plano ou trial para continuar.');
+  return;
+}
 
                 if (!assinaturaAtiva && planoAtual !== 'trial') {
                   Alert.alert('Plano necessário', 'Ative seu plano para criar mais estabelecimentos.');

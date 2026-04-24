@@ -5,29 +5,62 @@ import axios from 'axios';
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
 import { validarAssinaturaMercadoPago } from '../utils/security';
+import { defineSecret } from 'firebase-functions/params';
 
+// ─────────────────────────────────────────────
+// SECRETS
+// ─────────────────────────────────────────────
+const MP_WEBHOOK_SECRET = defineSecret('MP_WEBHOOK_SECRET');
+const MP_WEBHOOK_TOKEN = defineSecret('MP_WEBHOOK_TOKEN');
+const MP_ACCESS_TOKEN = defineSecret('MP_ACCESS_TOKEN');
+
+// ─────────────────────────────────────────────
+// TYPES (evita erro TS unknown)
+// ─────────────────────────────────────────────
+type MercadoPagoPayment = {
+  id: string;
+  status: string;
+  payment_type_id?: string;
+  point_of_interaction?: {
+    transaction_data?: {
+      qr_code?: string;
+      qr_code_base64?: string;
+    };
+  };
+};
+
+// ─────────────────────────────────────────────
+// WEBHOOK
+// ─────────────────────────────────────────────
 export const webhookMercadoPago = onRequest(
-  { region: REGION },
-  async (req, res): Promise<void> => { // Adicionado explicitamente Promise<void>
+  {
+    region: REGION,
+    secrets: [
+      MP_WEBHOOK_SECRET,
+      MP_WEBHOOK_TOKEN,
+      MP_ACCESS_TOKEN
+    ]
+  },
+  async (req, res): Promise<void> => {
     try {
-      const segredoWebhook = process.env.MP_WEBHOOK_SECRET;
-      const tokenWebhook = process.env.MP_WEBHOOK_TOKEN;
 
-      // =========================
-      // 🔐 TOKEN CHECK
-      // =========================
+      const tokenWebhook = MP_WEBHOOK_TOKEN.value();
+      const segredoWebhook = MP_WEBHOOK_SECRET.value();
+      const accessToken = MP_ACCESS_TOKEN.value();
+
       const tokenQuery = Array.isArray(req.query.token)
         ? req.query.token[0]
         : req.query.token;
 
+      // ─────────────────────────────
+      // TOKEN CHECK
+      // ─────────────────────────────
       if (tokenWebhook && tokenQuery !== tokenWebhook) {
-        console.warn("❌ Token inválido");
         res.sendStatus(401);
-        return; // Retorno vazio para satisfazer o TS
+        return;
       }
 
       const data = req.body?.data;
-
       if (!data?.id) {
         res.sendStatus(200);
         return;
@@ -35,60 +68,49 @@ export const webhookMercadoPago = onRequest(
 
       const id: string = data.id;
 
-      // =========================
-      // 🔒 ASSINATURA CHECK
-      // =========================
+      // ─────────────────────────────
+      // ASSINATURA CHECK
+      // ─────────────────────────────
       if (segredoWebhook) {
-        const assinaturaHeader =
-          typeof req.headers["x-signature"] === "string"
-            ? req.headers["x-signature"]
-            : undefined;
+        const signature = Array.isArray(req.headers["x-signature"])
+          ? req.headers["x-signature"][0]
+          : req.headers["x-signature"];
 
-        const requestIdHeader =
-          typeof req.headers["x-request-id"] === "string"
-            ? req.headers["x-request-id"]
-            : undefined;
+        const requestId = Array.isArray(req.headers["x-request-id"])
+          ? req.headers["x-request-id"][0]
+          : req.headers["x-request-id"];
 
         const ok = validarAssinaturaMercadoPago(
-          assinaturaHeader,
-          requestIdHeader,
+          signature,
+          requestId,
           id,
           segredoWebhook
         );
 
         if (!ok) {
-          console.warn("❌ Assinatura inválida");
           res.sendStatus(401);
           return;
         }
       }
 
-      // =========================
-      // 🔁 BUSCA NO MERCADO PAGO
-      // =========================
-      let mpData: any;
+      // ─────────────────────────────
+      // FETCH MP DATA
+      // ─────────────────────────────
+      let mpData: MercadoPagoPayment;
       let tipo: 'pix' | 'assinatura' = 'assinatura';
 
       try {
-        const resp = await axios.get(
+        const resp = await axios.get<MercadoPagoPayment>(
           `https://api.mercadopago.com/v1/payments/${id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-            },
-          }
+          { headers: { Authorization: `Bearer ${accessToken}` } }
         );
 
         mpData = resp.data;
         tipo = 'pix';
       } catch {
-        const resp = await axios.get(
+        const resp = await axios.get<MercadoPagoPayment>(
           `https://api.mercadopago.com/preapproval/${id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-            },
-          }
+          { headers: { Authorization: `Bearer ${accessToken}` } }
         );
 
         mpData = resp.data;
@@ -96,92 +118,64 @@ export const webhookMercadoPago = onRequest(
       }
 
       if (!mpData?.status) {
-        console.error("❌ MP inválido");
-        res.sendStatus(500);
-        return;
-      }
-
-      // =====================================================
-      // 💰 PIX (AGENDAMENTO / PAGAMENTO ÚNICO)
-      // =====================================================
-      if (tipo === 'pix') {
-        console.log("💰 PIX recebido:", mpData.status);
-
-        const eventId = req.headers["x-request-id"] as string;
-
-        // 🔥 ANTI REPLAY REAL
-        if (eventId) {
-          const replayRef = db.collection("webhookReplay").doc(eventId);
-          const replaySnap = await replayRef.get();
-
-          if (replaySnap.exists) {
-            console.warn("⚠️ replay detectado");
-            res.sendStatus(200);
-            return;
-          }
-
-          await replayRef.set({
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-        }
-
-        const agendSnap = await db
-          .collection("agendamentos")
-          .where("pagamentoId", "==", id)
-          .limit(1)
-          .get();
-
-        if (agendSnap.empty) {
-          console.warn("⚠️ agendamento não encontrado");
-          res.sendStatus(200);
-          return;
-        }
-
-        const agendRef = agendSnap.docs[0].ref;
-        const agend = agendSnap.docs[0].data();
-        const aprovado = mpData.status === 'approved';
-
-        if (agend.statusPagamento === mpData.status) {
-          res.sendStatus(200);
-          return;
-        }
-
-        await agendRef.update({
-          statusPagamento: aprovado ? 'aprovado' : 'pendente',
-          pagoEm: aprovado ? admin.firestore.FieldValue.serverTimestamp() : null,
-          atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        if (aprovado) {
-          await db.collection('notificacoes').add({
-            clienteId: agend.clienteUid,
-            titulo: "💰 Pagamento confirmado",
-            mensagem: `Pagamento do serviço ${agend.servicoNome} aprovado!`,
-            tipo: "pagamento_cliente",
-            lida: false,
-            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          await db.collection('notificacoes').add({
-            adminId: agend.adminId,
-            titulo: "💰 Novo pagamento recebido",
-            mensagem: `${agend.clienteNome} pagou ${agend.servicoNome}`,
-            tipo: "pagamento_admin",
-            lida: false,
-            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-          });
-        }
-
-        console.log("✅ PIX processado");
         res.sendStatus(200);
         return;
       }
 
       // =====================================================
-      // 📦 ASSINATURA (PLANO)
+      // 💰 PIX FLOW
       // =====================================================
-      console.log("📦 assinatura:", mpData.status);
+      if (tipo === 'pix') {
 
+        const estabelecimentos = await db
+          .collection("estabelecimentos")
+          .where("pixPagamentoId", "==", id)
+          .limit(1)
+          .get();
+
+        if (estabelecimentos.empty) {
+          res.sendStatus(200);
+          return;
+        }
+
+        const ref = estabelecimentos.docs[0].ref;
+        const snap = await ref.get();
+        const dataEstab = snap.data();
+
+        const status = mpData.status;
+        const isApproved = status === 'approved';
+
+        // 🔥 IDEMPOTÊNCIA
+        if (dataEstab?.pixStatus === 'approved') {
+          res.sendStatus(200);
+          return;
+        }
+
+        await ref.update({
+          pixStatus: status,
+          statusPagamento: status,
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // 🔥 ATIVAÇÃO REAL
+        if (isApproved) {
+          await ref.update({
+            assinaturaAtiva: true,
+            pixStatus: 'approved',
+            statusPagamento: 'approved',
+            expiraEm: admin.firestore.Timestamp.fromDate(
+              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            ),
+          });
+        }
+
+        res.sendStatus(200);
+        return;
+      }
+
+      // =====================================================
+      // 📦 ASSINATURA CARTÃO
+      // =====================================================
       const snap = await db
         .collection("estabelecimentos")
         .where("mercadoPagoId", "==", id)
@@ -189,77 +183,33 @@ export const webhookMercadoPago = onRequest(
         .get();
 
       if (snap.empty) {
-        console.warn("⚠️ estabelecimento não encontrado");
         res.sendStatus(200);
         return;
       }
 
-      const docRef = snap.docs[0].ref;
-      const dados = snap.docs[0].data();
+      const ref = snap.docs[0].ref;
 
-      const lastModified = mpData.last_modified
-        ? new Date(mpData.last_modified)
-        : new Date();
+      const status = mpData.status;
+      const isAuthorized = status === "authorized";
 
-      if (dados.ultimaAtualizacaoMP) {
-        const local = dados.ultimaAtualizacaoMP.toDate();
-        if (local >= lastModified) {
-          console.log("⏭️ evento duplicado ignorado");
-          res.sendStatus(200);
-          return;
-        }
-      }
-
-      let assinaturaAtiva = false;
-      let novaExpiracao: Date | null = null;
-
-      if (mpData.status === "authorized") {
-        assinaturaAtiva = true;
-        const atual = dados.expiraEm?.toDate?.();
-
-        if (atual && atual > new Date()) {
-          novaExpiracao = new Date(atual);
-          novaExpiracao.setDate(novaExpiracao.getDate() + 30);
-        } else {
-          novaExpiracao = new Date();
-          novaExpiracao.setDate(novaExpiracao.getDate() + 30);
-        }
-      }
-
-      if (["cancelled", "paused"].includes(mpData.status)) {
-        assinaturaAtiva = false;
-      }
-
-      await docRef.update({
-        assinaturaAtiva,
-        statusPagamento: mpData.status,
-        ...(novaExpiracao && {
-          expiraEm: admin.firestore.Timestamp.fromDate(novaExpiracao),
-        }),
-        ultimaAtualizacaoMP: admin.firestore.FieldValue.serverTimestamp(),
+      await ref.update({
+        statusPagamento: status,
         atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      if (mpData.status === "authorized" && dados.statusPagamento !== "authorized") {
-        await db.collection("notificacoes").add({
-          adminId: dados.adminId,
-          titulo: "💰 Assinatura ativa",
-          mensagem: "Seu plano foi ativado com sucesso!",
-          tipo: "assinatura",
-          lida: false,
-          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      if (isAuthorized) {
+        await ref.update({
+          assinaturaAtiva: true,
         });
       }
 
-      console.log("✅ assinatura atualizada");
       res.sendStatus(200);
       return;
 
     } catch (error: any) {
-      console.error("🔥 ERRO WEBHOOK:", error?.response?.data || error?.message);
-      // Sempre responder 200 para o MP parar de tentar se for erro de código
-      res.status(200).send("OK");
-      return; 
+      console.error("🔥 WEBHOOK ERROR:", error);
+      res.sendStatus(200);
+      return;
     }
   }
 );

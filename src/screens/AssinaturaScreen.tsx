@@ -195,7 +195,19 @@ export default function AssinaturaScreen({ navigation }) {
                 {/* BOTÃO ASSINAR */}
                 <TouchableOpacity 
                   disabled={isAtivo}
-                  onPress={() => navigation.navigate('CheckoutPagamentoScreen', { planoId: plano.id, preco: plano.preco })}
+                  onPress={() => {
+  if (!estId) {
+    Alert.alert('Erro', 'Estabelecimento não carregado');
+    return;
+  }
+
+  navigation.navigate('CheckoutPagamentoScreen', { 
+    planoId: plano.id,
+    estabelecimentoId: estId,
+    planoNome: plano.nome,
+    valor: Number(plano.preco.replace(',', '.'))
+  });
+}}
                 >
                   <LinearGradient colors={isAtivo ? ['#333', '#222'] : GOLD_GRADIENT} style={styles.mainBtn}>
                     <Text style={styles.mainBtnText}>

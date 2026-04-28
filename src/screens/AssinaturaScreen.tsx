@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view'; // 🔥 Instalação necessária
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
-import { functions, httpsCallable } from '@react-native-firebase/functions';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
@@ -106,9 +107,10 @@ export default function AssinaturaScreen({ navigation }) {
     }
     setLoadingAction('trial');
     try {
-      const iniciarTrial = httpsCallable(functions('southamerica-east1'), 'iniciarTrial');
-      const res = await iniciarTrial({ estabelecimentoId: estId });
-      if (res.data && res.data.ok) {
+      const res = await functions('southamerica-east1')
+        .httpsCallable('iniciarTrial')({ estabelecimentoId: estId });
+     
+	 if (res.data && res.data.ok) {
         Alert.alert("✨ Sucesso", "Aproveite seus 7 dias Premium!");
       } else {
         Alert.alert("Aviso", res.data?.message || "Não foi possível ativar o teste.");
@@ -120,8 +122,16 @@ export default function AssinaturaScreen({ navigation }) {
     }
   };
 
-  if (loadingDados) return <View style={styles.center}><ActivityIndicator color={GOLD} size="large" /></View>;
+ // ✅ DEPOIS (correto)
+if (loadingDados || !estId) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={GOLD} size="large" />
+      </View>
+    );
+  }
 
+  // ✅ Return principal — só executa quando os dados já carregaram
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />

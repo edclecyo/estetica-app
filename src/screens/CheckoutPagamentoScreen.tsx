@@ -4,7 +4,8 @@ import {
   ActivityIndicator, Alert, Image, ScrollView
 } from 'react-native';
 
-import functions from '@react-native-firebase/functions';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -27,7 +28,7 @@ export default function CheckoutScreen({ route, navigation }: any) {
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<any>(null);
 
-  const functionsInstance = functions().app.functions('southamerica-east1');
+  const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
 
   // ================= CLEANUP =================
   useEffect(() => {
@@ -38,91 +39,95 @@ export default function CheckoutScreen({ route, navigation }: any) {
   }, []);
 
   // ================= MONITORAMENTO REAL =================
-  const iniciarMonitoramentoPix = () => {
-    unsubscribeRef.current?.();
+const iniciarMonitoramentoPix = () => {
+  unsubscribeRef.current?.();
 
-    unsubscribeRef.current = firestore()
-      .collection('estabelecimentos')
-      .doc(estabelecimentoId)
-      .onSnapshot((doc) => {
-        const data = doc.data();
-        if (!data) return;
+  unsubscribeRef.current = firestore()
+    .collection('estabelecimentos')
+    .doc(estabelecimentoId)
+    .onSnapshot((doc) => {
+      const data = doc.data();
+      if (!data) return;
 
-        const status = data.statusPagamento;
-        setStatusPix(status || 'pending');
+      const status = data.pixStatus;
+      setStatusPix(status || 'pending');
 
-        if (status === 'approved' && data.assinaturaAtiva === true && !isProcessing) {
-          setIsProcessing(true);
+      if (status === 'approved' && !isProcessing) {
+        setIsProcessing(true);
 
-          unsubscribeRef.current?.();
-          if (timerRef.current) clearTimeout(timerRef.current);
+        unsubscribeRef.current?.();
+        if (timerRef.current) clearTimeout(timerRef.current);
 
-          Alert.alert('Pagamento confirmado', 'Seu plano foi ativado!', [
-            {
-              text: 'Entrar',
-              onPress: () =>
-                navigation.replace('AdminDash', { estabelecimentoId })
-            }
-          ]);
-        }
+        Alert.alert('Pagamento confirmado', 'Seu plano foi ativado!', [
+          {
+            text: 'Entrar',
+            onPress: () =>
+              navigation.replace('AdminDash', { estabelecimentoId })
+          }
+        ]);
+      }
 
-        if (status === 'expired') {
-          setExpirado(true);
-        }
-      });
-  };
+      if (status === 'expired') {
+        setExpirado(true);
+      }
+    });
+};
 
   // ================= PIX =================
-  const pagarPix = async () => {
-    if (loading) return;
+const pagarPix = async () => {
+  if (loading) return;
 
-    setLoading(true);
-    setExpirado(false);
+  setLoading(true);
+  setExpirado(false);
 
-    try {
-      const fn = functionsInstance.httpsCallable('criarPagamentoPixAssinatura');
+  // 🔥 RESET (ESSENCIAL)
+  setStatusPix('pending');
+  setIsProcessing(false);
+  setPix(null);
 
-      const { data } = await fn({
-        estabelecimentoId,
-        plano: planoId,
-        valor: valor
-      });
+  try {
+    const fn = httpsCallable(functionsInstance, 'criarPagamentoPixAssinatura');
 
-      if (!data?.qr_code_base64) {
-        throw new Error('Falha ao gerar QR Code');
-      }
+    const { data } = await fn({
+      estabelecimentoId,
+      plano: planoId,
+      valor: valor
+    });
 
-      setPix(data);
-      setStatusPix('pending');
-
-      if (timerRef.current) clearTimeout(timerRef.current);
-
-      timerRef.current = setTimeout(() => {
-        setExpirado(true);
-        Alert.alert(
-          'PIX expirado',
-          'Deseja tentar novamente?',
-          [
-            { text: 'Tentar PIX', onPress: pagarPix },
-            { text: 'Cartão', onPress: pagarCartao }
-          ]
-        );
-      }, 1000 * 60 * 3);
-
-      iniciarMonitoramentoPix();
-
-    } catch (e: any) {
-      console.error(e);
-
-      if (e?.code === 'resource-exhausted') {
-        iniciarMonitoramentoPix();
-      } else {
-        Alert.alert('Erro', e?.message || 'Erro ao gerar PIX');
-      }
-    } finally {
-      setLoading(false);
+    if (!data?.qr_code_base64) {
+      throw new Error('Falha ao gerar QR Code');
     }
-  };
+
+    setPix(data);
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+
+    timerRef.current = setTimeout(() => {
+      setExpirado(true);
+      Alert.alert(
+        'PIX expirado',
+        'Deseja tentar novamente?',
+        [
+          { text: 'Tentar PIX', onPress: pagarPix },
+          { text: 'Cartão', onPress: pagarCartao }
+        ]
+      );
+    }, 1000 * 60 * 3);
+
+    iniciarMonitoramentoPix();
+
+  } catch (e: any) {
+    console.error(e);
+
+    if (e?.code === 'resource-exhausted') {
+      iniciarMonitoramentoPix();
+    } else {
+      Alert.alert('Erro', e?.message || 'Erro ao gerar PIX');
+    }
+  } finally {
+    setLoading(false);
+  }
+};
 
   // ================= CARTÃO =================
   const pagarCartao = () => {
@@ -231,3 +236,108 @@ export default function CheckoutScreen({ route, navigation }: any) {
     </ScrollView>
   );
 }
+const s = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+    padding: 20
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20
+  },
+  title: {
+    color: '#FFF',
+    fontSize: 18,
+    marginLeft: 10,
+    fontWeight: 'bold'
+  },
+  card: {
+    backgroundColor: '#111',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 20
+  },
+  plano: {
+    color: '#C9A96E',
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
+  desc: {
+    color: '#aaa',
+    marginTop: 5
+  },
+  valor: {
+    color: '#FFF',
+    fontSize: 28,
+    marginTop: 10
+  },
+  badgeRow: {
+    marginTop: 10
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    color: '#000',
+    fontWeight: 'bold'
+  },
+  btnPix: {
+    backgroundColor: '#C9A96E',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 10
+  },
+  btnCartao: {
+    backgroundColor: '#333',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10
+  },
+  btnText: {
+    color: '#000',
+    fontWeight: 'bold'
+  },
+  pixBox: {
+    marginTop: 20,
+    alignItems: 'center'
+  },
+  pixTitle: {
+    color: '#FFF',
+    marginBottom: 10
+  },
+  qrWrapper: {
+    backgroundColor: '#FFF',
+    padding: 10,
+    borderRadius: 10
+  },
+  qr: {
+    width: 200,
+    height: 200
+  },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 5
+  },
+  copyText: {
+    color: '#C9A96E'
+  },
+  processingBox: {
+    marginTop: 30,
+    alignItems: 'center'
+  },
+  processingText: {
+    color: '#FFF',
+    marginTop: 10
+  }
+});

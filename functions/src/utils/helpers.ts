@@ -1,50 +1,57 @@
 import { HttpsError } from 'firebase-functions/v2/https';
 
+function assertString(v: any, name: string) {
+  if (typeof v !== 'string') {
+    throw new HttpsError('invalid-argument', `${name} inválido`);
+  }
+  return v.trim();
+}
+
 /**
- * Converte strings de data (DD/MM/AAAA) e horário (HH:mm) em um objeto Date.
- * Garante que a data seja tratada corretamente no fuso horário de Brasília.
+ * Converte DD/MM/AAAA + HH:mm em Date seguro
  */
 export function parseDataHoraBR(data: string, horario: string): Date {
-  const [d, m, a] = data.split('/').map(Number);
-  const [h, min] = horario.split(':').map(Number);
+  data = assertString(data, 'Data');
+  horario = assertString(horario, 'Horário');
 
-  const invalid =
-    isNaN(d) || isNaN(m) || isNaN(a) ||
-    isNaN(h) || isNaN(min);
+  const partsDate = data.split('/');
+  const partsTime = horario.split(':');
 
-  if (invalid) {
-    throw new HttpsError('invalid-argument', 'Formato de data ou horário inválido.');
+  if (partsDate.length !== 3 || partsTime.length !== 2) {
+    throw new HttpsError('invalid-argument', 'Formato inválido');
   }
 
-  // Criamos a data usando o fuso local (que no servidor será UTC)
-  const date = new Date(a, m - 1, d, h, min);
+  const [d, m, a] = partsDate.map(Number);
+  const [h, min] = partsTime.map(Number);
 
-  /**
-   * Validação de data lógica estrita:
-   * Evita que o JS converta "31/04" em "01/05" automaticamente.
-   */
+  if ([d, m, a, h, min].some(v => !Number.isInteger(v))) {
+    throw new HttpsError('invalid-argument', 'Data ou horário inválido');
+  }
+
+  const date = new Date(Date.UTC(a, m - 1, d, h - 3, min));
+  // -3 = Brasilia fixo (produção controlada)
+
   if (
-    date.getFullYear() !== a ||
-    date.getMonth() !== m - 1 ||
-    date.getDate() !== d
+    date.getUTCFullYear() !== a ||
+    date.getUTCMonth() !== m - 1 ||
+    date.getUTCDate() !== d
   ) {
-    throw new HttpsError('invalid-argument', 'A data fornecida é inexistente no calendário.');
-  }
-
-  if (isNaN(date.getTime())) {
-    throw new HttpsError('invalid-argument', 'Data ou horário inválidos.');
+    throw new HttpsError('invalid-argument', 'Data inexistente');
   }
 
   return date;
 }
 
 /**
- * Formata um valor numérico para Moeda Brasileira (R$).
+ * Moeda BR segura
  */
-export function formatarMoeda(valor: number): string {
-  // Garantimos que o valor seja tratado como número
-  const num = typeof valor === 'number' ? valor : Number(valor || 0);
-  
+export function formatarMoeda(valor: any): string {
+  const num = Number(valor);
+
+  if (!isFinite(num) || num < 0) {
+    return 'R$ 0,00';
+  }
+
   return num.toLocaleString('pt-BR', {
     style: 'currency',
     currency: 'BRL',
@@ -52,13 +59,41 @@ export function formatarMoeda(valor: number): string {
 }
 
 /**
- * Utilitário extra: Formata data para exibição amigável (Ex: 15 de Abril)
+ * Data extensa segura
  */
-export function formatarDataExtenso(dataBr: string): string {
-  const [d, m, a] = dataBr.split('/').map(Number);
+export function formatarDataExtenso(dataBr: any): string {
+  if (typeof dataBr !== 'string') return '';
+
+  const parts = dataBr.split('/');
+  if (parts.length !== 3) return '';
+
+  const [d, m] = parts.map(Number);
+
   const meses = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
   ];
+
+  if (m < 1 || m > 12) return '';
+
   return `${d} de ${meses[m - 1]}`;
+}
+export function planoAtivo(est: any): boolean {
+  if (!est) return false;
+
+  const agora = new Date();
+
+  // 🔥 protege contra expiraEm inválido
+  const expira = est?.expiraEm?.toDate?.() || null;
+
+  const trialAtivo =
+    est?.plano === 'trial' &&
+    expira &&
+    expira.getTime() > agora.getTime();
+
+  const assinaturaAtiva =
+    est?.assinaturaAtiva === true;
+
+  // ✅ REGRA FINAL
+  return trialAtivo || assinaturaAtiva;
 }

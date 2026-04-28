@@ -1,20 +1,41 @@
-
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
-// Importações consistentes com seus outros arquivos
-import { Timestamp, FieldValue } from 'firebase-admin/firestore'; 
+import { Timestamp } from 'firebase-admin/firestore';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-
-import { parseDataHoraBR } from '../utils/helpers';
+import { parseDataHoraBR, planoAtivo } from '../utils/helpers';
 import { getTokenUsuario as getTokenCliente } from './notificacao.service';
 import { RATE_LIMIT_MS } from '../config/rateLimit';
 
-// ─── 4. CRIAR AGENDAMENTO ─────────────────────────────────────────────────────
+// 🔒 NORMALIZAÇÃO (AUTO EXPIRA TRIAL)
+function normalizarPlano(est: any, t: any, ref: any): boolean {
+  const agora = new Date();
+  const expira = est?.expiraEm?.toDate?.();
+
+  if (
+    est?.plano === 'trial' &&
+    expira &&
+    expira.getTime() <= agora.getTime()
+  ) {
+    t.update(ref, {
+      assinaturaAtiva: false,
+      statusPlano: 'expirado',
+    });
+
+    return false;
+  }
+
+  return true;
+}
+
 export const criarAgendamento = onCall(
-  { region: REGION },
+  {
+    region: REGION,
+    maxInstances: 50
+  },
   async (request) => {
+
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Acesso negado');
     }
@@ -22,120 +43,136 @@ export const criarAgendamento = onCall(
     const body = request.data || {};
     const clienteUid = request.auth.uid;
 
-    const estabelecimentoId = String(body.estabelecimentoId || "");
-    const servicoNome = String(body.servicoNome || "").trim();
-    const clienteNome = String(body.clienteNome || "").trim();
-    const dataBr = String(body.data || "").trim();
-    const horario = String(body.horario || "").trim();
+    const {
+      estabelecimentoId,
+      servicoNome,
+      clienteNome,
+      data: dataBr,
+      horario
+    } = body;
 
-   const partes = dataBr.split("/");
-if (partes.length !== 3) {
-  throw new HttpsError('invalid-argument', 'Data inválida');
-}
-
-const [dia, mes, ano] = partes;
-
-const mesRef = `${ano}_${String(mes).padStart(2, "0")}`;
-
-    if (clienteNome.length > 100) throw new HttpsError('invalid-argument', 'Nome muito grande');
-    if (servicoNome.length > 100) throw new HttpsError('invalid-argument', 'Serviço inválido');
     if (!estabelecimentoId || !servicoNome || !clienteNome || !dataBr || !horario) {
       throw new HttpsError('invalid-argument', 'Campos obrigatórios ausentes');
     }
 
-    const estSnap = await db.collection('estabelecimentos').doc(estabelecimentoId).get();
-    if (!estSnap.exists) throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+    // 🔒 VALIDAÇÃO GLOBAL DE PLANO (PADRÃO SaaS)
+    const estRef = db.collection('estabelecimentos').doc(estabelecimentoId);
 
-    const est = estSnap.data() || {};
-    const agora = new Date();
-const expiraEm = est.expiraEm?.toDate?.() || null;
+    const est = await db.runTransaction(async (t) => {
+      const estSnap = await t.get(estRef);
 
-const podeUsar =
-  est.assinaturaAtiva === true ||
-  (est.plano === 'free' && !est.trialUsado);
-
-if (!podeUsar || (expiraEm && agora > expiraEm)) {
-  throw new HttpsError(
-    'failed-precondition',
-    'Ative o período de teste para começar a usar o sistema.'
-  );
-}
-
-    const servicos = Array.isArray(est.servicos) ? est.servicos : [];
-    const servico = servicos.find((s: any) => String(s?.nome || "").trim() === servicoNome);
-    if (!servico) throw new HttpsError('invalid-argument', 'Serviço inválido para este estabelecimento');
-
-    const dataHora = parseDataHoraBR(dataBr, horario);
-    const notificarEmDate = new Date(dataHora.getTime() - (60 * 60 * 1000));
-    const notificarEm = Timestamp.fromDate(notificarEmDate);
-
-    const fcmTokenCliente = await getTokenCliente(clienteUid);
-
-    const uniqueId = `${clienteUid}_${dataBr}_${horario}`;
-    const lockRef = db.collection('agendamentoLocks').doc(uniqueId);
-
-    const conflitoId = `${estabelecimentoId}_${dataBr}_${horario}`;
-    const conflitoRef = db.collection('horariosOcupados').doc(conflitoId);
-
-    // Rate limit com transaction
-    const rateRef = db.collection('rateLimit').doc(clienteUid);
-    await db.runTransaction(async (t) => {
-      const snap = await t.get(rateRef);
-      const now = Date.now();
-      if (snap.exists) {
-       const ts = snap.data()?.timestamp;
-// Se for objeto Timestamp do Firebase usa toMillis(), se for Number usa direto
-const last = typeof ts === 'number' ? ts : (ts?.toMillis ? ts.toMillis() : 0);
-
-const diff = now - last;
-        if (diff < RATE_LIMIT_MS) throw new HttpsError('resource-exhausted', 'Muitas requisições');
+      if (!estSnap.exists) {
+        throw new HttpsError('not-found', 'Estabelecimento não encontrado');
       }
-      t.set(rateRef, { timestamp: now });
+
+      const data = estSnap.data();
+
+      const valido = normalizarPlano(data, t, estRef);
+
+      if (!valido || !planoAtivo(data)) {
+        throw new HttpsError('failed-precondition', 'Plano inativo');
+      }
+
+      return data;
     });
 
-    const expira = new Date();
-    expira.setDate(expira.getDate() + 2);
+    // ─────────────────────────────────────────
+
+    const partes = String(dataBr).split("/");
+    if (partes.length !== 3) {
+      throw new HttpsError('invalid-argument', 'Formato de data inválido');
+    }
+
+    const [dia, mes, ano] = partes;
+    const mesRef = `${ano}_${String(mes).padStart(2, "0")}`;
+
+    const servicos = Array.isArray(est.servicos) ? est.servicos : [];
+
+    const servico = servicos.find((s: any) =>
+      String(s?.nome || "").trim() === String(servicoNome).trim()
+    );
+
+    if (!servico) {
+      throw new HttpsError('invalid-argument', 'Serviço inválido');
+    }
+
+    const dataHora = parseDataHoraBR(String(dataBr), String(horario));
+
+    const notificarEm = Timestamp.fromDate(
+      new Date(dataHora.getTime() - 60 * 60 * 1000)
+    );
+
+    let fcmTokenCliente = null;
+
+    try {
+      fcmTokenCliente = await getTokenCliente(clienteUid);
+    } catch {}
+
+    const uniqueId = `${clienteUid}_${dataBr}_${horario}`;
+
+    const lockRef = db.collection('agendamentoLocks').doc(uniqueId);
+
+    const conflitoRef = db.collection('horariosOcupados')
+      .doc(`${estabelecimentoId}_${dataBr}_${horario}`);
+
+    const rateRef = db.collection('rateLimit').doc(clienteUid);
+
+    const expiraDoc = new Date();
+    expiraDoc.setDate(expiraDoc.getDate() + 2);
 
     let agendId = '';
 
     await db.runTransaction(async (t) => {
-      const lockSnap = await t.get(lockRef);
+
+      const [rateSnap, lockSnap, conflitoSnap] = await Promise.all([
+        t.get(rateRef),
+        t.get(lockRef),
+        t.get(conflitoRef)
+      ]);
+
+      const now = Date.now();
+
+      // 🚫 RATE LIMIT
+      if (rateSnap.exists) {
+        const last = rateSnap.data()?.timestamp || 0;
+        if (now - last < RATE_LIMIT_MS) {
+          throw new HttpsError('resource-exhausted', 'Aguarde antes de agendar novamente.');
+        }
+      }
+
+      // 🔒 LOCK DUPLICADO
       if (lockSnap.exists) {
-        const expiraEm = lockSnap.data()?.expiraEm?.toDate?.();
-        if (expiraEm && expiraEm > new Date()) {
-          throw new HttpsError('already-exists', 'Você já tem um agendamento nesse horário');
-        }
+        throw new HttpsError('already-exists', 'Agendamento já em processamento.');
       }
 
-      const conflitoSnap = await t.get(conflitoRef);
+      // ⛔ CONFLITO DE HORÁRIO
       if (conflitoSnap.exists) {
-        const expiraEm = conflitoSnap.data()?.expiraEm?.toDate?.();
-        if (expiraEm && expiraEm > new Date()) {
-          throw new HttpsError('already-exists', 'Horário já ocupado');
-        }
+        throw new HttpsError('already-exists', 'Horário já ocupado.');
       }
-
-      t.set(lockRef, {
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        expiraEm: admin.firestore.Timestamp.fromDate(expira)
-      });
-
-      t.set(conflitoRef, {
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        expiraEm: admin.firestore.Timestamp.fromDate(expira)
-      });
 
       const agendRef = db.collection('agendamentos').doc();
       agendId = agendRef.id;
 
+      t.set(rateRef, { timestamp: now }, { merge: true });
+
+      t.set(lockRef, {
+        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        expiraEm: Timestamp.fromDate(expiraDoc)
+      });
+
+      t.set(conflitoRef, {
+        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        expiraEm: Timestamp.fromDate(expiraDoc)
+      });
+
       t.set(agendRef, {
         estabelecimentoId,
-        estabelecimentoNome: est.nome || "Estabelecimento",
-        adminId: est.adminId || null,
+        estabelecimentoNome: est?.nome || "Estabelecimento",
+        adminId: est?.adminId || null,
         servicoId: servico.id || null,
         servicoNome: servico.nome,
         servicoPreco: Number(servico.preco || 0),
-        clienteNome,
+        clienteNome: String(clienteNome).substring(0, 100),
         clienteUid,
         data: dataBr,
         horario,
@@ -144,7 +181,7 @@ const diff = now - last;
         notificado: false,
         notificarEm,
         fcmTokenCliente,
-		formaPagamento: body.formaPagamento || 'local',
+        formaPagamento: body.formaPagamento || 'local',
         criadoEm: admin.firestore.FieldValue.serverTimestamp(),
       });
     });

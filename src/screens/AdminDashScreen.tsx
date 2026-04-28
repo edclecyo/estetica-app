@@ -60,45 +60,76 @@ export default function AdminDashScreen() {
   const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
 
-  // ===== LÓGICA =====
+  
   // ===== LÓGICA =====
 const temEstabelecimento = estabs.length > 0;
 const isNovoUsuario = !temEstabelecimento;
 
 // 👉 NOVA REGRA CENTRAL
+const agora = new Date();
+
 const trialAtivo =
-  planoAtual === 'trial' && (diasRestantes ?? 0) > 0;
+  planoAtual === 'trial' &&
+  principal?.expiraEm?.toDate &&
+  principal.expiraEm.toDate() > agora;
+
+const planoAtivo =
+  assinaturaAtiva === true || trialAtivo;
 
 const isBloqueado = useMemo(() => {
   if (loading) return true;
 
-  // 🔓 nunca bloqueia quem ainda não tem estabelecimento
-  if (!temEstabelecimento) return false;
+  if (!temEstabelecimento) return true;
 
-  // 🔓 libera tudo se tiver assinatura ou trial ativo
-  if (assinaturaAtiva || trialAtivo) return false;
+  const agora = new Date();
 
-  // 🔒 resto bloqueado
-  return true;
-}, [loading, temEstabelecimento, assinaturaAtiva, trialAtivo]);
+const trialAtivo =
+  planoAtual === 'trial' &&
+  diasRestantes !== null &&
+  diasRestantes > 0;
+
+const planoAtivo =
+  assinaturaAtiva === true || trialAtivo;
+
+  return !planoAtivo;
+}, [loading, temEstabelecimento, assinaturaAtiva, planoAtual, diasRestantes]);
 
   // ===== ABA CONTROLE =====
   const mudarAba = (novaAba: any) => {
   if (loading) return;
 
+  // 🔓 sempre pode entrar em estabelecimentos
   if (novaAba === 'estabs') {
     setAba(novaAba);
     return;
   }
 
+  // 🔒 bloqueio geral
   if (isBloqueado) {
-    Alert.alert('Acesso bloqueado 🔒', 'Ative seu plano para liberar essa função.');
+    Alert.alert(
+      'Acesso bloqueado 🔒',
+      !temEstabelecimento
+        ? 'Crie seu primeiro estabelecimento para começar.'
+        : 'Ative seu plano ou período de teste para continuar.'
+    );
     return;
   }
 
   setAba(novaAba);
 };
 
+const checarBloqueio = () => {
+  if (isBloqueado) {
+    Alert.alert(
+      'Função bloqueada 🔒',
+      !temEstabelecimento
+        ? 'Crie seu primeiro estabelecimento para liberar.'
+        : 'Seu plano expirou. Ative para continuar.'
+    );
+    return true;
+  }
+  return false;
+};
   // ===== LISTENERS =====
   useEffect(() => {
     if (!admin?.id) return;
@@ -133,7 +164,7 @@ const isBloqueado = useMemo(() => {
               const expira = principal.expiraEm.toDate();
               const diff = expira.getTime() - agora.getTime();
               const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
-              setDiasRestantes(Math.min(7, Math.max(0, dias)));
+              setDiasRestantes(Math.max(0, dias));
             } else {
               setDiasRestantes(null);
             }
@@ -265,7 +296,7 @@ Gerado pelo BeautyHub`;
   };
 
   // ✅ atualizarStatus usando fetch direto com token (sem SDK functions)
-  const atualizarStatus = async (id, novoStatus) => {
+  const atualizarStatus = async (id: string, novoStatus: string) => {
   try {
     setLoading(true);
 
@@ -275,13 +306,27 @@ Gerado pelo BeautyHub`;
         : 'cancelarAgendamento'
     );
 
-    const res = await fn({ agendamentoId: id });
-
-    console.log('RES:', res.data);
+    await fn({ agendamentoId: id });
 
   } catch (e: any) {
     console.error(e);
-    Alert.alert('Erro', e?.message || 'Erro ao atualizar status');
+
+    if (e?.code === 'failed-precondition') {
+      Alert.alert('Plano necessário 🔒', e.message);
+      return;
+    }
+
+    if (e?.code === 'permission-denied') {
+      Alert.alert('Sem permissão', 'Você não pode fazer isso.');
+      return;
+    }
+
+    if (e?.code === 'resource-exhausted') {
+      Alert.alert('Aguarde', 'Outra ação já está em andamento.');
+      return;
+    }
+
+    Alert.alert('Erro', 'Algo deu errado.');
   } finally {
     setLoading(false);
   }
@@ -318,68 +363,69 @@ Gerado pelo BeautyHub`;
   }, [agends]);
 
   const safeChartData = useMemo(() => {
-    const data = chartData?.datasets?.[0]?.data;
-
-    if (!data || data.length === 0) {
-      return {
-        labels: ['Sem dados'],
-        datasets: [{ data: [0] }],
-      };
-    }
-
+  if (!chartData || !chartData.datasets?.length) {
     return {
-      labels: chartData.labels ?? [],
-      datasets: [{ data }],
+      labels: ['Sem dados'],
+      datasets: [{ data: [0] }],
     };
-  }, [chartData]);
+  }
+
+  return chartData;
+}, [chartData]);
 
   const planoBadge = () => {
-    if (!temEstabelecimento) {
-      return { label: 'COMEÇAR GRÁTIS', cor: GOLD, bg: 'rgba(201,169,110,0.12)' };
-    }
+  if (!temEstabelecimento) {
+    return { label: 'COMEÇAR GRÁTIS', cor: GOLD, bg: 'rgba(201,169,110,0.12)' };
+  }
 
-    if (!planoAtual) {
-      return { label: 'CARREGANDO...', cor: '#999', bg: 'rgba(0,0,0,0.05)' };
-    }
+  if (!planoAtual) {
+    return { label: 'SEM PLANO', cor: '#999', bg: 'rgba(0,0,0,0.05)' };
+  }
 
-    if (planoAtual === 'trial') {
-      let dias = diasRestantes ?? 7;
-      if (dias > 7) dias = 7;
-      if (dias < 0) dias = 0;
-      const expirado = dias <= 0;
-      return {
-        label: expirado ? 'TRIAL ENCERRADO' : `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} DE TESTE`,
-        cor: expirado ? '#FF3B30' : '#FF9800',
-        bg: expirado ? 'rgba(255,59,48,0.12)' : 'rgba(255,152,0,0.12)',
-      };
-    }
+  if (planoAtual === 'trial') {
+    let dias = diasRestantes ?? 7;
+    if (dias > 7) dias = 7;
+    if (dias < 0) dias = 0;
 
-    if (planoAtual === 'free') {
-      return { label: 'PLANO FREE', cor: '#777', bg: 'rgba(0,0,0,0.05)' };
-    }
-
-    const nomes: Record<string, string> = {
-      essencial: 'PLANO ESSENCIAL',
-      pro: 'PLANO PRO',
-      elite: 'PLANO ELITE',
-    };
-
-    const nomePlano = nomes[planoAtual] || 'PLANO ATIVO';
-
-    if (!assinaturaAtiva) {
-      return {
-        label: `${nomePlano} (INATIVO)`,
-        cor: '#FF3B30',
-        bg: 'rgba(255,59,48,0.12)',
-      };
-    }
+    const expirado = dias <= 0;
 
     return {
-      label: nomePlano,
-      cor: planoAtual === 'elite' ? '#9C27B0' : planoAtual === 'pro' ? GOLD : '#4CAF50',
-      bg: 'rgba(100,100,100,0.1)',
+      label: expirado
+        ? 'TRIAL ENCERRADO'
+        : `${dias} ${dias === 1 ? 'DIA' : 'DIAS'} DE TESTE`,
+      cor: expirado ? '#FF3B30' : '#FF9800',
+      bg: expirado ? 'rgba(255,59,48,0.12)' : 'rgba(255,152,0,0.12)',
     };
+  }
+
+  const nomes: Record<string, string> = {
+    free: 'PLANO FREE',
+    essencial: 'PLANO ESSENCIAL',
+    pro: 'PLANO PRO',
+    elite: 'PLANO ELITE',
   };
+
+  const nomePlano = nomes[planoAtual] || 'PLANO';
+
+  if (!assinaturaAtiva) {
+    return {
+      label: `${nomePlano} (INATIVO)`,
+      cor: '#FF3B30',
+      bg: 'rgba(255,59,48,0.12)',
+    };
+  }
+
+  return {
+    label: nomePlano,
+    cor:
+      planoAtual === 'elite'
+        ? '#9C27B0'
+        : planoAtual === 'pro'
+        ? GOLD
+        : '#4CAF50',
+    bg: 'rgba(100,100,100,0.1)',
+  };
+};
 
   const seloInfo = () => {
     if (verificado) return { titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado', cor: '#4CAF50', emoji: '✅' };
@@ -728,37 +774,35 @@ Gerado pelo BeautyHub`;
             <TouchableOpacity
               style={s.novoBtn}
               onPress={() => {
-                if (!temEstabelecimento) {
-  navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
-  return;
-}
+  if (!temEstabelecimento) {
+    navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
+    return;
+  }
 
-if (isBloqueado) {
-  Alert.alert('Plano necessário', 'Ative seu plano ou trial para continuar.');
-  return;
-}
+  if (isBloqueado) {
+    Alert.alert('Plano necessário', 'Ative seu plano ou trial para continuar.');
+    return;
+  }
 
-                if (!assinaturaAtiva && planoAtual !== 'trial') {
-                  Alert.alert('Plano necessário', 'Ative seu plano para criar mais estabelecimentos.');
-                  return;
-                }
+  const limitePorPlano: Record<string, number> = {
+    free: 1,
+    trial: 1,
+    essencial: 2,
+    pro: 5,
+    elite: Infinity,
+  };
 
-                const limitePorPlano: Record<string, number> = {
-                  trial: 1,
-                  essencial: 2,
-                  pro: 5,
-                  elite: Infinity,
-                };
+  const limite = limitePorPlano[planoAtual || 'free'] ?? 0;
 
-                const limite = limitePorPlano[planoAtual || 'trial'] ?? 0;
+  if (estabs.length >= limite) {
+    Alert.alert(
+      'Limite atingido',
+      `Seu plano permite apenas ${limite} estabelecimento(s).`
+    );
+    return;
+  }
 
-                if (estabs.length >= limite) {
-                  Alert.alert('Limite atingido 🚫', `Seu plano permite até ${limite} estabelecimento(s).`);
-                  return;
-                }
-
-                navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
-              }}
+}}
             >
               <Text style={s.novoBtnText}>+ Novo Estabelecimento</Text>
             </TouchableOpacity>
@@ -860,12 +904,18 @@ const s = StyleSheet.create({
   seloEmoji: { fontSize: 28 },
   seloTitulo: { color: '#1A1A1A', fontSize: 14, fontWeight: '700' },
   seloSub: { color: '#888', fontSize: 11, marginTop: 2 },
-  // No seu StyleSheet (s.financeiroCardDash ou s.agendCard)
-shadowColor: "#000",
-shadowOffset: { width: 0, height: 4 },
-shadowOpacity: 0.05,
-shadowRadius: 10,
-elevation: 3, // Mantém o suporte para Android
+financeiroCardDash: {
+  backgroundColor: '#FFF',
+  borderRadius: 18,
+  padding: 20,
+  marginBottom: 20,
+
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.05,
+  shadowRadius: 10,
+  elevation: 3,
+},
   financeiroTitulo: { color: '#AAA', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 15, textAlign: 'center' },
   periodoRow: { flexDirection: 'row', justifyContent: 'space-between' },
   periodoItem: { alignItems: 'center', flex: 1 },

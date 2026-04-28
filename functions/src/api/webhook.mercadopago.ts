@@ -139,8 +139,8 @@ export const webhookMercadoPago = onRequest(
         }
 
         const ref = estabelecimentos.docs[0].ref;
-        const snap = await ref.get();
-        const dataEstab = snap.data();
+        const freshSnap = await ref.get();
+const dataEstab = freshSnap.data();
 
         const status = mpData.status;
         const isApproved = status === 'approved';
@@ -159,15 +159,25 @@ export const webhookMercadoPago = onRequest(
 
         // 🔥 ATIVAÇÃO REAL
         if (isApproved) {
-          await ref.update({
-            assinaturaAtiva: true,
-            pixStatus: 'approved',
-            statusPagamento: 'approved',
-            expiraEm: admin.firestore.Timestamp.fromDate(
-              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-            ),
-          });
-        }
+  const planoFinal = dataEstab?.planoPendente;
+
+  await ref.update({
+    plano: planoFinal || dataEstab?.plano,
+    planoPendente: admin.firestore.FieldValue.delete(),
+
+    assinaturaAtiva: true,
+    statusPlano: 'ativo',
+
+    pixStatus: 'approved',
+    statusPagamento: 'approved',
+
+    expiraEm: admin.firestore.Timestamp.fromDate(
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    ),
+
+    atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
 
         res.sendStatus(200);
         return;

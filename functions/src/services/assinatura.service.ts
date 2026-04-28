@@ -1,12 +1,13 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
+import { planoAtivo } from '../utils/helpers';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
 
 // ─────────────────────────────────────────────
-// 🔐 LOCK SYSTEM (ATÔMICO + EXPIRAÇÃO)
+// 🔐 LOCK SYSTEM
 // ─────────────────────────────────────────────
 
 export async function acquireLock(id: string, ttlSec = 30) {
@@ -40,9 +41,48 @@ export async function acquireLock(id: string, ttlSec = 30) {
 export async function releaseLock(id: string) {
   await db.collection('locks').doc(id).delete().catch(() => null);
 }
+// ─────────────────────────────────────────────
+// 🔒 NORMALIZAR PLANO (AUTO EXPIRA)
+// ─────────────────────────────────────────────
+
+function normalizarPlano(est: any, t: any, ref: any): boolean {
+  const agora = new Date();
+  const expira = est?.expiraEm?.toDate?.() || null;
+
+  const trialAtivo =
+  est?.plano === 'trial' &&
+  expira !== null &&
+  expira.getTime() > agora.getTime();
+
+  const assinaturaAtiva = est?.assinaturaAtiva === true;
+// 🔥 garante consistência visual
+// ❌ expirou trial (PRIMEIRO)
+if (est?.plano === 'trial' && expira && expira.getTime() <= agora.getTime()) {
+  t.update(ref, {
+    statusPlano: 'expirado',
+    assinaturaAtiva: false,
+  });
+  return false;
+}
+
+// depois consistência
+if (trialAtivo && est.statusPlano !== 'trial') {
+  t.update(ref, { statusPlano: 'trial' });
+}
+
+if (assinaturaAtiva && est.statusPlano !== 'ativo') {
+  t.update(ref, { statusPlano: 'ativo' });
+}
+
+  // ✅ regra FINAL
+  if (trialAtivo) return true;
+  if (assinaturaAtiva) return true;
+
+  return false;
+}
 
 // ─────────────────────────────────────────────
-// 🧪 TRIAL (VERSÃO CONSISTENTE)
+// 🧪 TRIAL (COM LOCK)
 // ─────────────────────────────────────────────
 
 export const iniciarTrial = onCall({ region: REGION }, async (req) => {
@@ -53,40 +93,47 @@ export const iniciarTrial = onCall({ region: REGION }, async (req) => {
 
   const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
 
-  return db.runTransaction(async (t) => {
-    const snap = await t.get(ref);
-    if (!snap.exists) throw new HttpsError('not-found', 'Não encontrado');
+  await acquireLock(estabelecimentoId);
 
-    const data = snap.data()!;
+  try {
+    return await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) throw new HttpsError('not-found', 'Não encontrado');
 
-    if (data.adminId !== req.auth!.uid) {
-      throw new HttpsError('permission-denied', 'Sem permissão');
-    }
+      const data = snap.data()!;
 
-    if (data.trialUsado) {
-      throw new HttpsError('failed-precondition', 'Trial já usado');
-    }
+      if (data.adminId !== req.auth!.uid) {
+        throw new HttpsError('permission-denied', 'Sem permissão');
+      }
 
-    const now = new Date();
-    const exp = new Date();
-    exp.setDate(now.getDate() + 7);
+      if (data.trialUsado) {
+        throw new HttpsError('failed-precondition', 'Trial já usado');
+      }
 
-    t.update(ref, {
-      plano: 'trial',
-      statusPlano: 'trial', // 🔥 NOVO (consistência UI)
-      assinaturaAtiva: true,
-      trialUsado: true,
-      trialInicio: Timestamp.fromDate(now),
-      expiraEm: Timestamp.fromDate(exp),
-      atualizadoEm: FieldValue.serverTimestamp(),
+      const now = new Date();
+      const exp = new Date();
+      exp.setDate(now.getDate() + 7);
+
+      t.update(ref, {
+        plano: 'trial',
+        statusPlano: 'trial',
+        assinaturaAtiva: false,
+        trialUsado: true,
+        trialInicio: Timestamp.fromDate(now),
+        expiraEm: Timestamp.fromDate(exp),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+
+      return { ok: true };
     });
-
-    return { ok: true };
-  });
+  } finally {
+    await releaseLock(estabelecimentoId);
+  }
 });
 
+
 // ─────────────────────────────────────────────
-// 🏢 SALVAR ESTABELECIMENTO (SEGURO)
+// 🏢 SALVAR ESTABELECIMENTO
 // ─────────────────────────────────────────────
 
 export const salvarEstabelecimento = onCall({ region: REGION }, async (req) => {
@@ -96,13 +143,29 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (req) => {
   const { estabelecimentoId, ...raw } = req.data || {};
 
   const isNew = !estabelecimentoId;
-  const ref = db.collection('estabelecimentos').doc(estabelecimentoId || undefined);
+
+  const ref = estabelecimentoId
+    ? db.collection('estabelecimentos').doc(estabelecimentoId)
+    : db.collection('estabelecimentos').doc();
 
   const snapAll = await db.collection('estabelecimentos')
     .where('adminId', '==', adminId)
     .get();
 
-  const limite = 1;
+  const plano =
+    snapAll.docs.find(d => d.data().principal)?.data()?.plano ||
+    snapAll.docs[0]?.data()?.plano ||
+    'free';
+
+  const limites: Record<string, number> = {
+    free: 1,
+    trial: 1,
+    essencial: 2,
+    pro: 5,
+    elite: Infinity,
+  };
+
+  const limite = limites[plano] ?? 1;
 
   if (isNew && snapAll.size >= limite) {
     throw new HttpsError('failed-precondition', 'Limite atingido');
@@ -110,6 +173,7 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (req) => {
 
   if (!isNew) {
     const snap = await ref.get();
+
     if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
 
     if (snap.data()?.adminId !== adminId) {
@@ -140,7 +204,7 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (req) => {
 });
 
 // ─────────────────────────────────────────────
-// ✔ CONCLUIR AGENDAMENTO (ROBUSTO)
+// ✔ CONCLUIR AGENDAMENTO (COM LOCK)
 // ─────────────────────────────────────────────
 
 export const concluirAgendamento = onCall({ region: REGION }, async (req) => {
@@ -151,36 +215,51 @@ export const concluirAgendamento = onCall({ region: REGION }, async (req) => {
 
   const ref = db.collection('agendamentos').doc(agendamentoId);
 
-  await db.runTransaction(async (t) => {
-    const snap = await t.get(ref);
-    if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
+  await acquireLock(agendamentoId);
 
-    const data = snap.data()!;
+  try {
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
 
-    if (data.adminId !== req.auth!.uid) {
-      throw new HttpsError('permission-denied', 'Sem permissão');
-    }
+      const data = snap.data()!;
 
-    const estRef = db.collection('estabelecimentos').doc(data.estabelecimentoId);
-    const estSnap = await t.get(estRef);
+      if (data.adminId !== req.auth!.uid) {
+        throw new HttpsError('permission-denied', 'Sem permissão');
+      }
 
-    if (!estSnap.exists || !estSnap.data()?.assinaturaAtiva) {
-      throw new HttpsError('failed-precondition', 'Assinatura inativa');
-    }
+      const estRef = db.collection('estabelecimentos').doc(data.estabelecimentoId);
+      const estSnap = await t.get(estRef);
 
-    if (data.status === 'concluido') return; // 🔥 idempotência
+if (!estSnap.exists) {
+  throw new HttpsError('failed-precondition', 'Estabelecimento inválido');
+}
+      const est = estSnap.data();
 
-    t.update(ref, {
-      status: 'concluido',
-      concluidoEm: FieldValue.serverTimestamp(),
+      const valido = normalizarPlano(est, t, estRef);
+
+if (!valido) {
+  throw new HttpsError('failed-precondition', 'Plano inativo');
+}
+
+      if (data.status === 'concluido') return;
+
+      t.update(ref, {
+        status: 'concluido',
+        concluidoEm: FieldValue.serverTimestamp(),
+      });
     });
-  });
 
-  return { ok: true };
+    return { ok: true };
+
+  } finally {
+    await releaseLock(agendamentoId);
+  }
 });
 
+
 // ─────────────────────────────────────────────
-// ❌ CANCELAMENTO (ANTI DUPLICAÇÃO)
+// ❌ CANCELAR AGENDAMENTO (COM LOCK + TRANSACTION)
 // ─────────────────────────────────────────────
 
 export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
@@ -191,29 +270,50 @@ export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
 
   const ref = db.collection('agendamentos').doc(agendamentoId);
 
-  const snap = await ref.get();
-  if (!snap.exists) throw new HttpsError('not-found', 'Não encontrado');
+  await acquireLock(agendamentoId);
 
-  const ag = snap.data()!;
+  try {
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) throw new HttpsError('not-found', 'Não encontrado');
 
-  if (ag.status === 'cancelado' || ag.status === 'concluido') {
-    throw new HttpsError('failed-precondition', 'Estado inválido');
-  }
+      const ag = snap.data()!;
 
-  if (ag.adminId !== req.auth.uid && ag.clienteUid !== req.auth.uid) {
-    throw new HttpsError('permission-denied', 'Sem permissão');
-  }
+      const estRef = db.collection('estabelecimentos').doc(ag.estabelecimentoId);
+      const estSnap = await t.get(estRef);
 
-  await db.runTransaction(async (t) => {
-    t.update(ref, {
-      status: 'cancelado',
-      canceladoEm: FieldValue.serverTimestamp(),
-      canceladoPor: req.auth.uid,
+if (!estSnap.exists) {
+  throw new HttpsError('failed-precondition', 'Estabelecimento inválido');
+}
+      const est = estSnap.data();
+
+      const valido = normalizarPlano(est, t, estRef);
+
+      if (!valido) {
+        throw new HttpsError('failed-precondition', 'Plano inativo');
+      }
+
+      if (ag.status === 'cancelado' || ag.status === 'concluido') {
+        throw new HttpsError('failed-precondition', 'Estado inválido');
+      }
+
+      if (ag.adminId !== req.auth.uid && ag.clienteUid !== req.auth.uid) {
+        throw new HttpsError('permission-denied', 'Sem permissão');
+      }
+
+      t.update(ref, {
+        status: 'cancelado',
+        canceladoEm: FieldValue.serverTimestamp(),
+        canceladoPor: req.auth.uid,
+      });
+
+      t.delete(db.collection('agendamentoLocks').doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`));
+      t.delete(db.collection('horariosOcupados').doc(`${ag.estabelecimentoId}_${ag.data}_${ag.horario}`));
     });
 
-    t.delete(db.collection('agendamentoLocks').doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`));
-    t.delete(db.collection('horariosOcupados').doc(`${ag.estabelecimentoId}_${ag.data}_${ag.horario}`));
-  });
+    return { ok: true };
 
-  return { ok: true };
+  } finally {
+    await releaseLock(agendamentoId);
+  }
 });

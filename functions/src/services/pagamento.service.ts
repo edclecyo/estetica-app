@@ -196,16 +196,17 @@ export const criarPagamentoPixAssinatura = onCall(
       expira.setMinutes(expira.getMinutes() + 30);
 
       tx.update(ref, {
-        plano,
-        pixStatus: 'pending',
-        assinaturaAtiva: false,
-        pixPagamentoId: data?.id,
-        pixQrCode: qrText,
-        pixQrCodeBase64: qrBase64,
-        pixCriadoEm: FieldValue.serverTimestamp(),
-        pixExpiraEm: Timestamp.fromDate(expira),
-        atualizadoEm: FieldValue.serverTimestamp(),
-      });
+  planoPendente: plano, // 👈 guarda aqui
+  pixStatus: 'pending',
+  statusPagamento: 'pending',
+  assinaturaAtiva: false,
+  pixPagamentoId: data?.id,
+  pixQrCode: qrText,
+  pixQrCodeBase64: qrBase64,
+  pixCriadoEm: FieldValue.serverTimestamp(),
+  pixExpiraEm: Timestamp.fromDate(expira),
+  atualizadoEm: FieldValue.serverTimestamp(),
+});
 
       return {
         qr_code: qrText,

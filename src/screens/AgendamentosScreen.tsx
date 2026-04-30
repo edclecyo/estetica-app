@@ -9,55 +9,62 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useNavigation } from '@react-navigation/native';
 import type { Agendamento } from '../types';
 
-const FILTROS = ['Todos', 'Confirmado', 'Concluído', 'Cancelado'];
+const FILTROS = [
+  { label: 'Todos', value: 'todos' },
+  { label: 'Confirmado', value: 'confirmado' },
+  { label: 'Concluído', value: 'concluido' },
+  { label: 'Cancelado', value: 'cancelado' },
+];
 
 export default function AgendamentosScreen() {
   const navigation = useNavigation<any>();
+
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(auth().currentUser);
-  const [filtro, setFiltro] = useState('Todos');
+  const [filtro, setFiltro] = useState('todos');
 
+  // 🔐 AUTH
   useEffect(() => {
-    const unsubscribeAuth = auth().onAuthStateChanged(u => {
-      setUser(u);
-      if (!u) {
-        setAgendamentos([]);
-        setLoading(false);
-      }
-    });
-    return unsubscribeAuth;
-  }, []);
+  const unsubscribeAuth = auth().onAuthStateChanged(u => {
+    setUser(u);
+  });
 
+  return unsubscribeAuth;
+}, []);
+
+  // 📦 FIRESTORE
   useEffect(() => {
-    if (!user) return;
+  if (!user?.uid) return;
 
-    // Otimizado: Ordenação feita no Servidor (Exige Índice Composto)
-    const unsubscribe = firestore()
-      .collection('agendamentos')
-      .where('clienteUid', '==', user.uid)
-	  .where('deletado', '==', false)
-      .orderBy('criadoEm', 'desc') 
-      .onSnapshot(
-        snap => {
-          if (!snap) { setLoading(false); return; }
-          
-          const lista = snap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .filter((d: any) => !d.deletado) as Agendamento[];
-            
-          setAgendamentos(lista);
-          setLoading(false);
-        },
-        error => {
-          console.error('Erro ao buscar agendamentos:', error);
-          setLoading(false);
-        }
+  setLoading(true);
+
+  const ref = firestore()
+    .collection('agendamentos')
+    .where('clienteUid', '==', user.uid)
+    .where('deletado', '==', false)
+    .orderBy('criadoEm', 'desc');
+
+  const unsubscribe = ref.onSnapshot(
+    snap => {
+      setAgendamentos(
+        snap.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        })) as Agendamento[]
       );
+      setLoading(false);
+    },
+    error => {
+      console.log('Firestore error:', error);
+      setLoading(false);
+    }
+  );
 
-    return unsubscribe;
-  }, [user?.uid]);
+  return unsubscribe;
+}, [user?.uid]);
 
+  // 🚪 LOGOUT
   const handleLogout = () => {
     Alert.alert('Sair', 'Deseja sair da sua conta?', [
       { text: 'Cancelar', style: 'cancel' },
@@ -77,12 +84,17 @@ export default function AgendamentosScreen() {
     ]);
   };
 
+  // 🎨 STATUS
   const statusConfig = (status: string) => {
     switch (status) {
-      case 'confirmado': return { cor: '#4CAF50', bg: '#E8F5E9', label: '✓ Confirmado' };
-      case 'cancelado': return { cor: '#F44336', bg: '#FFEBEE', label: '✕ Cancelado' };
-      case 'concluido': return { cor: '#2196F3', bg: '#E3F2FD', label: '✓ Concluído' };
-      default: return { cor: '#FF9800', bg: '#FFF3E0', label: '⏳ Pendente' };
+      case 'confirmado':
+        return { cor: '#4CAF50', bg: '#E8F5E9', label: '✓ Confirmado' };
+      case 'cancelado':
+        return { cor: '#F44336', bg: '#FFEBEE', label: '✕ Cancelado' };
+      case 'concluido':
+        return { cor: '#2196F3', bg: '#E3F2FD', label: '✓ Concluído' };
+      default:
+        return { cor: '#FF9800', bg: '#FFF3E0', label: '⏳ Pendente' };
     }
   };
 
@@ -92,11 +104,13 @@ export default function AgendamentosScreen() {
     return date.toLocaleDateString('pt-BR');
   };
 
+  // 🔍 FILTRO LIMPO
   const filtrados = agendamentos.filter(a => {
-    if (filtro === 'Todos') return true;
-    return a.status.toLowerCase() === filtro.toLowerCase().replace('ú', 'u');
+    if (filtro === 'todos') return true;
+    return a.status === filtro;
   });
 
+  // ⏳ LOADING
   if (loading) {
     return (
       <View style={s.center}>
@@ -105,12 +119,16 @@ export default function AgendamentosScreen() {
     );
   }
 
+  // 🔒 SEM LOGIN
   if (!user) {
     return (
       <View style={s.center}>
         <Text style={s.emptyEmoji}>🔒</Text>
         <Text style={s.emptyTitulo}>Faça login para ver seus horários</Text>
-        <TouchableOpacity style={s.btnPrimario} onPress={() => navigation.navigate('ClienteLogin')}>
+        <TouchableOpacity
+          style={s.btnPrimario}
+          onPress={() => navigation.navigate('ClienteLogin')}
+        >
           <Text style={s.btnPrimarioText}>Entrar / Criar conta</Text>
         </TouchableOpacity>
       </View>
@@ -119,30 +137,39 @@ export default function AgendamentosScreen() {
 
   return (
     <View style={s.container}>
+
+      {/* HEADER */}
       <View style={s.header}>
         <View>
           <Text style={s.headerSub}>SEUS HORÁRIOS</Text>
-          <Text style={s.headerTitulo}>Olá, {user.displayName?.split(' ')[0] || 'Cliente'} 👋</Text>
+          <Text style={s.headerTitulo}>
+            Olá, {user.displayName?.split(' ')[0] || 'Cliente'} 👋
+          </Text>
         </View>
+
         <TouchableOpacity style={s.sairBtn} onPress={handleLogout}>
           <Text style={s.sairText}>Sair</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Filtros */}
+      {/* FILTROS */}
       <View style={s.filtroWrap}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
           {FILTROS.map(f => (
             <TouchableOpacity
-              key={f}
-              onPress={() => setFiltro(f)}
-              style={[s.chip, filtro === f && s.chipAtivo]}>
-              <Text style={[s.chipText, filtro === f && s.chipTextAtivo]}>{f}</Text>
+              key={f.value}
+              onPress={() => setFiltro(f.value)}
+              style={[s.chip, filtro === f.value && s.chipAtivo]}
+            >
+              <Text style={[s.chipText, filtro === f.value && s.chipTextAtivo]}>
+                {f.label}
+              </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
+      {/* LISTA */}
       <FlatList
         data={filtrados}
         keyExtractor={item => item.id}
@@ -159,7 +186,10 @@ export default function AgendamentosScreen() {
 
           return (
             <View style={[s.card, { borderLeftColor: st.cor }]}>
+
               <View style={s.cardConteudo}>
+
+                {/* FOTO */}
                 <View style={s.cardImagemLateral}>
                   {item.estabelecimentoFoto ? (
                     <Image source={{ uri: item.estabelecimentoFoto }} style={s.fotoReal} />
@@ -168,40 +198,67 @@ export default function AgendamentosScreen() {
                   )}
                 </View>
 
+                {/* INFO */}
                 <View style={s.cardCorpo}>
                   <Text style={s.cardEstab}>{item.estabelecimentoNome}</Text>
                   <Text style={s.cardServico}>{item.servicoNome}</Text>
+
                   <View style={s.cardInfo}>
                     <Text style={s.cardInfoTxt}>📅 {item.data}</Text>
                     <Text style={s.cardInfoTxt}>⏰ {item.horario}</Text>
                   </View>
+
+                  {/* 💳 PAGAMENTO */}
+                  {item.formaPagamento === 'app' && (
+                    <Text style={{ fontSize: 11, color: '#C9A96E', marginTop: 4 }}>
+                      💳 Pago pelo app
+                    </Text>
+                  )}
+
+                  {item.formaPagamento === 'local' && (
+                    <Text style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                      🏢 Pagamento no local
+                    </Text>
+                  )}
+
                   {item.status === 'concluido' && item.concluidoEm && (
-                    <Text style={s.concluidoData}>Finalizado em: {formatarDataConclusao(item.concluidoEm)}</Text>
+                    <Text style={s.concluidoData}>
+                      Finalizado em: {formatarDataConclusao(item.concluidoEm)}
+                    </Text>
                   )}
                 </View>
 
+                {/* PREÇO */}
                 <View style={s.cardDireita}>
-                   <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
+                  <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
                 </View>
+
               </View>
 
+              {/* RODAPÉ */}
               <View style={s.cardRodape}>
                 <View style={[s.statusBadge, { backgroundColor: st.bg }]}>
-                  <Text style={[s.statusText, { color: st.cor }]}>{st.label}</Text>
+                  <Text style={[s.statusText, { color: st.cor }]}>
+                    {st.label}
+                  </Text>
                 </View>
 
                 {podeAvaliar && (
                   <TouchableOpacity
                     style={s.avaliarBtn}
-                    onPress={() => navigation.navigate('Avaliar', {
-                      agendamentoId: item.id,
-                      estabelecimentoNome: item.estabelecimentoNome,
-                      estabelecimentoId: item.estabelecimentoId,
-                    })}>
+                    onPress={() =>
+                      navigation.navigate('Avaliar', {
+                        agendamentoId: item.id,
+                        estabelecimentoNome: item.estabelecimentoNome,
+                        estabelecimentoId: item.estabelecimentoId,
+                      })
+                    }
+                  >
                     <Text style={s.avaliarBtnText}>⭐ Avaliar</Text>
                   </TouchableOpacity>
                 )}
               </View>
+
             </View>
           );
         }}

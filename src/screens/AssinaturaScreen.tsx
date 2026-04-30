@@ -58,7 +58,7 @@ export default function AssinaturaScreen({ navigation }) {
   const [planoAtualId, setPlanoAtualId] = useState('free');
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [trialUsado, setTrialUsado] = useState(false);
-
+const [trialAtivo, setTrialAtivo] = useState(false);
   useEffect(() => {
     const user = auth().currentUser;
     if (!user) return;
@@ -75,9 +75,21 @@ export default function AssinaturaScreen({ navigation }) {
           setPlanoAtualId(data.plano || 'free');
           setTrialUsado(!!data.trialUsado);
 
-          const expira = data.expiraEm && data.expiraEm.toDate ? data.expiraEm.toDate() : null;
-          const ativo = expira ? expira > new Date() : false;
-          setAssinaturaAtiva(!!data.assinaturaAtiva && ativo);
+          const expira = data.expiraEm?.toDate ? data.expiraEm.toDate() : null;
+const agora = new Date();
+
+const trialAtivoCalc =
+  data.plano === 'trial' &&
+  expira &&
+  expira > agora;
+
+const assinaturaAtivaCalc =
+  !!data.assinaturaAtiva &&
+  expira &&
+  expira > agora;
+
+setTrialAtivo(trialAtivoCalc);
+setAssinaturaAtiva(assinaturaAtivaCalc);
         }
         setLoadingDados(false);
       }, () => setLoadingDados(false));
@@ -149,7 +161,7 @@ if (loadingDados || !estId) {
         </View>
 
         {/* TRIAL CARD (ZONA DE CONVERSÃO) */}
-        {!assinaturaAtiva && (
+        {!assinaturaAtiva && !trialAtivo && (
           <TouchableOpacity onPress={handleTrialPress} activeOpacity={0.8} style={styles.trialWrapper}>
             <LinearGradient colors={GOLD_GRADIENT} start={{x:0, y:0}} end={{x:1, y:0}} style={styles.trialCard}>
               <View style={styles.trialTextCol}>

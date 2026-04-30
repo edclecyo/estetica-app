@@ -4,7 +4,8 @@ import {
   TextInput, StyleSheet, ActivityIndicator, Alert, Linking, Image,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
-import functions from '@react-native-firebase/functions';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Estabelecimento } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -75,6 +76,10 @@ export default function DetalheScreen() {
   const [confirmado, setConfirmado] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState('');
 const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
+  
+  const podePagarNoApp =
+  estab?.plano === 'pro' || estab?.plano === 'elite';
+  
   const datas = getDatas();
 
   useEffect(() => {
@@ -109,7 +114,11 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
         // ✅ Adicionada verificação: se o snap existir, mapeia os docs. 
         // Caso contrário, define como array vazio.
         if (snap && snap.docs) {
-          setHorariosOcupados(snap.docs.map(d => d.data().horario));
+          setHorariosOcupados(
+  snap.docs
+    .map(d => d.data()?.horario)
+    .filter(Boolean)
+);
         } else {
           setHorariosOcupados([]);
         }
@@ -133,115 +142,90 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
   }
 
   try {
-    setSalvando(true);
+  setSalvando(true);
 
-    const servicos = Array.isArray(estab?.servicos) ? estab.servicos : [];
-    const servico = servicos.find(s => s.nome === servicoSel);
+  const servicos = Array.isArray(estab?.servicos) ? estab.servicos : [];
+  const servico = servicos.find(s => s.nome === servicoSel);
 
-    if (!servico) {
-      throw new Error('Serviço não encontrado');
-    }
-
-    const precoLimpo =
-      typeof servico.preco === 'number'
-        ? servico.preco
-        : Number(String(servico.preco || 0).replace(',', '.'));
-
-    // ✅ CHAMADA CORRETA COM REGIÃO
-   const token = await auth().currentUser?.getIdToken();
-
-const res = await fetch(
-  'https://criaragendamento-eoqa32y7ca-rj.a.run.app',
-  {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      data: {
-        estabelecimentoId,
-        estabelecimentoNome: estab?.nome || 'Estabelecimento',
-        servicoId: servico.id || '',
-        servicoNome: servicoSel,
-        servicoPreco: precoLimpo,
-        clienteNome: nome,
-        data: dataSel.full,
-        horario: horarioSel,
-        formaPagamento,
-      }
-    }),
+  if (!servico) {
+    throw new Error('Serviço não encontrado');
   }
-);
 
-const json = await res.json();
-console.log('Resposta completa:', JSON.stringify(json));
+  const precoLimpo =
+    typeof servico.preco === 'number'
+      ? servico.preco
+      : Number(String(servico.preco || 0).replace(',', '.'));
 
-// ✅ Trata erros retornados pela função
-if (json?.error) {
-  const status = json.error.status;
-  const message = json.error.message;
+  // ✅ INSTÂNCIA CORRETA COM REGIÃO
+  const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
 
-  if (status === 'ALREADY_EXISTS') {
-    Alert.alert('Horário indisponível', 'Esse horário já foi reservado. Escolha outro.');
+const criarAgendamento = httpsCallable(functionsInstance, 'criarAgendamento');
+
+  const res: any = await criarAgendamento({
+  estabelecimentoId,
+  servicoNome: servicoSel,
+  clienteNome: nome,
+  clienteUid: user.uid, // 🔥 ADICIONA ISSO
+  data: dataSel.full,
+  horario: horarioSel,
+  formaPagamento,
+});
+
+  console.log('Resposta:', res.data);
+
+  const agendamentoId = res.data?.id;
+
+  if (!agendamentoId) {
+    throw new Error('Erro ao criar agendamento');
+  }
+
+  await AsyncStorage.setItem('clienteNome', nome);
+
+  if (formaPagamento === 'app') {
+    navigation.navigate('PagamentoCliente', {
+      agendamentoId,
+      estabelecimentoId,
+      servicoNome: servicoSel,
+      valor: precoLimpo,
+      nomeEstabelecimento: estab?.nome,
+    });
     return;
   }
-  if (status === 'FAILED_PRECONDITION') {
-    Alert.alert('Plano inativo', message);
-    return;
+
+  setConfirmado(true);
+
+} catch (e: any) {
+  console.error('Erro ao agendar:', e);
+
+  switch (e?.code) {
+    case 'already-exists':
+      Alert.alert('Horário indisponível', 'Esse horário já foi reservado.');
+      break;
+
+    case 'failed-precondition':
+      Alert.alert('Plano inativo', e?.message);
+      break;
+
+    case 'resource-exhausted':
+      Alert.alert('Aguarde', 'Muitas tentativas. Tente novamente.');
+      break;
+
+    case 'unauthenticated':
+      Alert.alert('Sessão expirada', 'Faça login novamente.');
+      break;
+
+    case 'not-found':
+      Alert.alert('Erro', 'Função não encontrada (deploy/região)');
+      break;
+
+    default:
+      Alert.alert('Erro', e?.message || 'Não foi possível agendar.');
   }
-  if (status === 'RESOURCE_EXHAUSTED') {
-    Alert.alert('Aguarde um momento', 'Você fez muitas tentativas seguidas. Aguarde alguns segundos e tente novamente.');
-    return;
-  }
-  if (status === 'UNAUTHENTICATED') {
-    Alert.alert('Sessão expirada', 'Faça login novamente para continuar.');
-    return;
-  }
-  throw new Error(message);
+
+} finally {
+  setSalvando(false);
 }
-
-    await AsyncStorage.setItem('clienteNome', nome);
-
-    // 💳 PAGAR NO APP
-    if (formaPagamento === 'app') {
-      navigation.navigate('PagamentoCliente', {
-        agendamentoId,
-        estabelecimentoId,
-        servicoNome: servicoSel,
-        valor: precoLimpo,
-        nomeEstabelecimento: estab?.nome,
-      });
-      return;
-    }
-
-    // 🏢 PAGAR NO LOCAL
-    setConfirmado(true);
-
-  } catch (e: any) {
-    console.error('Erro ao agendar:', e);
-
-    if (e?.code === 'failed-precondition') {
-      Alert.alert('Plano inativo', e?.message || e?.details);
-      return;
-    }
-
-    // 🚨 ESSE AQUI É IMPORTANTE PRA DEBUG
-    if (e?.code === 'not-found') {
-      Alert.alert('Erro', 'Função não encontrada (deploy ou região errada)');
-      return;
-    }
-
-    Alert.alert(
-      'Erro',
-      e?.details || e?.message || 'Não foi possível agendar.'
-    );
-
-  } finally {
-    setSalvando(false);
-  }
-};
-
+  };
   const abrirWhatsApp = () => {
     const tel = estab?.telefone?.replace(/\D/g, '');
     if (!tel) return;
@@ -256,7 +240,26 @@ if (json?.error) {
       </View>
     );
   }
+const todosHorarios = estab?.horarios || [];
 
+const horariosLivres = todosHorarios.filter(h => {
+  const [hora, minuto] = h.split(':').map(Number);
+  const agora = new Date();
+
+  const isHoje = dataSel?.full === agora.toLocaleDateString('pt-BR');
+
+  const jaPassou =
+    isHoje &&
+    (agora.getHours() > hora ||
+      (agora.getHours() === hora && agora.getMinutes() >= minuto));
+
+  const ocupado =
+    (horariosOcupados || []).includes(h) || jaPassou;
+
+  return !ocupado;
+});
+
+const semHorarios = horariosLivres.length === 0;
   if (confirmado) {
     return (
       <View style={s.confirmWrap}>
@@ -367,7 +370,20 @@ if (json?.error) {
               </View>
             </View>
           )}
+{semHorarios && (
+  <View style={s.semHorarioCard}>
+    <Text style={s.semHorarioEmoji}>😕</Text>
 
+    <Text style={s.semHorarioTitulo}>
+      Ops! Sem horários disponíveis
+    </Text>
+
+    <Text style={s.semHorarioDesc}>
+      Todos os horários deste dia já foram preenchidos.
+      Escolha outra data para continuar.
+    </Text>
+  </View>
+)}
           {step >= 4 && (
             <>
               <View style={s.secao}>
@@ -396,32 +412,39 @@ if (json?.error) {
   <View style={s.secao}>
     <Text style={s.secaoTitulo}>Pagamento</Text>
 
-    <TouchableOpacity
-      onPress={() => setFormaPagamento('app')}
-      style={[
-        s.pagamentoCard,
-        formaPagamento === 'app' && s.pagamentoCardAtivo
-      ]}
-    >
-      <Text style={s.pagamentoTitulo}>💳 Pagar agora</Text>
-      <Text style={s.pagamentoDesc}>
-        Pague no app e garanta seu horário
-      </Text>
-    </TouchableOpacity>
+   <TouchableOpacity
+    disabled={!podePagarNoApp}
+    onPress={() => podePagarNoApp && setFormaPagamento('app')}
+    style={[
+      s.pagamentoCard,
+      formaPagamento === 'app' && s.pagamentoCardAtivo,
+      !podePagarNoApp && { opacity: 0.4 }
+    ]}
+  >
+    <Text style={s.pagamentoTitulo}>💳 Pagar agora</Text>
 
-    <TouchableOpacity
-      onPress={() => setFormaPagamento('local')}
-      style={[
-        s.pagamentoCard,
-        formaPagamento === 'local' && s.pagamentoCardAtivo
-      ]}
-    >
-      <Text style={s.pagamentoTitulo}>🏢 Pagar no local</Text>
-      <Text style={s.pagamentoDesc}>
-        Pague após o atendimento
-      </Text>
-    </TouchableOpacity>
-  </View>
+    <Text style={s.pagamentoDesc}>
+      {podePagarNoApp
+        ? 'Pague no app e garanta seu horário'
+        : 'Pagamento online indisponível para este estabelecimento'}
+    </Text>
+  </TouchableOpacity>
+
+  {/* 🏢 PAGAR NO LOCAL (SEMPRE LIBERADO) */}
+  <TouchableOpacity
+    onPress={() => setFormaPagamento('local')}
+    style={[
+      s.pagamentoCard,
+      formaPagamento === 'local' && s.pagamentoCardAtivo
+    ]}
+  >
+    <Text style={s.pagamentoTitulo}>🏢 Pagar no local</Text>
+
+    <Text style={s.pagamentoDesc}>
+      Pague após o atendimento diretamente no estabelecimento
+    </Text>
+  </TouchableOpacity>
+</View>
 )}
           <TouchableOpacity
             style={[s.btnPrimario, (!servicoSel || !dataSel || !horarioSel || !nome) && s.btnDisabled]}
@@ -524,5 +547,29 @@ pagamentoDesc: {
   fontSize: 12,
   color: '#666',
   marginTop: 4
+},
+semHorarioCard: {
+  backgroundColor: '#FFF3F3',
+  borderRadius: 16,
+  padding: 16,
+  alignItems: 'center',
+  marginBottom: 12,
+  borderWidth: 1,
+  borderColor: '#FFD6D6'
+},
+semHorarioEmoji: {
+  fontSize: 28,
+  marginBottom: 6
+},
+semHorarioTitulo: {
+  fontSize: 14,
+  fontWeight: '700',
+  color: '#D9534F',
+  marginBottom: 4
+},
+semHorarioDesc: {
+  fontSize: 12,
+  color: '#666',
+  textAlign: 'center'
 },
 });

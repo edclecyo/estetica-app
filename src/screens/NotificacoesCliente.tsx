@@ -39,64 +39,89 @@ export default function NotificacoesClienteScreen() {
   };
 
   const renderItem = ({ item }: { item: any }) => {
-    // Lógica para identificar o tipo de notificação
-    const eConcluido = item.titulo?.toLowerCase().includes('concluído');
-    const eVaga = item.titulo?.toLowerCase().includes('vaga') || item.mensagem?.toLowerCase().includes('disponível');
 
-    return (
-      <TouchableOpacity 
-        activeOpacity={0.9}
-        onPress={() => marcarComoLida(item.id, item.lida)}
-        style={[styles.card, !item.lida && styles.nLida]}
-      >
-        <View style={styles.cardHeader}>
-          <View style={styles.iconArea}>
-            <Text style={styles.iconText}>{eConcluido ? '⭐' : eVaga ? '📅' : '🔔'}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.notifTitulo}>{item.titulo}</Text>
-            <Text style={styles.notifData}>
-              {item.criadoEm?.toDate() ? item.criadoEm.toDate().toLocaleDateString('pt-BR') : 'Agora'}
-            </Text>
-          </View>
-          {!item.lida && <View style={styles.badgeNovo}><Text style={styles.badgeTexto}>NOVO</Text></View>}
-        </View>
-
-        <Text style={styles.notifMsg}>{item.mensagem}</Text>
-
-        {/* BOTÕES DE AÇÃO DINÂMICOS */}
-        <View style={styles.footerAcao}>
-          {eConcluido && (
-            <TouchableOpacity 
-              style={styles.btnAvaliar}
-              onPress={() => {
-                marcarComoLida(item.id, item.lida);
-                navigation.navigate('AvaliarScreen', { 
-                  agendamentoId: item.agendamentoId, // A Function deve salvar isso na notificação
-                  estabelecimentoNome: item.estabelecimentoNome, 
-				   estabelecimentoId: item.estabelecimentoId
-                });
-              }}
-            >
-              <Text style={styles.btnAvaliarText}>Avaliar Agora ⭐</Text>
-            </TouchableOpacity>
-          )}
-
-          {eVaga && (
-            <TouchableOpacity 
-              style={styles.btnAgendar}
-              onPress={() => {
-                marcarComoLida(item.id, item.lida);
-                navigation.navigate('HomeTabs', { screen: 'Home' });
-              }}
-            >
-              <Text style={styles.btnAgendarText}>Ver Horários Disponíveis 📅</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
+  const getIcon = () => {
+    switch (item.type) {
+      case 'APPOINTMENT_DONE':
+        return '⭐';
+      case 'NEW_SLOT':
+        return '📅';
+      default:
+        return '🔔';
+    }
   };
+
+  const isConcluido = item.type === 'APPOINTMENT_DONE';
+  const isVaga = item.type === 'NEW_SLOT';
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={() => marcarComoLida(item.id, item.lida)}
+      style={[styles.card, !item.lida && styles.nLida]}
+    >
+      <View style={styles.cardHeader}>
+        <View style={styles.iconArea}>
+          <Text style={styles.iconText}>{getIcon()}</Text>
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.notifTitulo}>{item.titulo}</Text>
+          <Text style={styles.notifData}>
+            {item.criadoEm?.toDate?.()
+              ? item.criadoEm.toDate().toLocaleDateString('pt-BR')
+              : 'Agora'}
+          </Text>
+        </View>
+
+        {!item.lida && (
+          <View style={styles.badgeNovo}>
+            <Text style={styles.badgeTexto}>NOVO</Text>
+          </View>
+        )}
+      </View>
+
+      <Text style={styles.notifMsg}>{item.mensagem}</Text>
+
+      <View style={styles.footerAcao}>
+
+        {isConcluido && (
+          <TouchableOpacity
+            style={styles.btnAvaliar}
+            onPress={() => {
+              marcarComoLida(item.id, item.lida);
+
+              navigation.navigate('Avaliar', {
+                agendamentoId: item.agendamentoId,
+                estabelecimentoNome: item.estabelecimentoNome,
+                estabelecimentoId: item.estabelecimentoId,
+              });
+            }}
+          >
+            <Text style={styles.btnAvaliarText}>
+              Avaliar Agora ⭐
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {isVaga && (
+          <TouchableOpacity
+            style={styles.btnAgendar}
+            onPress={() => {
+              marcarComoLida(item.id, item.lida);
+              navigation.navigate('HomeTabs', { screen: 'Home' });
+            }}
+          >
+            <Text style={styles.btnAgendarText}>
+              Ver Horários Disponíveis 📅
+            </Text>
+          </TouchableOpacity>
+        )}
+
+      </View>
+    </TouchableOpacity>
+  );
+};
 
   if (loading) return (
     <View style={styles.center}><ActivityIndicator size="large" color="#D4AF37" /></View>

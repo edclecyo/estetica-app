@@ -41,7 +41,10 @@ export function parseDataHoraBR(data: string, horario: string): Date {
 
   return date;
 }
-
+export function dataKey(data: string) {
+  const [d, m, a] = data.split('/');
+  return `${a}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
 /**
  * Moeda BR segura
  */

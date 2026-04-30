@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, ScrollView,
@@ -20,11 +20,26 @@ const TAGS = [
 export default function AvaliarScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+
   const { agendamentoId, estabelecimentoNome, estabelecimentoId } = route.params || {};
 
   const [estrelas, setEstrelas] = useState(0);
   const [tagsSel, setTagsSel] = useState<string[]>([]);
   const [salvando, setSalvando] = useState(false);
+  const [agendamento, setAgendamento] = useState<any>(null);
+
+  // 🔥 BUSCA AGENDAMENTO
+  useEffect(() => {
+    if (!agendamentoId) return;
+
+    firestore()
+      .collection('agendamentos')
+      .doc(agendamentoId)
+      .get()
+      .then(doc => {
+        setAgendamento(doc.data());
+      });
+  }, [agendamentoId]);
 
   const toggleTag = (tag: string) => {
     setTagsSel(p =>
@@ -38,26 +53,36 @@ export default function AvaliarScreen() {
       return;
     }
 
+    // 🔥 BLOQUEIO DE REAVALIAÇÃO
+    if (agendamento?.avaliacaoCliente) {
+      Alert.alert('Você já avaliou este atendimento');
+      return;
+    }
+
     try {
       setSalvando(true);
 
-      // 1 — Atualiza o agendamento
-      // Ao mudar o 'status' e adicionar 'avaliacaoCliente', sua Cloud Function 
-      // onAgendamentoUpdate será disparada automaticamente para calcular o ranking.
-      await firestore().collection('agendamentos').doc(agendamentoId).update({
-  avaliacaoCliente: estrelas,
-  detalhesAvaliacao: {
-    tags: tagsSel,
-    criadoEm: firestore.FieldValue.serverTimestamp(),
-    estabelecimentoId: estabelecimentoId // redundância útil para a Function
-  },
-  status: 'concluido'
-});
+      await firestore()
+        .collection('agendamentos')
+        .doc(agendamentoId)
+        .update({
+          avaliacaoCliente: estrelas,
+          detalhesAvaliacao: {
+            tags: tagsSel,
+            criadoEm: firestore.FieldValue.serverTimestamp(),
+            estabelecimentoId: estabelecimentoId,
+          },
+          status: 'concluido',
+        });
 
       Alert.alert('Obrigado! 🎉', 'Sua avaliação foi enviada!', [
-        { text: 'OK', onPress: () => navigation.navigate('HomeTabs', { screen: 'Agendamentos' }) },
+        {
+          text: 'OK',
+          onPress: () =>
+            navigation.navigate('HomeTabs', { screen: 'Agendamentos' }),
+        },
       ]);
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       Alert.alert('Erro', 'Não foi possível enviar a avaliação.');
     } finally {
@@ -71,46 +96,60 @@ export default function AvaliarScreen() {
         <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
           <Text style={s.voltarBtnText}>←</Text>
         </TouchableOpacity>
+
         <Text style={s.headerSub}>AVALIAÇÃO</Text>
         <Text style={s.headerTitulo}>{estabelecimentoNome || 'Estabelecimento'}</Text>
       </View>
 
       <View style={s.body}>
+        {/* ESTRELAS */}
         <View style={s.card}>
           <Text style={s.cardTitulo}>Como foi sua experiência?</Text>
+
           <View style={s.estrelasWrap}>
             {[1, 2, 3, 4, 5].map(i => (
-              <TouchableOpacity 
-                activeOpacity={0.7} 
-                key={i} 
-                onPress={() => setEstrelas(i)}
-              >
-                <Text style={[s.estrela, i <= estrelas && s.estrelaAtiva]}>★</Text>
+              <TouchableOpacity key={i} onPress={() => setEstrelas(i)}>
+                <Text style={[s.estrela, i <= estrelas && s.estrelaAtiva]}>
+                  ★
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={[s.estrelasLabel, estrelas > 0 && { color: estrelas <= 2 ? '#E76F51' : '#1A1A1A' }]}>
-            {estrelas === 0 ? 'Toque para avaliar'
-              : estrelas === 1 ? 'Muito Ruim 😞'
-              : estrelas === 2 ? 'Ruim 😐'
-              : estrelas === 3 ? 'Bom 🙂'
-              : estrelas === 4 ? 'Muito bom 😊'
+
+          <Text style={s.estrelasLabel}>
+            {estrelas === 0
+              ? 'Toque para avaliar'
+              : estrelas === 1
+              ? 'Muito Ruim 😞'
+              : estrelas === 2
+              ? 'Ruim 😐'
+              : estrelas === 3
+              ? 'Bom 🙂'
+              : estrelas === 4
+              ? 'Muito bom 😊'
               : 'Excelente! 🤩'}
           </Text>
         </View>
 
+        {/* TAGS */}
         <View style={s.card}>
           <Text style={s.cardTitulo}>
-            O que você mais gostou? {'\n'}
+            O que você mais gostou?
+            {'\n'}
             <Text style={s.cardSub}>(Opcional)</Text>
           </Text>
+
           <View style={s.tagsWrap}>
             {TAGS.map(tag => (
               <TouchableOpacity
                 key={tag}
                 onPress={() => toggleTag(tag)}
                 style={[s.tag, tagsSel.includes(tag) && s.tagAtiva]}>
-                <Text style={[s.tagText, tagsSel.includes(tag) && s.tagTextAtiva]}>
+                <Text
+                  style={[
+                    s.tagText,
+                    tagsSel.includes(tag) && s.tagTextAtiva,
+                  ]}>
                   {tag}
                 </Text>
               </TouchableOpacity>
@@ -118,21 +157,25 @@ export default function AvaliarScreen() {
           </View>
         </View>
 
+        {/* BOTÕES */}
         <View style={s.footer}>
           <TouchableOpacity
-            style={[s.btnPrimario, (estrelas === 0 || salvando) && s.btnDisabled]}
+            style={[
+              s.btnPrimario,
+              (estrelas === 0 || salvando) && s.btnDisabled,
+            ]}
             disabled={estrelas === 0 || salvando}
             onPress={salvar}>
-            {salvando
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={s.btnPrimarioText}>Enviar Avaliação</Text>
-            }
+            {salvando ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={s.btnPrimarioText}>Enviar Avaliação</Text>
+            )}
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={s.btnSecundario} 
-            onPress={() => navigation.goBack()}
-          >
+          <TouchableOpacity
+            style={s.btnSecundario}
+            onPress={() => navigation.goBack()}>
             <Text style={s.btnSecundarioText}>Agora não, voltar</Text>
           </TouchableOpacity>
         </View>

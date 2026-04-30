@@ -9,75 +9,158 @@ export const onAgendamentoUpdate = onDocumentUpdated(
   async (event) => {
     const antes = event.data?.before.data();
     const depois = event.data?.after.data();
-    
+
     if (!antes || !depois) return;
 
-    // 1. Lógica de Notificação Push
-    if (antes.status !== depois.status) {
-      let titulo = '';
-      let mensagem = '';
+   if (antes.status !== depois.status) {
 
-      if (depois.status === 'concluido') {
-        titulo = '✅ Atendimento Concluído!';
-        mensagem = `Seu atendimento de ${depois.servicoNome} foi concluído. Avalie sua experiência!`;
-      } else if (depois.status === 'cancelado') {
-        titulo = '❌ Agendamento Cancelado';
-        mensagem = `Seu agendamento de ${depois.servicoNome} foi cancelado.`;
-      }
+  let titulo = '';
+  let mensagem = '';
+  let type: 'APPOINTMENT_DONE' | 'NEW_SLOT' | 'GENERAL' = 'GENERAL';
 
-      if (titulo) {
-        // Envia push
-        if (depois.fcmTokenCliente) {
-          enviarPush(depois.fcmTokenCliente, titulo, mensagem).catch(console.error);
-        }
+  // ===== CLIENTE RECEBE =====
 
-        // ✅ Cria documento na coleção notificacoes
-        await db.collection('notificacoes').add({
-          clienteId: depois.clienteUid,
-          adminId: depois.adminId || null,
+  if (depois.status === 'confirmado') {
+    type = 'NEW_SLOT';
+    titulo = 'Agendamento Confirmado';
+    mensagem = `Seu agendamento de ${depois.servicoNome} foi confirmado.`;
+  }
+
+  if (depois.status === 'cancelado') {
+    type = 'GENERAL';
+    titulo = 'Agendamento Cancelado';
+    mensagem = `Seu agendamento de ${depois.servicoNome} foi cancelado.`;
+  }
+
+  if (depois.status === 'concluido') {
+    type = 'APPOINTMENT_DONE';
+    titulo = 'Atendimento Concluído';
+    mensagem = `Seu serviço de ${depois.servicoNome} foi concluído.`;
+  }
+
+  if (titulo) {
+    // 🔔 PUSH → cliente
+    if (depois.fcmTokenCliente) {
+      await enviarPush(
+        depois.fcmTokenCliente,
+        titulo,
+        mensagem,
+        {
+          type,
           agendamentoId: event.params.docId,
-          estabelecimentoId: depois.estabelecimentoId,
-          estabelecimentoNome: depois.estabelecimentoNome,
-          titulo,
-          mensagem,
-          lida: false,
-          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
+          estabelecimentoId: depois.estabelecimentoId
+        }
+      );
     }
 
-    // 2. Lógica de Ranking e Avaliação (SÓ RODA SE A NOTA MUDAR E NÃO EXISTIA ANTES)
-    // Isso evita que edições de comentário dupliquem a contagem no estabelecimento
+    // 💾 SALVA NOTIFICAÇÃO → SOMENTE CLIENTE
+    await db.collection('notificacoes').add({
+      clienteId: depois.clienteUid,
+      // ❌ NÃO SALVAR adminId AQUI
+      agendamentoId: event.params.docId,
+      estabelecimentoId: depois.estabelecimentoId,
+      estabelecimentoNome: depois.estabelecimentoNome,
+      titulo,
+      mensagem,
+      type,
+      lida: false,
+      apagada: false,
+      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+}if (antes.status !== depois.status) {
+
+  let titulo = '';
+  let mensagem = '';
+  let type: 'APPOINTMENT_DONE' | 'NEW_SLOT' | 'GENERAL' = 'GENERAL';
+
+  // ===== CLIENTE RECEBE =====
+
+  if (depois.status === 'confirmado') {
+    type = 'NEW_SLOT';
+    titulo = 'Agendamento Confirmado';
+    mensagem = `Seu agendamento de ${depois.servicoNome} foi confirmado.`;
+  }
+
+  if (depois.status === 'cancelado') {
+    type = 'GENERAL';
+    titulo = 'Agendamento Cancelado';
+    mensagem = `Seu agendamento de ${depois.servicoNome} foi cancelado.`;
+  }
+
+  if (depois.status === 'concluido') {
+    type = 'APPOINTMENT_DONE';
+    titulo = 'Atendimento Concluído';
+    mensagem = `Seu serviço de ${depois.servicoNome} foi concluído.`;
+  }
+
+  if (titulo) {
+    // 🔔 PUSH → cliente
+    if (depois.fcmTokenCliente) {
+      await enviarPush(
+        depois.fcmTokenCliente,
+        titulo,
+        mensagem,
+        {
+          type,
+          agendamentoId: event.params.docId,
+          estabelecimentoId: depois.estabelecimentoId
+        }
+      );
+    }
+
+    // 💾 SALVA NOTIFICAÇÃO → SOMENTE CLIENTE
+    await db.collection('notificacoes').add({
+      clienteId: depois.clienteUid,
+      // ❌ NÃO SALVAR adminId AQUI
+      agendamentoId: event.params.docId,
+      estabelecimentoId: depois.estabelecimentoId,
+      estabelecimentoNome: depois.estabelecimentoNome,
+      titulo,
+      mensagem,
+      type,
+      lida: false,
+      apagada: false,
+      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+}
+
+    // RANKING (mantido igual)
     const notaNova = depois.avaliacaoCliente;
     const notaAntiga = antes.avaliacaoCliente;
-    if (depois.status === 'concluido' && notaNova && notaNova !== notaAntiga) {
+
+   if (
+  depois.status === 'concluido' &&
+  notaNova &&
+  (notaAntiga == null || notaAntiga !== notaNova)
+) {
       const estRef = db.collection('estabelecimentos').doc(depois.estabelecimentoId);
-      
+
       await db.runTransaction(async (t) => {
         const estDoc = await t.get(estRef);
         if (!estDoc.exists) return;
-        
+
         const d = estDoc.data() || {};
-        
-        // Se a nota antiga não existia, é uma nova avaliação (+1)
-        // Se a nota antiga já existia, estamos apenas corrigindo a soma (-notaAntiga +notaNova)
+
         const isEdicao = notaAntiga !== undefined && notaAntiga !== null;
-        
-        const totalAvaliacoes = isEdicao ? (d.quantidadeAvaliacoes || 1) : (d.quantidadeAvaliacoes || 0) + 1;
+
+        const totalAvaliacoes = isEdicao
+          ? (d.quantidadeAvaliacoes || 1)
+          : (d.quantidadeAvaliacoes || 0) + 1;
+
         const somaNotas = (d.somaNotas || 0) - (notaAntiga || 0) + notaNova;
-        
+
         const novaMedia = somaNotas / totalAvaliacoes;
+
         t.update(estRef, {
           avaliacao: Math.round(novaMedia * 10) / 10,
           quantidadeAvaliacoes: totalAvaliacoes,
           somaNotas: somaNotas,
-          // Peso do ranking: Média tem peso 2, Volume de avaliações tem peso 0.5
           rankingScore: (novaMedia * 2) + (totalAvaliacoes * 0.5),
           atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
         });
       });
-      
-      console.log(`⭐ Ranking atualizado para o estabelecimento: ${depois.estabelecimentoId}`);
     }
   }
 );

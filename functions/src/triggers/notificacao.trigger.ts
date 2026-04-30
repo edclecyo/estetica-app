@@ -1,9 +1,6 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
-import * as admin from 'firebase-admin';
-
 import { REGION } from '../config/region';
-import { enviarPush } from '../services/notificacao.service'; // Usando o path correto
-import { getTokenUsuario } from '../services/notificacao.service';
+import { enviarPush, getTokenUsuario } from '../services/notificacao.service';
 
 export const aoCriarNotificacao = onDocumentCreated(
   { document: "notificacoes/{docId}", region: REGION },
@@ -11,30 +8,49 @@ export const aoCriarNotificacao = onDocumentCreated(
     const snapshot = event.data;
     if (!snapshot) return;
 
-    const data = snapshot.data();
-    const targetId = data.adminId || data.clienteId;
-
-    if (!targetId) {
-      console.warn("⚠️ Notificação criada sem um destinatário (adminId ou clienteId).");
-      return;
-    }
+    const data = snapshot.data() as any;
 
     try {
-      // Busca o token na coleção centralizada 'usuarios'
-      const token = await getTokenUsuario(targetId);
+      // ===== CLIENTE =====
+      if (data.clienteId) {
+        const tokenCliente = await getTokenUsuario(data.clienteId);
 
-      if (token) {
-        await enviarPush(
-          token,
-          data.titulo || "Novidade no BeautyHub",
-          data.mensagem || data.msg || ""
-        );
-        console.log(`✅ Push disparado com sucesso para: ${targetId}`);
-      } else {
-        console.log(`ℹ️ Usuário ${targetId} não possui um FCM Token registrado.`);
+        if (tokenCliente && tokenCliente.length > 10) {
+          await enviarPush(
+            tokenCliente,
+            data.titulo || "Novidade no BeautyHub",
+            data.mensagem || data.msg || "",
+            {
+              type: data.type || "notification",
+              docId: event.params.docId,
+            }
+          );
+
+          console.log(`✅ Push cliente: ${data.clienteId}`);
+        }
       }
+
+      // ===== ADMIN =====
+      if (data.adminId) {
+        const tokenAdmin = await getTokenUsuario(data.adminId);
+
+        if (tokenAdmin && tokenAdmin.length > 10) {
+          await enviarPush(
+            tokenAdmin,
+            data.titulo || "Novidade no BeautyHub",
+            data.mensagem || data.msg || "",
+            {
+              type: data.type || "notification",
+              docId: event.params.docId,
+            }
+          );
+
+          console.log(`✅ Push admin: ${data.adminId}`);
+        }
+      }
+
     } catch (err) {
-      console.error(`❌ Erro ao processar push para ${targetId}:`, err);
+      console.error(`❌ Erro ao enviar push:`, err);
     }
   }
 );

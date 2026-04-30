@@ -4,7 +4,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-import { parseDataHoraBR, planoAtivo } from '../utils/helpers';
+import { parseDataHoraBR, planoAtivo, dataKey } from '../utils/helpers';
 import { getTokenUsuario as getTokenCliente } from './notificacao.service';
 import { RATE_LIMIT_MS } from '../config/rateLimit';
 
@@ -112,8 +112,10 @@ export const criarAgendamento = onCall(
 
     const lockRef = db.collection('agendamentoLocks').doc(uniqueId);
 
-    const conflitoRef = db.collection('horariosOcupados')
-      .doc(`${estabelecimentoId}_${dataBr}_${horario}`);
+    const key = dataKey(dataBr);
+
+const conflitoRef = db.collection('horariosOcupados')
+  .doc(`${estabelecimentoId}_${key}_${horario}`);
 
     const rateRef = db.collection('rateLimit').doc(clienteUid);
 
@@ -161,29 +163,35 @@ export const criarAgendamento = onCall(
       });
 
       t.set(conflitoRef, {
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        expiraEm: Timestamp.fromDate(expiraDoc)
-      });
+  estabelecimentoId, // 👈 ADICIONA ISSO
+  data: dataBr,
+  horario,
+  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  expiraEm: Timestamp.fromDate(expiraDoc)
+});
 
       t.set(agendRef, {
-        estabelecimentoId,
-        estabelecimentoNome: est?.nome || "Estabelecimento",
-        adminId: est?.adminId || null,
-        servicoId: servico.id || null,
-        servicoNome: servico.nome,
-        servicoPreco: Number(servico.preco || 0),
-        clienteNome: String(clienteNome).substring(0, 100),
-        clienteUid,
-        data: dataBr,
-        horario,
-        mesRef,
-        status: 'confirmado',
-        notificado: false,
-        notificarEm,
-        fcmTokenCliente,
-        formaPagamento: body.formaPagamento || 'local',
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-      });
+  estabelecimentoId,
+  estabelecimentoNome: est?.nome || "Estabelecimento",
+  adminId: est?.adminId || null,
+  servicoId: servico.id || null,
+  servicoNome: servico.nome,
+  servicoPreco: Number(servico.preco || 0),
+  clienteNome: String(clienteNome).substring(0, 100),
+  clienteUid,
+  data: dataBr,
+  dataKey: key, // 👈 AQUI
+  horario,
+  mesRef,
+  status: 'confirmado',
+  notificado: false,
+  deletado: false,
+  notificarEm,
+  fcmTokenCliente,
+  formaPagamento: body.formaPagamento || 'local',
+  criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+});
     });
 
     return { id: agendId };

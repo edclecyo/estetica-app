@@ -34,79 +34,54 @@ export const criarPagamentoCliente = onCall(
   async (req) => {
     if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
 
-    const { agendamentoId } = req.data || {};
-    if (!agendamentoId) throw new HttpsError('invalid-argument', 'ID obrigatório');
+    const { agendamentoId } = req.data;
+    if (!agendamentoId) {
+      throw new HttpsError('invalid-argument', 'ID obrigatório');
+    }
 
-    const ref = db.collection('agendamentos').doc(agendamentoId);
-    const lockRef = db.collection('locks').doc(`pix_${agendamentoId}`);
+    const agRef = db.collection('agendamentos').doc(agendamentoId);
+    const agSnap = await agRef.get();
 
-    return db.runTransaction(async (tx) => {
-      const [snap, lock] = await Promise.all([
-        tx.get(ref),
-        tx.get(lockRef),
-      ]);
+    if (!agSnap.exists) {
+      throw new HttpsError('not-found', 'Agendamento não encontrado');
+    }
 
-      if (!snap.exists) throw new HttpsError('not-found', 'Agendamento não existe');
+    const ag = agSnap.data()!;
 
-      const ag = snap.data()!;
+    if (ag.clienteUid !== req.auth.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissão');
+    }
 
-      if (ag.clienteUid !== req.auth!.uid) {
-        throw new HttpsError('permission-denied', 'Sem permissão');
-      }
+ const estabSnap = await db
+  .collection('estabelecimentos')
+  .doc(ag.estabelecimentoId)
+  .get();
 
-      const now = Date.now();
-      if (lock.exists) {
-        const created = lock.data()?.createdAt?.toMillis?.() || 0;
-        if (now - created < 60000) {
-          throw new HttpsError('resource-exhausted', 'Em processamento');
-        }
-      }
+const estab = estabSnap.data();
 
-      tx.set(lockRef, {
-        createdAt: FieldValue.serverTimestamp(),
-      });
+if (!estab) {
+  throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+}
 
-      const estab = (
-        await tx.get(db.collection('estabelecimentos').doc(ag.estabelecimentoId))
-      ).data();
+// 🚨 BLOQUEIO DE PLANO
+if (!estab?.plano || !['pro', 'elite'].includes(estab.plano)) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Este estabelecimento não aceita pagamento pelo app'
+  );
+}
 
-      const valor = parseValor(ag.servicoPreco);
+if (!estab?.pixChave) {
+  throw new HttpsError('failed-precondition', 'Estabelecimento sem PIX');
+}
 
-      const resp = await axiosInstance.post<MPQrResponse>(
-        'https://api.mercadopago.com/v1/payments',
-        {
-          transaction_amount: valor,
-          payment_method_id: 'pix',
-          description: ag.servicoNome,
-          external_reference: agendamentoId,
-          payer: {
-            email: req.auth!.token.email || 'cliente@app.com',
-          },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${estab.mpAccessToken}`,
-            'X-Idempotency-Key': `pix_${agendamentoId}_${Date.now()}`,
-          },
-        }
-      );
-
-      const data: any = resp.data; // 🔥 FIX TS
-      const qr = data?.point_of_interaction?.transaction_data;
-
-      tx.update(ref, {
-        pagamentoId: data?.id,
-        statusPagamento: 'pending',
-        qrCode: qr?.qr_code,
-        qrCodeBase64: qr?.qr_code_base64,
-        atualizadoEm: FieldValue.serverTimestamp(),
-      });
-
-      return {
-        qr_code: qr?.qr_code,
-        qr_code_base64: qr?.qr_code_base64,
-      };
-    });
+    return {
+      pixChave: estab.pixChave,
+      pixTipo: estab.pixTipo || 'aleatoria',
+      valor: ag.servicoPreco,
+      nome: estab.nome,
+      descricao: ag.servicoNome,
+    };
   }
 );
 

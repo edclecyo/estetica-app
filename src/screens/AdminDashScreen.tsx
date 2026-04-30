@@ -4,7 +4,8 @@ import {
   StyleSheet, ActivityIndicator, Alert, Dimensions,
   StatusBar, Image, ScrollView, Platform
 } from 'react-native';
-import functions from '@react-native-firebase/functions';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
@@ -64,7 +65,11 @@ export default function AdminDashScreen() {
   // ===== LÓGICA =====
 const temEstabelecimento = estabs.length > 0;
 const isNovoUsuario = !temEstabelecimento;
-
+const principal = useMemo(() => {
+ 
+ if (!estabs.length) return null;
+  return estabs.find(e => e.principal) || estabs[0];
+}, [estabs]);
 // 👉 NOVA REGRA CENTRAL
 const agora = new Date();
 
@@ -78,18 +83,15 @@ const planoAtivo =
 
 const isBloqueado = useMemo(() => {
   if (loading) return true;
-
   if (!temEstabelecimento) return true;
 
-  const agora = new Date();
-
-const trialAtivo =
+  const trialAtivo =
   planoAtual === 'trial' &&
   diasRestantes !== null &&
   diasRestantes > 0;
 
-const planoAtivo =
-  assinaturaAtiva === true || trialAtivo;
+  const planoAtivo =
+    assinaturaAtiva === true || trialAtivo;
 
   return !planoAtivo;
 }, [loading, temEstabelecimento, assinaturaAtiva, planoAtual, diasRestantes]);
@@ -296,17 +298,24 @@ Gerado pelo BeautyHub`;
   };
 
   // ✅ atualizarStatus usando fetch direto com token (sem SDK functions)
-  const atualizarStatus = async (id: string, novoStatus: string) => {
+ const atualizarStatus = async (id: string, novoStatus: string) => {
   try {
     setLoading(true);
 
-    const fn = functions('southamerica-east1').httpsCallable(
+    const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
+
+    const functionName =
       novoStatus === 'concluido'
         ? 'concluirAgendamento'
-        : 'cancelarAgendamento'
-    );
+        : 'cancelarAgendamento';
 
-    await fn({ agendamentoId: id });
+    const fn = httpsCallable(functionsInstance, functionName);
+
+    const res = await fn({
+      agendamentoId: id,
+    });
+
+    console.log('Resposta função:', res.data);
 
   } catch (e: any) {
     console.error(e);
@@ -795,12 +804,14 @@ Gerado pelo BeautyHub`;
   const limite = limitePorPlano[planoAtual || 'free'] ?? 0;
 
   if (estabs.length >= limite) {
-    Alert.alert(
-      'Limite atingido',
-      `Seu plano permite apenas ${limite} estabelecimento(s).`
-    );
-    return;
-  }
+  Alert.alert(
+    'Limite atingido',
+    `Seu plano permite apenas ${limite} estabelecimento(s).`
+  );
+  return;
+}
+
+navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
 
 }}
             >

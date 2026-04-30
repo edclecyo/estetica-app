@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-import { planoAtivo } from '../utils/helpers';
+import { planoAtivo, dataKey } from '../utils/helpers';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
@@ -301,16 +301,28 @@ if (!estSnap.exists) {
         throw new HttpsError('permission-denied', 'Sem permissão');
       }
 
-      t.update(ref, {
+     t.update(ref, {
         status: 'cancelado',
         canceladoEm: FieldValue.serverTimestamp(),
         canceladoPor: req.auth.uid,
       });
 
-      t.delete(db.collection('agendamentoLocks').doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`));
-      t.delete(db.collection('horariosOcupados').doc(`${ag.estabelecimentoId}_${ag.data}_${ag.horario}`));
+      // ✅ PADRONIZA DATA
+      const key = dataKey(ag.data);
+
+      t.delete(
+        db.collection('agendamentoLocks')
+          .doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`)
+      );
+
+      t.delete(
+        db.collection('horariosOcupados')
+          .doc(`${ag.estabelecimentoId}_${key}_${ag.horario}`)
+      );
+
     });
 
+    // ✅ AGORA SIM, FORA DA TRANSACTION
     return { ok: true };
 
   } finally {

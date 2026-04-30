@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import functions from '@react-native-firebase/functions';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
 import QRCode from 'react-native-qrcode-svg';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -31,7 +32,7 @@ export default function PagamentoClienteScreen() {
       .onSnapshot(doc => {
 		  if (!doc.exists) return;
         const data = doc.data();
-        if (data?.statusPagamento === 'aprovado') {
+        if (data?.statusPagamento === 'approved') {
           setStatus('aprovado');
           setTimeout(() => navigation.goBack(), 2500);
         }
@@ -64,30 +65,32 @@ export default function PagamentoClienteScreen() {
   }, [expiraEm]);
 
   const gerarPix = async () => {
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
 
-      // ✅ REGIÃO CORRETA
-      const fn = functions('southamerica-east1').httpsCallable('criarPagamentoCliente');
+    // ✅ PADRÃO NOVO (IGUAL AO AGENDAMENTO)
+    const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
 
-      const res = await fn({ agendamentoId });
-      const data = res.data as any;
+    const fn = httpsCallable(functionsInstance, 'criarPagamentoCliente');
 
-      if (!data?.qr_code) {
-        Alert.alert('Erro', 'Estabelecimento não configurou o Mercado Pago ainda.');
-        return;
-      }
+    const res: any = await fn({ agendamentoId });
+    const data = res.data;
 
-      setQr(data);
-      setExpiraEm(Date.now() + 15 * 60 * 1000); // 15 min
-
-    } catch (e: any) {
-      const msg = e?.message || 'Erro ao gerar PIX';
-      Alert.alert('Erro', msg);
-    } finally {
-      setLoading(false);
+    if (!data?.qr_code) {
+      Alert.alert('Erro', 'Estabelecimento não configurou o Mercado Pago ainda.');
+      return;
     }
-  };
+
+    setQr(data);
+    setExpiraEm(Date.now() + 15 * 60 * 1000);
+
+  } catch (e: any) {
+    const msg = e?.message || 'Erro ao gerar PIX';
+    Alert.alert('Erro', msg);
+  } finally {
+    setLoading(false);
+  }
+};
 
   // ✅ CLIPBOARD MODERNO
   const copiarCodigo = () => {
@@ -149,11 +152,14 @@ export default function PagamentoClienteScreen() {
       )}
 
       {/* PIX GERADO */}
-      {qr && status !== 'aprovado' && (
+      {qr?.qr_code && status !== 'aprovado' && (
         <View style={s.pixBox}>
 
           <View style={s.qrContainer}>
-            <QRCode value={qr.qr_code} size={200} />
+            <Image
+  source={{ uri: `data:image/png;base64,${qr.qr_code_base64}` }}
+  style={{ width: 200, height: 200 }}
+/>
           </View>
 
           <View style={s.timerBox}>

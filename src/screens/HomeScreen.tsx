@@ -272,15 +272,19 @@ export default function HomeScreen() {
     .filter(e => {
       const mb = (e.nome || '').toLowerCase().includes(busca.toLowerCase());
       const mt = filtro === 'Todos' || e.tipo === filtro;
-      
-      // --- NOVA VALIDAÇÃO DE ASSINATURA NO FRONT ---
+
       const expiraEm = (e as any).expiraEm?.toDate?.() || null;
-      
-const assinaturaValida =
-  e.assinaturaAtiva === true &&
-  (!expiraEm || agora < expiraEm);
-      
-      return mb && mt && assinaturaValida; // Só mostra se a assinatura estiver OK
+
+      const trialAtivo =
+        e.plano === 'trial' &&
+        expiraEm &&
+        expiraEm > agora;
+
+      const assinaturaValida =
+  trialAtivo ||
+  (e.assinaturaAtiva === true && (!expiraEm || agora < expiraEm));
+
+      return mb && mt && assinaturaValida;
     })
       .map(e => {
         const lat = e.coords?.lat ?? e.lat;

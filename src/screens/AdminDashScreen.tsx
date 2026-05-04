@@ -186,13 +186,15 @@ const checarBloqueio = () => {
       .orderBy('criadoEm', 'desc')
       .limit(100)
       .onSnapshot(snap => {
-        setAgends(
-          snap.docs.map(d => ({
-            id: d.id,
-            ...d.data()
-          })) as Agendamento[]
-        );
-      });
+  if (!snap) return;
+
+  setAgends(
+    snap.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    })) as Agendamento[]
+  );
+});
 
     const unsubStories = firestore()
       .collection('stories')
@@ -244,7 +246,10 @@ const checarBloqueio = () => {
       .onSnapshot(snap => snap && setNotifNaoLidas(snap.docs.length));
     return unsubNotif;
   }, [admin?.id]);
-
+useEffect(() => {
+  console.log('ADMIN.ID:', admin?.id);
+  console.log('AUTH UID:', auth().currentUser?.uid);
+}, [admin]);
   // ===== HELPERS =====
   // ✅ formatDate declarado ANTES do chartData
   const formatDate = (date: any) => {

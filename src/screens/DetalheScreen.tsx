@@ -103,31 +103,32 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
   }, [estabelecimentoId]);
 
   useEffect(() => {
-    if (!dataSel || !estabelecimentoId) return;
+  if (!dataSel || !estabelecimentoId) return;
 
-    const unsub = firestore()
-      .collection('agendamentos')
-      .where('estabelecimentoId', '==', estabelecimentoId)
-      .where('data', '==', dataSel.full)
-      .where('status', '==', 'confirmado')
-      .onSnapshot(snap => {
-        // ✅ Adicionada verificação: se o snap existir, mapeia os docs. 
-        // Caso contrário, define como array vazio.
+  const unsub = firestore()
+    .collection('horariosOcupados')
+    .where('estabelecimentoId', '==', estabelecimentoId)
+    .where('data', '==', dataSel.full)
+    .onSnapshot(
+      snap => {
         if (snap && snap.docs) {
-          setHorariosOcupados(
-  snap.docs
-    .map(d => d.data()?.horario)
-    .filter(Boolean)
-);
+          const ocupados = snap.docs
+            .map(d => d.data()?.horario)
+            .filter(Boolean);
+
+          setHorariosOcupados(ocupados);
         } else {
           setHorariosOcupados([]);
         }
-      }, error => {
-        console.error("Erro ao buscar horários ocupados: ", error);
-      });
+      },
+      error => {
+        console.error('Erro ao buscar horários:', error);
+        setHorariosOcupados([]);
+      }
+    );
 
-    return () => unsub();
-  }, [dataSel, estabelecimentoId]);
+  return () => unsub();
+}, [dataSel, estabelecimentoId]);
 
   const confirmar = async () => {
   if (!servicoSel || !dataSel || !horarioSel || !nome || !formaPagamento) {

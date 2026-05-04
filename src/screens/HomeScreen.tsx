@@ -40,6 +40,8 @@ const TIPO_ICONS: Record<string, string> = {
 const GOLD_GRADIENT = ['#C9A96E', '#F0D080', '#A07040'];
 const DARK_GRADIENT = ['#1A1A1A', '#0A0A0A'];
 const GOLD = '#C9A96E';
+const GOLD2 = '#E5C07B';
+const GOLD3 = '#8C6A3B';
 // Componentes Auxiliares otimizados
 const SeloVerificado = React.memo(({ size = 20 }: { size?: number }) => (
   <Image
@@ -235,13 +237,24 @@ export default function HomeScreen() {
         if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
       }
       try {
-        // @ts-ignore
-        navigator.geolocation?.getCurrentPosition(
-          (pos: any) => setLocalizacao({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          null,
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-        );
-      } catch {}
+  // @ts-ignore
+  if (navigator && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos: any) => {
+        setLocalizacao({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+      },
+      (err: any) => {
+        console.log('Erro GPS:', err);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+    );
+  }
+} catch (error) {
+  console.log('Erro ao obter localização:', error);
+}
     };
     obterPosicao();
   }, []);
@@ -256,7 +269,7 @@ export default function HomeScreen() {
   useEffect(() => {
     const unsub = firestore().collection('estabelecimentos').where('ativo', '==', true)
       .onSnapshot(snap => {
-        if (!snap) return;
+        if (!snap || snap.empty) return;
         const dados = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estabelecimento[];
         setEstabelecimentos(dados);
         setLoading(false);
@@ -273,7 +286,18 @@ export default function HomeScreen() {
       const mb = (e.nome || '').toLowerCase().includes(busca.toLowerCase());
       const mt = filtro === 'Todos' || e.tipo === filtro;
 
-      const expiraEm = (e as any).expiraEm?.toDate?.() || null;
+      const raw = (e as any).expiraEm;
+
+      let expiraEm: Date | null = null;
+
+      if (raw?.toDate) {
+        expiraEm = raw.toDate();
+      } else if (raw instanceof Date) {
+        expiraEm = raw;
+      } else if (typeof raw === 'string') {
+        const parsed = new Date(raw);
+        if (!isNaN(parsed.getTime())) expiraEm = parsed;
+      }
 
       const trialAtivo =
         e.plano === 'trial' &&
@@ -281,28 +305,38 @@ export default function HomeScreen() {
         expiraEm > agora;
 
       const assinaturaValida =
-  trialAtivo ||
-  (e.assinaturaAtiva === true && (!expiraEm || agora < expiraEm));
+        trialAtivo ||
+        (e.assinaturaAtiva === true &&
+          (!expiraEm || agora < expiraEm));
 
       return mb && mt && assinaturaValida;
     })
-      .map(e => {
-        const lat = e.coords?.lat ?? e.lat;
-        const lng = e.coords?.lng ?? e.lng;
-        const dist = localizacao && typeof lat === 'number' && typeof lng === 'number'
-          ? calcularDistancia(localizacao.lat, localizacao.lng, lat, lng) : 9999;
-        return { 
-          ...e, 
-          _dist: isNaN(dist) ? 9999 : dist, 
-          _aberto: estaAberto((e as any).horarioFuncionamento, (e as any).diasFuncionamento) 
-        };
-      })
-      .sort((a, b) => {
-        if (a._aberto && !b._aberto) return -1;
-        if (!a._aberto && b._aberto) return 1;
-        return a._dist - b._dist;
-      });
-  }, [estabelecimentos, busca, filtro, localizacao]);
+    .map(e => {
+      const lat = e.coords?.lat ?? e.lat;
+      const lng = e.coords?.lng ?? e.lng;
+
+      const dist =
+        localizacao &&
+        typeof lat === 'number' &&
+        typeof lng === 'number'
+          ? calcularDistancia(localizacao.lat, localizacao.lng, lat, lng)
+          : 9999;
+
+      return {
+        ...e,
+        _dist: isNaN(dist) ? 9999 : dist,
+        _aberto: estaAberto(
+          (e as any).horarioFuncionamento,
+          (e as any).diasFuncionamento
+        ),
+      };
+    })
+    .sort((a, b) => {
+      if (a._aberto && !b._aberto) return -1;
+      if (!a._aberto && b._aberto) return 1;
+      return a._dist - b._dist;
+    });
+}, [estabelecimentos, busca, filtro, localizacao]);
 
   const renderStars = useCallback((rating: number) => (
     <View style={s.starsRow}>
@@ -365,7 +399,7 @@ export default function HomeScreen() {
               },
             ]}
           >
-            {imagemUri ? (
+            {imagemUri && imagemUri.startsWith('http') ? (
               <Image source={{ uri: imagemUri }} style={s.circleImage} />
             ) : (
               <Text style={s.cardEmojiLarge}>
@@ -509,7 +543,7 @@ export default function HomeScreen() {
                       const isSignedIn = await GoogleSignin.isSignedIn();
                       if (isSignedIn) {
                         await GoogleSignin.revokeAccess();
-                        await GoogleSignin.signOut();
+                        await GoogleSignin.signOut().catch(() => {});
                       }
                     } catch (googleError) {
                       console.log("Erro ao sair do Google:", googleError);

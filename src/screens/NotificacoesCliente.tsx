@@ -1,137 +1,258 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  View, Text, FlatList, StyleSheet, TouchableOpacity, 
-  ActivityIndicator, SafeAreaView, StatusBar 
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
+
 import firestore from '@react-native-firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 
 export default function NotificacoesClienteScreen() {
+
   const { user } = useAuth();
   const navigation = useNavigation<any>();
+
   const [notificacoes, setNotificacoes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+
     if (!user?.uid) return;
 
     const unsub = firestore()
       .collection('notificacoes')
       .where('clienteId', '==', user.uid)
+      .where('apagada', '!=', true)
+      .orderBy('apagada')
       .orderBy('criadoEm', 'desc')
-      .onSnapshot(snap => {
-        if (snap) {
-          const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      .limit(50)
+      .onSnapshot(
+        snap => {
+
+          const agora = new Date();
+
+          const data = snap.docs
+            .map(doc => ({
+              id: doc.id,
+              ...doc.data(),
+            }))
+            .filter((item: any) => {
+
+              if (!item.expiraEm?.toDate) {
+                return true;
+              }
+
+              return item.expiraEm.toDate() > agora;
+            });
+
           setNotificacoes(data);
+          setLoading(false);
+        },
+        error => {
+          console.log('Erro notificações:', error);
+          setLoading(false);
         }
-        setLoading(false);
-      }, () => setLoading(false));
+      );
 
     return () => unsub();
-  }, [user]);
 
-  const marcarComoLida = async (id: string, lida: boolean) => {
+  }, [user?.uid]);
+
+  async function marcarComoLida(id: string, lida?: boolean) {
+
     if (lida) return;
+
     try {
-      await firestore().collection('notificacoes').doc(id).update({ lida: true });
-    } catch (e) { console.log(e); }
-  };
+
+      await firestore()
+        .collection('notificacoes')
+        .doc(id)
+        .update({
+          lida: true,
+        });
+
+    } catch (e) {
+      console.log(e);
+    }
+  }
 
   const renderItem = ({ item }: { item: any }) => {
 
-  const getIcon = () => {
-    switch (item.type) {
-      case 'APPOINTMENT_DONE':
-        return '⭐';
-      case 'NEW_SLOT':
-        return '📅';
-      default:
-        return '🔔';
-    }
+    const getIcon = () => {
+
+      switch (item.type) {
+
+        case 'APPOINTMENT_DONE':
+          return '⭐';
+
+        case 'NEW_SLOT':
+          return '📅';
+
+        case 'NEW_BOOKING':
+          return '📥';
+
+        case 'GENERAL':
+          return '📢';
+
+        default:
+          return '🔔';
+      }
+    };
+
+    const isConcluido =
+      item.type === 'APPOINTMENT_DONE';
+
+    const isVaga =
+      item.type === 'NEW_SLOT';
+
+    const mensagemFinal =
+      item.mensagem ||
+      item.msg ||
+      '';
+
+    const tituloFinal =
+      item.titulo ||
+      'Notificação';
+
+    return (
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() =>
+          marcarComoLida(item.id, item.lida)
+        }
+        style={[
+          styles.card,
+          !item.lida && styles.nLida,
+        ]}
+      >
+        <View style={styles.cardHeader}>
+
+          <View style={styles.iconArea}>
+            <Text style={styles.iconText}>
+              {getIcon()}
+            </Text>
+          </View>
+
+          <View style={{ flex: 1 }}>
+
+            <Text style={styles.notifTitulo}>
+              {tituloFinal}
+            </Text>
+
+            <Text style={styles.notifData}>
+              {item.criadoEm?.toDate?.()
+                ? item.criadoEm
+                    .toDate()
+                    .toLocaleDateString('pt-BR')
+                : 'Agora'}
+            </Text>
+          </View>
+
+          {!item.lida && (
+            <View style={styles.badgeNovo}>
+              <Text style={styles.badgeTexto}>
+                NOVO
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {!!mensagemFinal && (
+          <Text style={styles.notifMsg}>
+            {mensagemFinal}
+          </Text>
+        )}
+
+        <View style={styles.footerAcao}>
+
+          {isConcluido && (
+            <TouchableOpacity
+              style={styles.btnAvaliar}
+              onPress={async () => {
+
+                await marcarComoLida(
+                  item.id,
+                  item.lida
+                );
+
+                navigation.navigate(
+                  'Avaliar',
+                  {
+                    agendamentoId:
+                      item.agendamentoId,
+
+                    estabelecimentoNome:
+                      item.estabelecimentoNome,
+
+                    estabelecimentoId:
+                      item.estabelecimentoId,
+                  }
+                );
+              }}
+            >
+              <Text style={styles.btnAvaliarText}>
+                Avaliar Agora ⭐
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {isVaga && (
+            <TouchableOpacity
+              style={styles.btnAgendar}
+              onPress={async () => {
+
+                await marcarComoLida(
+                  item.id,
+                  item.lida
+                );
+
+                navigation.navigate(
+                  'HomeTabs',
+                  {
+                    screen: 'Home',
+                  }
+                );
+              }}
+            >
+              <Text style={styles.btnAgendarText}>
+                Ver Horários Disponíveis 📅
+              </Text>
+            </TouchableOpacity>
+          )}
+
+        </View>
+      </TouchableOpacity>
+    );
   };
 
-  const isConcluido = item.type === 'APPOINTMENT_DONE';
-  const isVaga = item.type === 'NEW_SLOT';
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.9}
-      onPress={() => marcarComoLida(item.id, item.lida)}
-      style={[styles.card, !item.lida && styles.nLida]}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.iconArea}>
-          <Text style={styles.iconText}>{getIcon()}</Text>
-        </View>
-
-        <View style={{ flex: 1 }}>
-          <Text style={styles.notifTitulo}>{item.titulo}</Text>
-          <Text style={styles.notifData}>
-            {item.criadoEm?.toDate?.()
-              ? item.criadoEm.toDate().toLocaleDateString('pt-BR')
-              : 'Agora'}
-          </Text>
-        </View>
-
-        {!item.lida && (
-          <View style={styles.badgeNovo}>
-            <Text style={styles.badgeTexto}>NOVO</Text>
-          </View>
-        )}
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator
+          size="large"
+          color="#D4AF37"
+        />
       </View>
-
-      <Text style={styles.notifMsg}>{item.mensagem}</Text>
-
-      <View style={styles.footerAcao}>
-
-        {isConcluido && (
-          <TouchableOpacity
-            style={styles.btnAvaliar}
-            onPress={() => {
-              marcarComoLida(item.id, item.lida);
-
-              navigation.navigate('Avaliar', {
-                agendamentoId: item.agendamentoId,
-                estabelecimentoNome: item.estabelecimentoNome,
-                estabelecimentoId: item.estabelecimentoId,
-              });
-            }}
-          >
-            <Text style={styles.btnAvaliarText}>
-              Avaliar Agora ⭐
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {isVaga && (
-          <TouchableOpacity
-            style={styles.btnAgendar}
-            onPress={() => {
-              marcarComoLida(item.id, item.lida);
-              navigation.navigate('HomeTabs', { screen: 'Home' });
-            }}
-          >
-            <Text style={styles.btnAgendarText}>
-              Ver Horários Disponíveis 📅
-            </Text>
-          </TouchableOpacity>
-        )}
-
-      </View>
-    </TouchableOpacity>
-  );
-};
-
-  if (loading) return (
-    <View style={styles.center}><ActivityIndicator size="large" color="#D4AF37" /></View>
-  );
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
+
       <StatusBar barStyle="dark-content" />
+
       <View style={styles.header}>
-        <Text style={styles.titulo}>Notificações</Text>
+        <Text style={styles.titulo}>
+          Notificações
+        </Text>
+
         <View style={styles.linhaDourada} />
       </View>
 
@@ -139,8 +260,15 @@ export default function NotificacoesClienteScreen() {
         data={notificacoes}
         keyExtractor={item => item.id}
         renderItem={renderItem}
-        contentContainerStyle={{ padding: 20 }}
-        ListEmptyComponent={<Text style={styles.empty}>Tudo limpo por aqui! 🕊️</Text>}
+        contentContainerStyle={{
+          padding: 20,
+        }}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <Text style={styles.empty}>
+            Tudo limpo por aqui! 🕊️
+          </Text>
+        }
       />
     </SafeAreaView>
   );

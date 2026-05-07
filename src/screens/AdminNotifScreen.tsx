@@ -1,20 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity,
-  StyleSheet, Platform, StatusBar,
-  ActivityIndicator
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  Platform,
+  StatusBar,
+  ActivityIndicator,
 } from 'react-native';
+
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface Notif {
   id: string;
 
+  adminId?: string;
+  agendamentoId?: string;
+
   clienteNome?: string;
   servicoNome?: string;
+
   data?: string;
   horario?: string;
 
@@ -25,9 +36,11 @@ interface Notif {
   msg?: string;
   mensagem?: string;
 
-  lida: boolean;
+  lida?: boolean;
   apagada?: boolean;
-  criadoEm: any;
+
+  criadoEm?: any;
+  expiraEm?: any;
 }
 
 export default function AdminNotifScreen() {
@@ -43,15 +56,24 @@ export default function AdminNotifScreen() {
     const unsub = firestore()
       .collection('notificacoes')
       .where('adminId', '==', admin.id)
-      .where('apagada', '==', false)
+      .where('apagada', '!=', true)
+      .orderBy('apagada')
       .orderBy('criadoEm', 'desc')
       .limit(50)
       .onSnapshot(
         snap => {
-          const lista = snap.docs.map(d => ({
-            id: d.id,
-            ...d.data(),
-          })) as Notif[];
+          const agora = new Date();
+
+          const lista = snap.docs
+            .map(doc => ({
+              id: doc.id,
+              ...doc.data(),
+            }))
+            .filter((item: any) => {
+              if (!item.expiraEm?.toDate) return true;
+
+              return item.expiraEm.toDate() > agora;
+            }) as Notif[];
 
           setNotifs(lista);
           setLoading(false);
@@ -62,45 +84,100 @@ export default function AdminNotifScreen() {
         }
       );
 
-    return unsub;
+    return () => unsub();
   }, [admin?.id]);
 
-  const marcarLida = (id: string) => {
-    setNotifs(prev =>
-      prev.map(n => (n.id === id ? { ...n, lida: true } : n))
-    );
+  async function marcarLida(id: string) {
+    try {
+      setNotifs(prev =>
+        prev.map(n =>
+          n.id === id
+            ? { ...n, lida: true }
+            : n
+        )
+      );
 
-    firestore().collection('notificacoes').doc(id).update({
-      lida: true,
-    });
-  };
+      await firestore()
+        .collection('notificacoes')
+        .doc(id)
+        .update({
+          lida: true,
+        });
 
-  const getInfo = (item: Notif) => {
-  const tipo = item.type || item.status;
-
-  switch (tipo) {
-    case 'NEW_BOOKING':
-      return { emoji: '📥', cor: '#4CAF50', label: 'Novo Agendamento', bg: '#E8F5E9' };
-
-    case 'NEW_SLOT':
-      return { emoji: '📢', cor: '#FF9800', label: 'Confirmado', bg: '#FFF3E0' };
-
-    case 'APPOINTMENT_DONE':
-      return { emoji: '⭐', cor: '#2196F3', label: 'Concluído', bg: '#E3F2FD' };
-
-    case 'GENERAL':
-      return { emoji: '📋', cor: '#999', label: 'Aviso', bg: '#F5F5F5' };
-
-    default:
-      return { emoji: '📋', cor: '#999', label: 'Notificação', bg: '#F5F5F5' };
+    } catch (e) {
+      console.log('Erro marcar lida:', e);
+    }
   }
-};
+
+  function getInfo(item: Notif) {
+    const tipo = item.type || item.status;
+
+    switch (tipo) {
+
+      case 'NEW_BOOKING':
+        return {
+          emoji: '📥',
+          cor: '#4CAF50',
+          label: 'Novo Agendamento',
+          bg: '#E8F5E9',
+        };
+
+      case 'NEW_SLOT':
+        return {
+          emoji: '📢',
+          cor: '#FF9800',
+          label: 'Novo Horário',
+          bg: '#FFF3E0',
+        };
+
+      case 'APPOINTMENT_DONE':
+        return {
+          emoji: '⭐',
+          cor: '#2196F3',
+          label: 'Concluído',
+          bg: '#E3F2FD',
+        };
+
+      case 'GENERAL':
+        return {
+          emoji: '📋',
+          cor: '#999',
+          label: 'Aviso',
+          bg: '#F5F5F5',
+        };
+
+      default:
+        return {
+          emoji: '📋',
+          cor: '#999',
+          label: 'Notificação',
+          bg: '#F5F5F5',
+        };
+    }
+  }
 
   if (loading) {
     return (
-      <View style={[s.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#C9A96E" />
-        <Text style={{ marginTop: 12, color: '#AAA' }}>
+      <View
+        style={[
+          s.container,
+          {
+            justifyContent: 'center',
+            alignItems: 'center',
+          },
+        ]}
+      >
+        <ActivityIndicator
+          size="large"
+          color="#C9A96E"
+        />
+
+        <Text
+          style={{
+            marginTop: 12,
+            color: '#AAA',
+          }}
+        >
           Carregando notificações...
         </Text>
       </View>
@@ -109,11 +186,17 @@ export default function AdminNotifScreen() {
 
   return (
     <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1A1A1A" />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#1A1A1A"
+      />
 
       <View style={s.header}>
         <View style={{ flex: 1 }}>
-          <Text style={s.headerTitulo}>🔔 Notificações</Text>
+          <Text style={s.headerTitulo}>
+            🔔 Notificações
+          </Text>
+
           <Text style={s.headerSub}>
             {notifs.filter(n => !n.lida).length} não lida(s)
           </Text>
@@ -124,58 +207,123 @@ export default function AdminNotifScreen() {
         data={notifs}
         keyExtractor={i => i.id}
         contentContainerStyle={s.lista}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={s.vazio}>
             <Text style={s.vazioEmoji}>🔕</Text>
-            <Text style={s.vazioText}>Nenhuma notificação</Text>
+
+            <Text style={s.vazioText}>
+              Nenhuma notificação
+            </Text>
           </View>
         }
         renderItem={({ item }) => {
+
           const info = getInfo(item);
 
-          const dataFormatada = item.criadoEm?.toDate
-            ? format(item.criadoEm.toDate(), "dd/MM 'às' HH:mm", { locale: ptBR })
-            : '...';
+          const dataFormatada =
+            item.criadoEm?.toDate
+              ? format(
+                  item.criadoEm.toDate(),
+                  "dd/MM 'às' HH:mm",
+                  { locale: ptBR }
+                )
+              : '...';
 
-          const mensagemFinal = item.msg || item.mensagem || '';
+          const mensagemFinal =
+            item.msg ||
+            item.mensagem ||
+            '';
 
           return (
             <TouchableOpacity
               activeOpacity={0.85}
-              onPress={() => !item.lida && marcarLida(item.id)}
+              onPress={async () => {
+
+                await marcarLida(item.id);
+
+                if (
+                  item.agendamentoId &&
+                  (
+                    item.type === 'NEW_SLOT' ||
+                    item.type === 'NEW_BOOKING'
+                  )
+                ) {
+                  navigation.navigate(
+                    'detalhes_agendamento',
+                    {
+                      id: item.agendamentoId,
+                    }
+                  );
+                }
+              }}
               style={[
                 s.card,
                 !item.lida && s.naoLida,
               ]}
             >
               <View style={s.topo}>
-                <View style={[s.badge, { backgroundColor: info.bg }]}>
+
+                <View
+                  style={[
+                    s.badge,
+                    {
+                      backgroundColor: info.bg,
+                    },
+                  ]}
+                >
                   <Text>{info.emoji}</Text>
-                  <Text style={[s.label, { color: info.cor }]}>
+
+                  <Text
+                    style={[
+                      s.label,
+                      {
+                        color: info.cor,
+                      },
+                    ]}
+                  >
                     {info.label}
                   </Text>
                 </View>
 
-                {!item.lida && <View style={s.ponto} />}
+                {!item.lida && (
+                  <View style={s.ponto} />
+                )}
               </View>
 
               <Text style={s.titulo}>
-                {item.clienteNome || item.titulo || 'Notificação'}
+                {item.titulo ||
+                  item.clienteNome ||
+                  'Notificação'}
               </Text>
 
               {!!item.servicoNome && (
-                <Text style={s.info}>💆 {item.servicoNome}</Text>
+                <Text style={s.info}>
+                  💆 {item.servicoNome}
+                </Text>
               )}
 
               {!!item.data && (
-                <Text style={s.info}>📅 {item.data}</Text>
+                <Text style={s.info}>
+                  📅 {item.data}
+                </Text>
+              )}
+
+              {!!item.horario && (
+                <Text style={s.info}>
+                  ⏰ {item.horario}
+                </Text>
               )}
 
               {!!mensagemFinal && (
-                <Text style={s.msg}>{mensagemFinal}</Text>
+                <Text style={s.msg}>
+                  {mensagemFinal}
+                </Text>
               )}
 
-              <Text style={s.data}>{dataFormatada}</Text>
+              <Text style={s.data}>
+                {dataFormatada}
+              </Text>
             </TouchableOpacity>
           );
         }}
@@ -185,12 +333,18 @@ export default function AdminNotifScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+  },
 
   header: {
     backgroundColor: '#1A1A1A',
     padding: 20,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 10 : 50,
+    paddingTop:
+      Platform.OS === 'android'
+        ? (StatusBar.currentHeight ?? 24) + 10
+        : 50,
   },
 
   headerTitulo: {
@@ -205,7 +359,9 @@ const s = StyleSheet.create({
     marginTop: 2,
   },
 
-  lista: { padding: 16 },
+  lista: {
+    padding: 16,
+  },
 
   card: {
     backgroundColor: '#fff',

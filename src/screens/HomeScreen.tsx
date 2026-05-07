@@ -13,7 +13,7 @@ import type { Estabelecimento } from '../types';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
-import { escutarNotificacoes } from '../services/notificacao.Service';
+import { escutarNotificacoes, } from '../services/notificacao.service';
 // Constantes mantidas conforme original
 const TIPOS = [
   'Todos', 'Salão de Beleza', 'Barbearia Premium', 'Espaço de Unhas', 'Manicure & Pedicure',
@@ -224,7 +224,8 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!user?.uid) { setNotificacoesNaoLidas(0); return; }
     const unsub = firestore().collection('notificacoes')
-      .where('clienteId', '==', user.uid).where('lida', '==', false)
+      .where('userId', '==', user.uid)
+	  .where('lida', '==', false)
       .onSnapshot(snap => setNotificacoesNaoLidas(snap?.size || 0), () => {});
     return () => unsub();
   }, [user?.uid]);

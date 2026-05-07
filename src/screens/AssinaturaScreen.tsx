@@ -1,26 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  ActivityIndicator, Alert, StatusBar, Dimensions, Platform
+  ActivityIndicator, Alert, StatusBar, Platform
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view'; // 🔥 Instalação necessária
-import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import MaskedView from '@react-native-masked-view/masked-view';
+import { getFunctions } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-// Cores e Gradientes Premium
 const GOLD_GRADIENT = ['#D4AF37', '#F9E29B', '#B8860B'];
 const GOLD_TXT_GRADIENT = ['#C9A96E', '#F9E29B', '#B8860B'];
 const DARK_GRADIENT = ['#1A1A1A', '#0D0D0D', '#000'];
 const GOLD = '#D4AF37';
 
-// Componente para Texto com Gradiente
 const GradientText = (props) => (
   <MaskedView maskElement={<Text {...props} />}>
-    <LinearGradient colors={GOLD_TXT_GRADIENT} start={{x:0, y:0}} end={{x:1, y:1}}>
+    <LinearGradient colors={GOLD_TXT_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
       <Text {...props} style={[props.style, { opacity: 0 }]} />
     </LinearGradient>
   </MaskedView>
@@ -58,7 +56,8 @@ export default function AssinaturaScreen({ navigation }) {
   const [planoAtualId, setPlanoAtualId] = useState('free');
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [trialUsado, setTrialUsado] = useState(false);
-const [trialAtivo, setTrialAtivo] = useState(false);
+  const [trialAtivo, setTrialAtivo] = useState(false);
+
   useEffect(() => {
     const user = auth().currentUser;
     if (!user) return;
@@ -68,74 +67,70 @@ const [trialAtivo, setTrialAtivo] = useState(false);
       .where('adminId', '==', user.uid)
       .limit(1)
       .onSnapshot(snapshot => {
-        if (snapshot && !snapshot.empty) {
+        if (!snapshot.empty) {
           const doc = snapshot.docs[0];
           const data = doc.data();
+
           setEstId(doc.id);
           setPlanoAtualId(data.plano || 'free');
           setTrialUsado(!!data.trialUsado);
 
-          const expira = data.expiraEm?.toDate ? data.expiraEm.toDate() : null;
-const agora = new Date();
+          const expira =
+            data.expiraEm?.toDate?.() ??
+            (data.expiraEm ? new Date(data.expiraEm) : null);
 
-const trialAtivoCalc =
-  data.plano === 'trial' &&
-  expira &&
-  expira > agora;
+          const agora = new Date();
 
-const assinaturaAtivaCalc =
-  !!data.assinaturaAtiva &&
-  expira &&
-  expira > agora;
+          const trialAtivoCalc =
+            data.plano === 'trial' &&
+            expira &&
+            expira > agora;
 
-setTrialAtivo(trialAtivoCalc);
-setAssinaturaAtiva(assinaturaAtivaCalc);
+          const assinaturaAtivaCalc =
+            !!data.assinaturaAtiva &&
+            (!expira || expira > agora);
+
+          setTrialAtivo(trialAtivoCalc);
+          setAssinaturaAtiva(assinaturaAtivaCalc);
         }
         setLoadingDados(false);
-      }, () => setLoadingDados(false));
+      });
 
     return () => unsub();
   }, []);
 
   const handleTrialPress = () => {
-    if (!estId) {
-      Alert.alert("💎 Quase lá!", "Para ativar seus 7 dias de teste gratuito, crie um estabelecimento primeiro.", [{ text: "Entendido" }]);
-      return;
-    }
-    if (trialUsado) {
-      Alert.alert("Aviso", "O período de teste já foi utilizado.");
-      return;
-    }
-    Alert.alert("Ativar Teste", "Deseja iniciar seus 7 dias de acesso Premium agora?", [
+    if (!estId) return Alert.alert("Erro", "Crie um estabelecimento primeiro");
+    if (trialUsado) return Alert.alert("Aviso", "Teste já usado");
+
+    Alert.alert("Ativar Teste", "Iniciar 7 dias grátis?", [
       { text: "Cancelar", style: "cancel" },
-      { text: "Ativar", onPress: callsIniciarTrial }
+      { text: "Ativar", onPress: iniciarTrial }
     ]);
   };
 
-  const callsIniciarTrial = async () => {
-    if (!estId) {
-      Alert.alert("Erro", "ID inválido.");
-      return;
-    }
+  const iniciarTrial = async () => {
     setLoadingAction('trial');
+
     try {
-      const res = await functions('southamerica-east1')
-        .httpsCallable('iniciarTrial')({ estabelecimentoId: estId });
-     
-	 if (res.data && res.data.ok) {
-        Alert.alert("✨ Sucesso", "Aproveite seus 7 dias Premium!");
+      const fn = getFunctions(getApp(), 'southamerica-east1')
+        .httpsCallable('iniciarTrial');
+
+      const res = await fn({ estabelecimentoId: estId });
+
+      if (res.data?.ok) {
+        Alert.alert("Sucesso", "Trial ativado!");
       } else {
-        Alert.alert("Aviso", res.data?.message || "Não foi possível ativar o teste.");
+        Alert.alert("Aviso", res.data?.message || "Erro ao ativar trial");
       }
-    } catch (e) {
-      Alert.alert("Erro", "Falha de conexão.");
+    } catch {
+      Alert.alert("Erro", "Falha de conexão");
     } finally {
       setLoadingAction(null);
     }
   };
 
- // ✅ DEPOIS (correto)
-if (loadingDados || !estId) {
+  if (loadingDados || !estId) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={GOLD} size="large" />
@@ -143,108 +138,102 @@ if (loadingDados || !estId) {
     );
   }
 
-  // ✅ Return principal — só executa quando os dados já carregaram
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        
-        {/* HEADER UNIFICADO NO TOPO DO SCROLL */}
+
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+
+        {/* HEADER */}
         <View style={styles.headerUnificado}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
             <Icon name="chevron-left" size={32} color={GOLD} />
           </TouchableOpacity>
-          <View style={styles.titleBlock}>
-            <GradientText style={styles.headerTitle}>EXCELLENCE</GradientText>
-            <GradientText style={styles.headerSubtitle}>Escolha seu nível de exclusividade</GradientText>
-          </View>
+
+          <GradientText style={styles.headerTitle}>EXCELLENCE</GradientText>
+          <GradientText style={styles.headerSubtitle}>
+            Escolha seu nível de exclusividade
+          </GradientText>
         </View>
 
-        {/* TRIAL CARD (ZONA DE CONVERSÃO) */}
+        {/* TRIAL */}
         {!assinaturaAtiva && !trialAtivo && (
-          <TouchableOpacity onPress={handleTrialPress} activeOpacity={0.8} style={styles.trialWrapper}>
-            <LinearGradient colors={GOLD_GRADIENT} start={{x:0, y:0}} end={{x:1, y:0}} style={styles.trialCard}>
-              <View style={styles.trialTextCol}>
+          <TouchableOpacity onPress={handleTrialPress} style={styles.trialWrapper}>
+            <LinearGradient colors={GOLD_GRADIENT} style={styles.trialCard}>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.trialTitle}>7 DIAS GRÁTIS</Text>
-                <Text style={styles.trialSub}>Experimente o poder do Premium agora</Text>
+                <Text style={styles.trialSub}>Experimente o Premium</Text>
               </View>
-              <View style={styles.trialIconCol}>
-                {loadingAction === 'trial' ? (
-                  <ActivityIndicator color="#000" />
-                ) : (
-                  <Icon name={trialUsado ? "lock-outline" : "crown"} size={38} color="#000" />
-                )}
-              </View>
+
+              {loadingAction === 'trial' ? (
+                <ActivityIndicator color="#000" />
+              ) : (
+                <Icon name={trialUsado ? "lock" : "crown"} size={32} color="#000" />
+              )}
             </LinearGradient>
           </TouchableOpacity>
         )}
 
-        {/* LISTAGEM DE TODOS OS PLANOS */}
+        {/* PLANOS */}
         <View style={styles.listContainer}>
           {PLANOS.map((plano) => {
             const isAtivo = plano.id === planoAtualId && assinaturaAtiva;
+
             return (
-              <LinearGradient 
-                key={plano.id} 
-                colors={DARK_GRADIENT} // Fundo escuro premium
-                style={[styles.planCard, plano.popular && styles.popularCard]}
-              >
-                {/* RECOMENDADO BADGE */}
+              <LinearGradient key={plano.id} colors={DARK_GRADIENT} style={styles.planCard}>
+
                 {plano.popular && (
                   <View style={styles.popularBadge}>
                     <Text style={styles.popularBadgeText}>RECOMENDADO</Text>
                   </View>
                 )}
-                
-                <Text style={[styles.planName, {color: plano.cor}]}>{plano.nome}</Text>
-                
+
+                <Text style={[styles.planName, { color: plano.cor }]}>
+                  {plano.nome}
+                </Text>
+
                 <View style={styles.priceRow}>
-                  <Text style={styles.currency}>R$</Text>
-                  <Text style={styles.priceVal}>{plano.preco.split(',')[0]}</Text>
-                  <Text style={styles.priceCents}>,{plano.preco.split(',')[1]}</Text>
-                  <Text style={styles.pricePeriod}>/mês</Text>
+                  <Text style={styles.priceVal}>R$ {plano.preco}</Text>
                 </View>
 
-                <View style={styles.featureList}>
-                  {plano.features.map((f, i) => (
-                    <View key={i} style={styles.featureItem}>
-                      <Icon name="check-decagram" size={20} color={plano.cor} />
-                      <Text style={styles.featureText}>{f}</Text>
-                    </View>
-                  ))}
-                </View>
+                {plano.features.map((f, i) => (
+                  <View key={i} style={styles.featureItem}>
+                    <Icon name="check" color={plano.cor} size={18} />
+                    <Text style={styles.featureText}>{f}</Text>
+                  </View>
+                ))}
 
-                {/* BOTÃO ASSINAR */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   disabled={isAtivo}
                   onPress={() => {
-  if (!estId) {
-    Alert.alert('Erro', 'Estabelecimento não carregado');
-    return;
-  }
-
-  navigation.navigate('CheckoutPagamentoScreen', { 
-    planoId: plano.id,
-    estabelecimentoId: estId,
-    planoNome: plano.nome,
-    valor: Number(plano.preco.replace(',', '.'))
-  });
-}}
+                    navigation.navigate('CheckoutPagamentoScreen', {
+                      planoId: plano.id,
+                      estabelecimentoId: estId,
+                      planoNome: plano.nome,
+                      valor: Number(plano.preco.replace(',', '.'))
+                    });
+                  }}
                 >
-                  <LinearGradient colors={isAtivo ? ['#333', '#222'] : GOLD_GRADIENT} style={styles.mainBtn}>
+                  <LinearGradient
+                    colors={isAtivo ? ['#333', '#222'] : GOLD_GRADIENT}
+                    style={styles.mainBtn}
+                  >
                     <Text style={styles.mainBtnText}>
                       {isAtivo ? 'SEU PLANO ATUAL' : `ASSINAR ${plano.nome}`}
                     </Text>
                   </LinearGradient>
                 </TouchableOpacity>
+
               </LinearGradient>
             );
           })}
         </View>
+
       </ScrollView>
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },

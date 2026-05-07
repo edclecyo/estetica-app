@@ -3,3 +3,14 @@ npx react-native start --reset-cache
 npx react-native run-android
 git reset --hard
 npm run build
+firebase deploy --only functions
+
+FAZER O PUSH GITHUB
+git add .
+git commit -m ""
+git push origin main
+
+FAZER O PULL-(passar para o pc)
+
+git pull origin 
+git reset --hard

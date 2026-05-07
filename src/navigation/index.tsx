@@ -4,7 +4,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, ActivityIndicator } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
-import { configurarAberturaPorNotificacao } from '../services/notificacao.Service';
+import { configurarAberturaPorNotificacao } from '../services/notificacao.service';
 
 // Telas Cliente
 import HomeScreen from '../screens/HomeScreen';

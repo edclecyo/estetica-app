@@ -32,7 +32,6 @@ const getDatas = () => {
   return lista;
 };
 
-
 const BannerMedia = ({ data, style }: { data: any, style: any }) => {
   const [imgErro, setImgErro] = useState(false);
 
@@ -52,12 +51,16 @@ const BannerMedia = ({ data, style }: { data: any, style: any }) => {
     );
   }
 
+
   return (
-    <Text style={style}>
-      {(!isUrl ? data?.img : null) || '🏢'}
-    </Text>
+    <View style={style}>
+      <Text style={{ textAlign: 'center' }}>
+        {data?.img || '🏢'}
+      </Text>
+    </View>
   );
 };
+
 
 export default function DetalheScreen() {
   const navigation = useNavigation<any>();
@@ -112,9 +115,9 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
     .onSnapshot(
       snap => {
         if (snap && snap.docs) {
-          const ocupados = snap.docs
-            .map(d => d.data()?.horario)
-            .filter(Boolean);
+         const ocupados = snap.docs
+  .map(d => d.data()?.horario as string)
+  .filter(h => !!h);
 
           setHorariosOcupados(ocupados);
         } else {
@@ -174,7 +177,7 @@ const criarAgendamento = httpsCallable(functionsInstance, 'criarAgendamento');
 
   console.log('Resposta:', res.data);
 
-  const agendamentoId = res.data?.id;
+  const agendamentoId = res.data?.id || res.data?.data?.id;
 
   if (!agendamentoId) {
     throw new Error('Erro ao criar agendamento');
@@ -227,11 +230,37 @@ const criarAgendamento = httpsCallable(functionsInstance, 'criarAgendamento');
   setSalvando(false);
 }
   };
-  const abrirWhatsApp = () => {
-    const tel = estab?.telefone?.replace(/\D/g, '');
-    if (!tel) return;
-    const msg = `Olá! Vim pelo app e gostaria de marcar um horário em ${estab?.nome}.`;
-    Linking.openURL(`https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`);
+ const abrirWhatsApp = async () => {
+    const raw = estab?.telefone;
+
+    if (!raw) {
+      Alert.alert('WhatsApp indisponível', 'Este estabelecimento não possui WhatsApp cadastrado.');
+      return;
+    }
+
+    const tel = raw.replace(/\D/g, '');
+
+    if (tel.length < 10) {
+      Alert.alert('Número inválido', 'WhatsApp do estabelecimento inválido.');
+      return;
+    }
+
+const numeroFinal = tel.startsWith('55')
+  ? tel
+  : `55${tel}`;
+
+const url = `https://wa.me/${numeroFinal}?text=${encodeURIComponent(
+  `Olá! Vim pelo app e gostaria de marcar um horário.`
+)}`;
+
+    const canOpen = await Linking.canOpenURL(url);
+
+    if (!canOpen) {
+      Alert.alert('Erro', 'Não foi possível abrir o WhatsApp.');
+      return;
+    }
+
+    Linking.openURL(url);
   };
 
   if (loading) {
@@ -296,12 +325,11 @@ const semHorarios = horariosLivres.length === 0;
 
   const svcsAtivos = Array.isArray(estab?.servicos) ? estab.servicos.filter(s => s.ativo) : [];
 
-  return (
+   return (
     <View style={s.container}>
-      <View style={[s.banner, { backgroundColor: (estab?.cor || '#C9A96E') + '22' }]}>
-        <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
-          <Text style={s.voltarBtnText}>←</Text>
-        </TouchableOpacity>
+
+      {/* HEADER */}
+      <View style={s.banner}>
         <BannerMedia data={estab} style={s.bannerEmoji} />
         <View style={s.bannerInfo}>
           <Text style={s.bannerNome}>{estab?.nome}</Text>
@@ -396,17 +424,44 @@ const semHorarios = horariosLivres.length === 0;
                 )}
               </View>
 
-              <View style={s.resumoFinalCard}>
-                <Text style={s.resumoFinalTitulo}>Resumo do Agendamento</Text>
-                <View style={s.resumoFinalLinha}>
-                   <Icon name="check-circle" size={16} color="#C9A96E" />
-                   <Text style={s.resumoFinalTexto}>{servicoSel} — R${estab?.servicos.find(s=>s.nome === servicoSel)?.preco}</Text>
-                </View>
-                <View style={s.resumoFinalLinha}>
-                   <Icon name="calendar" size={16} color="#C9A96E" />
-                   <Text style={s.resumoFinalTexto}>{dataSel?.dia}, {dataSel?.numero} de {dataSel?.mes} às {horarioSel}</Text>
-                </View>
-              </View>
+             <View style={s.resumoFinalCard}>
+  <Text style={s.resumoFinalTitulo}>Resumo do Agendamento</Text>
+
+  {/* 👤 CLIENTE */}
+  <View style={s.resumoFinalLinha}>
+    <Icon name="user" size={16} color="#C9A96E" />
+    <Text style={s.resumoFinalTexto}>
+      {nomeUsuario || nome}
+    </Text>
+  </View>
+
+  {/* 💆 SERVIÇO */}
+  <View style={s.resumoFinalLinha}>
+    <Icon name="check-circle" size={16} color="#C9A96E" />
+    <Text style={s.resumoFinalTexto}>
+      {servicoSel} — R$
+      {estab?.servicos?.find(s => s.nome === servicoSel)?.preco}
+    </Text>
+  </View>
+
+  {/* 📅 DATA/HORA */}
+  <View style={s.resumoFinalLinha}>
+    <Icon name="calendar" size={16} color="#C9A96E" />
+    <Text style={s.resumoFinalTexto}>
+      {dataSel?.dia}, {dataSel?.numero} de {dataSel?.mes} às {horarioSel}
+    </Text>
+  </View>
+
+  {/* 💳 PAGAMENTO (🔥 NOVO) */}
+  <View style={s.resumoFinalLinha}>
+    <Icon name="credit-card" size={16} color="#C9A96E" />
+    <Text style={s.resumoFinalTexto}>
+      {formaPagamento === 'app'
+        ? 'Pagamento via app'
+        : 'Pagamento no local'}
+    </Text>
+  </View>
+</View>
             </>
           )}
 {step >= 4 && (
@@ -448,20 +503,40 @@ const semHorarios = horariosLivres.length === 0;
 </View>
 )}
           <TouchableOpacity
-            style={[s.btnPrimario, (!servicoSel || !dataSel || !horarioSel || !nome) && s.btnDisabled]}
-            disabled={
-  !servicoSel ||  !dataSel || !horarioSel ||  !nome ||  !formaPagamento ||  salvando}
+           style={[
+  s.btnPrimario,
+  (
+    !servicoSel ||
+    !dataSel ||
+    !horarioSel ||
+    !(nomeUsuario || nome) ||
+    !formaPagamento
+  ) && s.btnDisabled
+]}
+           disabled={
+  !servicoSel ||
+  !dataSel ||
+  !horarioSel ||
+  !(nomeUsuario || nome) ||
+  !formaPagamento ||
+  salvando
+}
             onPress={confirmar}>
             {salvando ? <ActivityIndicator color="#fff" /> : <Text style={s.btnPrimarioText}>Finalizar Agendamento</Text>}
           </TouchableOpacity>
         </View>
       </ScrollView>
 
-      {estab?.telefone && (
-        <TouchableOpacity onPress={abrirWhatsApp} style={s.whatsappBtn}>
+      {/* WHATSAPP FLOAT */}
+      {!!estab?.telefone && (
+        <TouchableOpacity
+          onPress={abrirWhatsApp}
+          style={s.whatsappBtn}
+        >
           <Icon name="whatsapp" size={28} color="#fff" />
         </TouchableOpacity>
       )}
+
     </View>
   );
 }

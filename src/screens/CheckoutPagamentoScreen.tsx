@@ -25,7 +25,7 @@ export default function CheckoutScreen({ route, navigation }: any) {
   const [expirado, setExpirado] = useState(false);
   const [copiado, setCopiado] = useState(false);
 
-  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const unsubscribeRef = useRef<any>(null);
   const timerRef = useRef<any>(null);
 
   const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
@@ -38,96 +38,136 @@ export default function CheckoutScreen({ route, navigation }: any) {
     };
   }, []);
 
-  // ================= MONITORAMENTO REAL =================
-const iniciarMonitoramentoPix = () => {
-  unsubscribeRef.current?.();
+  // ================= CARREGAR PIX EXISTENTE =================
+  useEffect(() => {
+    const carregarPix = async () => {
+      const doc = await firestore()
+        .collection('estabelecimentos')
+        .doc(estabelecimentoId)
+        .get();
 
-  unsubscribeRef.current = firestore()
-    .collection('estabelecimentos')
-    .doc(estabelecimentoId)
-    .onSnapshot((doc) => {
       const data = doc.data();
       if (!data) return;
 
-      const status = data.pixStatus;
-      setStatusPix(status || 'pending');
+      const expira = data.pixExpiraEm?.toDate?.();
 
-      if (status === 'approved' && !isProcessing) {
-        setIsProcessing(true);
+      if (
+        data.pixStatus === 'pending' &&
+        data.pixQrCodeBase64 &&
+        expira &&
+        expira > new Date()
+      ) {
+        setPix({
+          qr_code: data.pixQrCode,
+          qr_code_base64: data.pixQrCodeBase64
+        });
 
-        unsubscribeRef.current?.();
-        if (timerRef.current) clearTimeout(timerRef.current);
+        setStatusPix('pending');
+        iniciarMonitoramentoPix();
 
-        Alert.alert('Pagamento confirmado', 'Seu plano foi ativado!', [
-          {
-            text: 'Entrar',
-            onPress: () =>
-              navigation.replace('AdminDash', { estabelecimentoId })
-          }
-        ]);
+        const restante = expira.getTime() - Date.now();
+
+        if (restante > 0) {
+          timerRef.current = setTimeout(() => {
+            setExpirado(true);
+          }, restante);
+        }
       }
 
-      if (status === 'expired') {
+      if (expira && expira <= new Date()) {
         setExpirado(true);
+        setStatusPix('expired');
       }
-    });
-};
+    };
+
+    carregarPix();
+  }, []);
+
+  // ================= MONITORAMENTO =================
+  const iniciarMonitoramentoPix = () => {
+    unsubscribeRef.current?.();
+
+    unsubscribeRef.current = firestore()
+      .collection('estabelecimentos')
+      .doc(estabelecimentoId)
+      .onSnapshot((doc) => {
+        const data = doc.data();
+        if (!data) return;
+
+        const rawStatus = data.pixStatus || 'pending';
+
+        const status = ['approved', 'pending', 'rejected', 'cancelled']
+          .includes(rawStatus)
+          ? rawStatus
+          : 'pending';
+
+        setStatusPix(status);
+
+        if (status === 'approved') {
+          if (isProcessing) return;
+
+          setIsProcessing(true);
+
+          unsubscribeRef.current?.();
+          if (timerRef.current) clearTimeout(timerRef.current);
+
+          Alert.alert('Pagamento confirmado', 'Seu plano foi ativado!', [
+            {
+              text: 'Entrar',
+              onPress: () =>
+                navigation.replace('AdminDash', { estabelecimentoId })
+            }
+          ]);
+        }
+      });
+  };
 
   // ================= PIX =================
-const pagarPix = async () => {
-  if (loading) return;
+  const pagarPix = async () => {
+    if (loading) return;
 
-  setLoading(true);
-  setExpirado(false);
+    setLoading(true);
+    setExpirado(false);
+    setIsProcessing(false);
+    setPix(null);
+    setStatusPix('pending');
 
-  // 🔥 RESET (ESSENCIAL)
-  setStatusPix('pending');
-  setIsProcessing(false);
-  setPix(null);
+    try {
+      const fn = httpsCallable(functionsInstance, 'criarPagamentoPixAssinatura');
 
-  try {
-    const fn = httpsCallable(functionsInstance, 'criarPagamentoPixAssinatura');
+      const { data } = await fn({
+        estabelecimentoId,
+        plano: planoId,
+        valor: valor
+      });
 
-    const { data } = await fn({
-      estabelecimentoId,
-      plano: planoId,
-      valor: valor
-    });
+      if (!data?.qr_code_base64) {
+        throw new Error('Falha ao gerar QR Code');
+      }
 
-    if (!data?.qr_code_base64) {
-      throw new Error('Falha ao gerar QR Code');
-    }
+      setPix(data);
 
-    setPix(data);
+      if (timerRef.current) clearTimeout(timerRef.current);
 
-    if (timerRef.current) clearTimeout(timerRef.current);
+      // 30 min (igual backend)
+      timerRef.current = setTimeout(() => {
+        setExpirado(true);
+      }, 1000 * 60 * 30);
 
-    timerRef.current = setTimeout(() => {
-      setExpirado(true);
-      Alert.alert(
-        'PIX expirado',
-        'Deseja tentar novamente?',
-        [
-          { text: 'Tentar PIX', onPress: pagarPix },
-          { text: 'Cartão', onPress: pagarCartao }
-        ]
-      );
-    }, 1000 * 60 * 3);
-
-    iniciarMonitoramentoPix();
-
-  } catch (e: any) {
-    console.error(e);
-
-    if (e?.code === 'resource-exhausted') {
       iniciarMonitoramentoPix();
-    } else {
-      Alert.alert('Erro', e?.message || 'Erro ao gerar PIX');
+
+    } catch (e: any) {
+      console.error(e);
+
+      if (e?.code === 'resource-exhausted') {
+        iniciarMonitoramentoPix();
+      } else {
+        Alert.alert('Erro', e?.message || 'Erro ao gerar PIX');
+      }
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   // ================= CARTÃO =================
   const pagarCartao = () => {
@@ -147,17 +187,20 @@ const pagarPix = async () => {
   };
 
   const statusLabel = (status: string) => {
+    if (expirado) return 'EXPIRADO';
+
     switch (status) {
       case 'approved': return 'APROVADO';
       case 'pending': return 'PENDENTE';
-      case 'expired': return 'EXPIRADO';
+      case 'rejected': return 'RECUSADO';
+      case 'cancelled': return 'CANCELADO';
       default: return 'AGUARDANDO';
     }
   };
 
   return (
     <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      
+
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Icon name="arrow-left" size={24} color="#C9A96E" />
@@ -175,7 +218,7 @@ const pagarPix = async () => {
             s.badge,
             statusPix === 'approved' && { backgroundColor: '#1DB954' },
             statusPix === 'pending' && { backgroundColor: '#C9A96E' },
-            statusPix === 'expired' && { backgroundColor: '#FF4D4D' },
+            expirado && { backgroundColor: '#FF4D4D' },
           ]}>
             {statusLabel(statusPix)}
           </Text>
@@ -190,16 +233,18 @@ const pagarPix = async () => {
       ) : (
         <>
           <TouchableOpacity
-            style={[s.btnPix, (loading || statusPix === 'pending') && { opacity: 0.7 }]}
+            style={[s.btnPix, loading && { opacity: 0.7 }]}
             onPress={pagarPix}
-            disabled={loading || statusPix === 'pending'}
+            disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#000" />
             ) : (
               <>
                 <Icon name="qrcode" size={18} color="#000" />
-                <Text style={s.btnText}>Pagar com PIX</Text>
+                <Text style={s.btnText}>
+                  {pix ? 'Gerar novo PIX' : 'Pagar com PIX'}
+                </Text>
               </>
             )}
           </TouchableOpacity>

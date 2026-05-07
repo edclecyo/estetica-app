@@ -34,7 +34,7 @@ export default function AgendamentosScreen() {
 }, []);
 
   // 📦 FIRESTORE
-  useEffect(() => {
+ useEffect(() => {
   if (!user?.uid) return;
 
   setLoading(true);
@@ -42,17 +42,19 @@ export default function AgendamentosScreen() {
   const ref = firestore()
     .collection('agendamentos')
     .where('clienteUid', '==', user.uid)
-    .where('deletado', '==', false)
     .orderBy('criadoEm', 'desc');
 
   const unsubscribe = ref.onSnapshot(
     snap => {
-      setAgendamentos(
-        snap.docs.map(d => ({
+      const dados = snap.docs
+        .map(d => ({
           id: d.id,
           ...d.data(),
-        })) as Agendamento[]
-      );
+        }))
+        // 🔥 filtro LOCAL evita erro de índice
+        .filter((a: any) => a.deletado !== true);
+
+      setAgendamentos(dados as Agendamento[]);
       setLoading(false);
     },
     error => {
@@ -97,7 +99,22 @@ export default function AgendamentosScreen() {
         return { cor: '#FF9800', bg: '#FFF3E0', label: '⏳ Pendente' };
     }
   };
+const removerAgendamentoLocal = async (id: string) => {
+  try {
+    await firestore()
+      .collection('agendamentos')
+      .doc(id)
+      .update({
+        deletado: true,
+        atualizadoEm: firestore.FieldValue.serverTimestamp(),
+      });
 
+    // remove da tela instantaneamente
+   
+  } catch (e) {
+    console.log('Erro ao deletar:', e);
+  }
+};
   const formatarDataConclusao = (timestamp: any) => {
     if (!timestamp) return '';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -246,13 +263,9 @@ export default function AgendamentosScreen() {
                 {podeAvaliar && (
                   <TouchableOpacity
                     style={s.avaliarBtn}
-                    onPress={() =>
-                      navigation.navigate('Avaliar', {
-                        agendamentoId: item.id,
-                        estabelecimentoNome: item.estabelecimentoNome,
-                        estabelecimentoId: item.estabelecimentoId,
-                      })
-                    }
+                     onPress={() => {
+  navigation.navigate('Avaliar', { agendamentoId: item.id });
+}}
                   >
                     <Text style={s.avaliarBtnText}>⭐ Avaliar</Text>
                   </TouchableOpacity>

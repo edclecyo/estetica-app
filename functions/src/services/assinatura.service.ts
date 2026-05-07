@@ -1,88 +1,163 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-import { planoAtivo, dataKey } from '../utils/helpers';
+import {
+  Timestamp,
+  FieldValue,
+  WriteBatch,
+} from 'firebase-admin/firestore';
+
+import {
+  planoAtivo,
+  dataKey,
+  gerarSlots,
+} from '../utils/helpers';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
 
 // ─────────────────────────────────────────────
-// 🔐 LOCK SYSTEM
+// 🔓 LIBERAR HORÁRIO
+// ─────────────────────────────────────────────
+
+const liberarHorario = (ag: any, batch: WriteBatch) => {
+  const key = dataKey(ag.data);
+
+  const estId = ag.estabelecimentoId;
+  const duracao = ag.servicoDuracaoMin || 30;
+
+  const slots = gerarSlots(ag.horario, duracao);
+
+  for (const hora of slots) {
+    batch.delete(
+      db.collection('horariosOcupados')
+        .doc(`${estId}_${key}_${hora}`)
+    );
+  }
+
+  batch.delete(
+    db.collection('agendamentoLocks')
+      .doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`)
+  );
+};
+
+async function checkPlanoAtivo(t: any, estabelecimentoId: string) {
+  const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
+  const snap = await t.get(ref);
+
+  if (!snap.exists) {
+    throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+  }
+
+  const est = snap.data();
+
+  const agora = Date.now();
+  const expira = est?.expiraEm?.toDate?.()?.getTime?.() ?? 0;
+
+  const assinaturaAtiva = est?.assinaturaAtiva === true;
+
+  const trialAtivo =
+    est?.plano === 'trial' && expira > agora;
+
+  const trialExpirado =
+    est?.plano === 'trial' && expira <= agora;
+
+  // 🔴 Se trial expirou → atualiza status
+  if (trialExpirado) {
+    t.update(ref, {
+      statusPlano: 'expirado',
+      assinaturaAtiva: false,
+    });
+  }
+
+  // 🔒 BLOQUEIO REAL
+  if (!assinaturaAtiva && !trialAtivo) {
+    throw new HttpsError(
+      'failed-precondition',
+      trialExpirado
+        ? 'Trial expirado. Ative um plano.'
+        : 'Ative o trial ou um plano para continuar.'
+    );
+  }
+
+  return est;
+}
+// ─────────────────────────────────────────────
+// 🔐 LOCK SYSTEM (CORRIGIDO - ATÔMICO)
 // ─────────────────────────────────────────────
 
 export async function acquireLock(id: string, ttlSec = 30) {
   const ref = db.collection('locks').doc(id);
 
-  const now = Date.now();
-  const expiresAt = now + ttlSec * 1000;
+  const expiresAt = Date.now() + ttlSec * 1000;
 
-  return db.runTransaction(async (t) => {
-    const snap = await t.get(ref);
-
-    if (snap.exists) {
-      const data = snap.data()!;
-      const current = data.expiresAt?.toMillis?.() || 0;
-
-      if (current > now) {
-        throw new HttpsError('resource-exhausted', 'LOCKED');
-      }
-    }
-
-    t.set(ref, {
+  try {
+    await ref.create({
       status: 'locked',
       createdAt: FieldValue.serverTimestamp(),
       expiresAt: Timestamp.fromMillis(expiresAt),
     });
 
     return true;
-  });
+  } catch (e: any) {
+    const snap = await ref.get();
+
+    const data = snap.data();
+    const current = data?.expiresAt?.toMillis?.() || 0;
+
+    if (current > Date.now()) {
+      throw new HttpsError('resource-exhausted', 'LOCKED');
+    }
+
+    await ref.set({
+      status: 'locked',
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt: Timestamp.fromMillis(expiresAt),
+    });
+
+    return true;
+  }
 }
 
 export async function releaseLock(id: string) {
   await db.collection('locks').doc(id).delete().catch(() => null);
 }
+
 // ─────────────────────────────────────────────
-// 🔒 NORMALIZAR PLANO (AUTO EXPIRA)
+// 🔒 NORMALIZAR PLANO (CORRIGIDO)
 // ─────────────────────────────────────────────
 
 function normalizarPlano(est: any, t: any, ref: any): boolean {
-  const agora = new Date();
-  const expira = est?.expiraEm?.toDate?.() || null;
+  const agora = Date.now();
 
-  const trialAtivo =
-  est?.plano === 'trial' &&
-  expira !== null &&
-  expira.getTime() > agora.getTime();
+  const expira = est?.expiraEm?.toDate?.()?.getTime?.() ?? Infinity;
 
   const assinaturaAtiva = est?.assinaturaAtiva === true;
-// 🔥 garante consistência visual
-// ❌ expirou trial (PRIMEIRO)
-if (est?.plano === 'trial' && expira && expira.getTime() <= agora.getTime()) {
-  t.update(ref, {
-    statusPlano: 'expirado',
-    assinaturaAtiva: false,
-  });
-  return false;
-}
 
-// depois consistência
-if (trialAtivo && est.statusPlano !== 'trial') {
-  t.update(ref, { statusPlano: 'trial' });
-}
+  const trialAtivo =
+    est?.plano === 'trial' && expira > agora;
 
-if (assinaturaAtiva && est.statusPlano !== 'ativo') {
-  t.update(ref, { statusPlano: 'ativo' });
-}
+  // ❌ expirou trial
+  if (est?.plano === 'trial' && expira <= agora) {
+    t.update(ref, {
+      statusPlano: 'expirado',
+      assinaturaAtiva: false,
+    });
+    return false;
+  }
 
-  // ✅ regra FINAL
-  if (trialAtivo) return true;
-  if (assinaturaAtiva) return true;
+  if (trialAtivo && est?.statusPlano !== 'trial') {
+    t.update(ref, { statusPlano: 'trial' });
+  }
 
-  return false;
+  if (assinaturaAtiva && est?.statusPlano !== 'ativo') {
+    t.update(ref, { statusPlano: 'ativo' });
+  }
+
+  return trialAtivo || assinaturaAtiva;
 }
 
 // ─────────────────────────────────────────────
-// 🧪 TRIAL (COM LOCK)
+// 🧪 TRIAL
 // ─────────────────────────────────────────────
 
 export const iniciarTrial = onCall({ region: REGION }, async (req) => {
@@ -131,7 +206,6 @@ export const iniciarTrial = onCall({ region: REGION }, async (req) => {
   }
 });
 
-
 // ─────────────────────────────────────────────
 // 🏢 SALVAR ESTABELECIMENTO
 // ─────────────────────────────────────────────
@@ -165,15 +239,16 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (req) => {
     elite: Infinity,
   };
 
-  const limite = limites[plano] ?? 1;
+  const ativos = snapAll.docs.filter(d =>
+    ['ativo', 'trial'].includes(d.data()?.statusPlano)
+  ).length;
 
-  if (isNew && snapAll.size >= limite) {
+  if (isNew && ativos >= (limites[plano] ?? 1)) {
     throw new HttpsError('failed-precondition', 'Limite atingido');
   }
 
   if (!isNew) {
     const snap = await ref.get();
-
     if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
 
     if (snap.data()?.adminId !== adminId) {
@@ -204,7 +279,7 @@ export const salvarEstabelecimento = onCall({ region: REGION }, async (req) => {
 });
 
 // ─────────────────────────────────────────────
-// ✔ CONCLUIR AGENDAMENTO (COM LOCK)
+// ✔ CONCLUIR AGENDAMENTO
 // ─────────────────────────────────────────────
 
 export const concluirAgendamento = onCall({ region: REGION }, async (req) => {
@@ -218,48 +293,68 @@ export const concluirAgendamento = onCall({ region: REGION }, async (req) => {
   await acquireLock(agendamentoId);
 
   try {
-    await db.runTransaction(async (t) => {
+    const result = await db.runTransaction(async (t) => {
       const snap = await t.get(ref);
       if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
 
       const data = snap.data()!;
 
-      if (data.adminId !== req.auth!.uid) {
-        throw new HttpsError('permission-denied', 'Sem permissão');
-      }
-
       const estRef = db.collection('estabelecimentos').doc(data.estabelecimentoId);
       const estSnap = await t.get(estRef);
 
-if (!estSnap.exists) {
-  throw new HttpsError('failed-precondition', 'Estabelecimento inválido');
-}
-      const est = estSnap.data();
+      if (!estSnap.exists) {
+        throw new HttpsError('failed-precondition', 'Estabelecimento inválido');
+      }
+
+      const est = await checkPlanoAtivo(t, data.estabelecimentoId);
 
       const valido = normalizarPlano(est, t, estRef);
+      if (!valido) {
+        throw new HttpsError('failed-precondition', 'Plano inativo');
+      }
 
-if (!valido) {
-  throw new HttpsError('failed-precondition', 'Plano inativo');
-}
+      if (data.status === 'concluido') return { ok: true };
 
-      if (data.status === 'concluido') return;
-
+      // ✔ atualiza status
       t.update(ref, {
         status: 'concluido',
         concluidoEm: FieldValue.serverTimestamp(),
       });
+
+      // 🔔 NOTIFICA CLIENTE
+t.set(db.collection('notificacoes').doc(), {
+  userId: data.clienteUid,
+  fromUid: data.adminId,
+  tipo: 'agendamento_concluido',
+  titulo: 'Atendimento concluído',
+  mensagem: 'Seu agendamento foi finalizado com sucesso.',
+  lida: false,
+  criadoEm: FieldValue.serverTimestamp(),
+});
+
+     // 🔔 NOTIFICA ADMIN
+t.set(db.collection('notificacoes').doc(), {
+  userId: data.adminId,
+  fromUid: data.clienteUid,
+  tipo: 'agendamento_concluido',
+  titulo: 'Agendamento concluído',
+  mensagem: 'Você concluiu um atendimento.',
+  lida: false,
+  criadoEm: FieldValue.serverTimestamp(),
+});
+
+      return { ok: true };
     });
 
-    return { ok: true };
+    return result;
 
   } finally {
     await releaseLock(agendamentoId);
   }
 });
 
-
 // ─────────────────────────────────────────────
-// ❌ CANCELAR AGENDAMENTO (COM LOCK + TRANSACTION)
+// ❌ CANCELAR AGENDAMENTO
 // ─────────────────────────────────────────────
 
 export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
@@ -273,7 +368,7 @@ export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
   await acquireLock(agendamentoId);
 
   try {
-    await db.runTransaction(async (t) => {
+    const result = await db.runTransaction(async (t) => {
       const snap = await t.get(ref);
       if (!snap.exists) throw new HttpsError('not-found', 'Não encontrado');
 
@@ -282,13 +377,13 @@ export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
       const estRef = db.collection('estabelecimentos').doc(ag.estabelecimentoId);
       const estSnap = await t.get(estRef);
 
-if (!estSnap.exists) {
-  throw new HttpsError('failed-precondition', 'Estabelecimento inválido');
-}
-      const est = estSnap.data();
+      if (!estSnap.exists) {
+        throw new HttpsError('failed-precondition', 'Estabelecimento inválido');
+      }
+
+     const est = await checkPlanoAtivo(t, ag.estabelecimentoId);
 
       const valido = normalizarPlano(est, t, estRef);
-
       if (!valido) {
         throw new HttpsError('failed-precondition', 'Plano inativo');
       }
@@ -301,29 +396,47 @@ if (!estSnap.exists) {
         throw new HttpsError('permission-denied', 'Sem permissão');
       }
 
-     t.update(ref, {
+      // ✔ atualiza status
+      t.update(ref, {
         status: 'cancelado',
         canceladoEm: FieldValue.serverTimestamp(),
         canceladoPor: req.auth.uid,
       });
 
-      // ✅ PADRONIZA DATA
       const key = dataKey(ag.data);
 
-      t.delete(
-        db.collection('agendamentoLocks')
-          .doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`)
-      );
+      t.delete(db.collection('agendamentoLocks')
+        .doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`));
 
-      t.delete(
-        db.collection('horariosOcupados')
-          .doc(`${ag.estabelecimentoId}_${key}_${ag.horario}`)
-      );
+      t.delete(db.collection('horariosOcupados')
+        .doc(`${ag.estabelecimentoId}_${key}_${ag.horario}`));
 
+      // 🔔 NOTIFICA CLIENTE
+      t.set(db.collection('notificacoes').doc(), {
+        userId: ag.clienteUid,
+        fromUid: ag.adminId,
+        tipo: 'agendamento_cancelado',
+        titulo: 'Agendamento cancelado',
+        mensagem: 'Seu agendamento foi cancelado.',
+        lida: false,
+        criadoEm: FieldValue.serverTimestamp(),
+      });
+
+      // 🔔 NOTIFICA ADMIN
+      t.set(db.collection('notificacoes').doc(), {
+        userId: ag.adminId,
+        fromUid: ag.clienteUid,
+        tipo: 'agendamento_cancelado',
+        titulo: 'Cancelamento realizado',
+        mensagem: 'Você cancelou um agendamento.',
+        lida: false,
+        criadoEm: FieldValue.serverTimestamp(),
+      });
+
+      return { ok: true };
     });
 
-    // ✅ AGORA SIM, FORA DA TRANSACTION
-    return { ok: true };
+    return result;
 
   } finally {
     await releaseLock(agendamentoId);

@@ -1,56 +1,106 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { REGION } from '../config/region';
-import { enviarPush, getTokenUsuario } from '../services/notificacao.service';
+import { getTokenUsuario, enviarPush } from '../services/notificacao.service';
 
 export const aoCriarNotificacao = onDocumentCreated(
   { document: "notificacoes/{docId}", region: REGION },
   async (event) => {
+
     const snapshot = event.data;
     if (!snapshot) return;
 
     const data = snapshot.data() as any;
+    const docId = event.params?.docId || '';
+
+    const pushData = {
+  type: String(data.type || "notification"),
+  docId: String(docId),
+  agendamentoId: String(data.agendamentoId || ""),
+  clienteNome: String(data.clienteNome || ""),
+  servicoNome: String(data.servicoNome || ""),
+  formaPagamento: String(data.formaPagamento || ""),
+};
 
     try {
-      // ===== CLIENTE =====
-      if (data.clienteId) {
-        const tokenCliente = await getTokenUsuario(data.clienteId);
 
-        if (tokenCliente && tokenCliente.length > 10) {
-          await enviarPush(
-            tokenCliente,
-            data.titulo || "Novidade no BeautyHub",
-            data.mensagem || data.msg || "",
-            {
-              type: data.type || "notification",
-              docId: event.params.docId,
-            }
-          );
+      // ─────────────────────────────
+      // 👤 CLIENTE
+      // ─────────────────────────────
+      if (data.tipo === 'cliente' && data.userId) {
 
-          console.log(`✅ Push cliente: ${data.clienteId}`);
+        const tokens = await getTokenUsuario(data.userId, 'cliente');
+
+        let title = "Atualização";
+        let body = data.mensagem || "";
+
+        switch (data.type) {
+
+          case "agendamento":
+            title = "Agendamento confirmado";
+            body = data.mensagem || "Seu agendamento foi confirmado.";
+            break;
+
+          case "cancelamento":
+            title = "Agendamento cancelado";
+            body = data.mensagem || "Seu agendamento foi cancelado.";
+            break;
+
+          case "lembrete":
+            title = "Seu horário é hoje!";
+            body = data.mensagem || "Não esqueça do seu horário.";
+            break;
         }
+
+        await enviarPush(
+          tokens,
+          title,
+          body,
+          pushData
+        );
+
+        console.log(`✅ Push cliente enviado: ${data.userId}`);
       }
 
-      // ===== ADMIN =====
-      if (data.adminId) {
-        const tokenAdmin = await getTokenUsuario(data.adminId);
+      // ─────────────────────────────
+      // 🧑‍💼 ADMIN
+      // ─────────────────────────────
+      if (data.tipo === 'admin' && data.userId) {
 
-        if (tokenAdmin && tokenAdmin.length > 10) {
-          await enviarPush(
-            tokenAdmin,
-            data.titulo || "Novidade no BeautyHub",
-            data.mensagem || data.msg || "",
-            {
-              type: data.type || "notification",
-              docId: event.params.docId,
-            }
-          );
+        const tokens = await getTokenUsuario(data.userId, 'admin');
 
-          console.log(`✅ Push admin: ${data.adminId}`);
+        let title = "Nova atualização";
+        let body = data.mensagem || "";
+
+        switch (data.type) {
+
+          case "agendamento":
+            title = "Novo agendamento";
+            body = data.mensagem || "Um cliente fez um novo agendamento.";
+            break;
+
+          case "cancelamento":
+            title = "Agendamento cancelado";
+            body = data.mensagem || "Um agendamento foi cancelado.";
+            break;
+
+          case "lembrete":
+            title = "Lembrete de horário";
+            body = data.mensagem || "Existe um horário próximo.";
+            break;
         }
+
+        await enviarPush(
+          tokens,
+          title,
+          body,
+          pushData
+        );
+
+        console.log(`✅ Push admin enviado: ${data.userId}`);
       }
 
-    } catch (err) {
-      console.error(`❌ Erro ao enviar push:`, err);
+    } catch (err: any) {
+      console.error("❌ Erro ao enviar push:", err?.message || err);
     }
   }
 );

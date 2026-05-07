@@ -47,14 +47,13 @@ export default function AvaliarScreen() {
     );
   };
 
-  const salvar = async () => {
+    const salvar = async () => {
     if (estrelas === 0) {
-      Alert.alert('Atenção', 'Selecione pelo menos uma estrela!');
+      Alert.alert('Atenção', 'Selecione uma nota');
       return;
     }
 
-    // 🔥 BLOQUEIO DE REAVALIAÇÃO
-    if (agendamento?.avaliacaoCliente) {
+    if (agendamento?.avaliacao) {
       Alert.alert('Você já avaliou este atendimento');
       return;
     }
@@ -66,28 +65,34 @@ export default function AvaliarScreen() {
         .collection('agendamentos')
         .doc(agendamentoId)
         .update({
-          avaliacaoCliente: estrelas,
+          avaliacao: estrelas, // ✔️ PADRÃO ÚNICO
           detalhesAvaliacao: {
             tags: tagsSel,
             criadoEm: firestore.FieldValue.serverTimestamp(),
-            estabelecimentoId: estabelecimentoId,
           },
+
+          // 🔥 ISSO FAZ SUMIR DO APP
+          deletado: true,
+
           status: 'concluido',
         });
 
-      Alert.alert('Obrigado! 🎉', 'Sua avaliação foi enviada!', [
+      Alert.alert('Obrigado! 🎉', 'Avaliação enviada!', [
         {
           text: 'OK',
-          onPress: () =>
-            navigation.navigate('HomeTabs', { screen: 'Agendamentos' }),
+          onPress: () => {
+            onFinish?.(); // remove da tela imediatamente
+            navigation.goBack();
+          },
         },
       ]);
     } catch (e) {
-      console.error(e);
-      Alert.alert('Erro', 'Não foi possível enviar a avaliação.');
+      console.log(e);
+      Alert.alert('Erro', 'Não foi possível enviar');
     } finally {
       setSalvando(false);
     }
+
   };
 
   return (

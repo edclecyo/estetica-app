@@ -1,74 +1,187 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import * as admin from 'firebase-admin';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore'; // Importação limpa
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
+
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-import { enviarPush } from '../services/notificacao.service';
+import { enviarPush, getTokenUsuario } from '../services/notificacao.service';
+import { dataKey, gerarSlots } from '../utils/helpers';
 
+// ─────────────────────────────────────────────
+// 📌 LEMBRETE
+// ─────────────────────────────────────────────
 export const lembreteAgendamento = onSchedule(
-  { 
-    region: REGION, 
-    schedule: "every 2 hours",
-    memory: "256MiB" // Otimização de custo para funções simples
+  {
+    region: REGION,
+    schedule: "every 30 minutes",
+    memory: "256MiB",
+    timeoutSeconds: 120,
   },
   async () => {
-    // Usando o Timestamp importado diretamente
-    const agora = Timestamp.now(); 
+
+    const agora = Timestamp.now();
 
     const snap = await db.collection('agendamentos')
       .where('notificado', '==', false)
       .where('notificarEm', '<=', agora)
       .where('status', '==', 'confirmado')
-      .limit(200)
+      .limit(150)
       .get();
 
-    if (snap.empty) {
-      console.log("Subprocesso de lembretes: Nenhum agendamento para notificar.");
-      return;
-    }
+    if (snap.empty) return;
 
     const batch = db.batch();
-    const promises: Promise<any>[] = [];
-    
-    // Calculando expiração (30 dias à frente)
+    const pushPromises: Promise<any>[] = [];
+
     const expiraData = new Date();
     expiraData.setDate(expiraData.getDate() + 30);
     const expiraNotificacao = Timestamp.fromDate(expiraData);
 
     for (const doc of snap.docs) {
-      const agend = doc.data();
-      const notifRef = db.collection('notificacoes').doc();
+      const ag = doc.data();
 
-      batch.set(notifRef, {
-        clienteId: agend.clienteUid,
+      // 💾 SALVA NOTIFICAÇÃO
+      batch.set(db.collection('notificacoes').doc(), {
+        clienteId: ag.clienteUid,
+        adminId: ag.adminId || null,
+
         titulo: '⏰ Horário chegando!',
-        mensagem: `Lembrete: ${agend.servicoNome} às ${agend.horario}`,
+        mensagem: `Lembrete: ${ag.servicoNome} às ${ag.horario} em ${ag.estabelecimentoNome || 'seu estabelecimento'}.`,
+
         agendamentoId: doc.id,
-        collection: 'agendamentos',
+        type: 'REMINDER',
+
         lida: false,
-        criadoEm: FieldValue.serverTimestamp(), // Usando FieldValue limpo
-        expiraEm: expiraNotificacao
+        apagada: false,
+
+        criadoEm: FieldValue.serverTimestamp(),
+        expiraEm: expiraNotificacao,
       });
 
-      batch.update(doc.ref, { notificado: true });
+      // 🔄 MARCA COMO NOTIFICADO
+      batch.update(doc.ref, {
+        notificado: true,
+        notificadoEm: FieldValue.serverTimestamp(),
+      });
 
-      if (agend.fcmTokenCliente) {
-        promises.push(
-          enviarPush(
-            agend.fcmTokenCliente,
-            '⏰ Horário chegando!',
-            `${agend.servicoNome} às ${agend.horario}`
-          )
+      // 🔥 PUSH NOTIFICAÇÃO
+      if (ag.clienteUid) {
+        pushPromises.push(
+          (async () => {
+            const tokens = await getTokenUsuario(ag.clienteUid, 'cliente');
+
+            if (tokens.length > 0) {
+              await enviarPush(
+  tokens,
+  '⏰ Horário chegando!',
+  `Lembrete: ${ag.servicoNome} às ${ag.horario}`,
+  {
+    type: 'REMINDER',
+    agendamentoId: doc.id,
+  }
+);
+            }
+          })()
         );
       }
     }
 
-    // Executa as operações de banco
     await batch.commit();
-    
-    // Aguarda os envios de push (allSettled garante que se um falhar, os outros continuam)
-    await Promise.allSettled(promises);
+    await Promise.allSettled(pushPromises);
 
-    console.log(`✅ ${snap.size} lembretes processados.`);
+    console.log(`✅ ${snap.size} lembretes enviados`);
+  }
+);
+
+// ─────────────────────────────────────────────
+// ⛔ EXPIRAÇÃO
+// ─────────────────────────────────────────────
+export const expirarAgendamentos = onSchedule(
+  {
+    region: REGION,
+    schedule: "every 5 minutes",
+    memory: "256MiB",
+  },
+  async () => {
+
+    const agora = Date.now();
+
+    const pageSize = 500;
+    let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+
+    while (true) {
+
+      let query = db.collection('agendamentos')
+        .where('status', 'in', ['confirmado', 'pendente'])
+        .limit(pageSize);
+
+      if (lastDoc) {
+        query = query.startAfter(lastDoc);
+      }
+
+      const snap = await query.get();
+
+      if (snap.empty) break;
+
+      let batch = db.batch();
+      let ops = 0;
+
+      for (const doc of snap.docs) {
+        const ag = doc.data();
+
+        if (!ag.data || !ag.horario) continue;
+
+        const [dia, mes, ano] = ag.data.split('/');
+        const [hora, minuto] = ag.horario.split(':');
+
+        const inicio = new Date(
+          Number(ano),
+          Number(mes) - 1,
+          Number(dia),
+          Number(hora),
+          Number(minuto || 0)
+        );
+
+        const duracao = ag.servicoDuracaoMin || 30;
+        const fim = new Date(inicio.getTime() + duracao * 60000);
+
+        if (fim.getTime() <= agora) {
+
+          batch.update(doc.ref, {
+            status: 'expirado',
+            expiradoEm: FieldValue.serverTimestamp(),
+          });
+
+          const key = dataKey(ag.data);
+          const slots = gerarSlots(ag.horario, duracao);
+
+          for (const hora of slots) {
+            batch.delete(
+              db.collection('horariosOcupados')
+                .doc(`${ag.estabelecimentoId}_${key}_${hora}`)
+            );
+            ops++;
+          }
+
+          batch.delete(
+            db.collection('agendamentoLocks')
+              .doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`)
+          );
+
+          ops += 2;
+        }
+
+        ops++;
+
+        if (ops >= 450) {
+          await batch.commit();
+          batch = db.batch();
+          ops = 0;
+        }
+      }
+
+      await batch.commit();
+
+      lastDoc = snap.docs[snap.docs.length - 1];
+    }
   }
 );

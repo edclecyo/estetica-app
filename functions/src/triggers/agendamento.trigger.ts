@@ -2,165 +2,171 @@ import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-import { enviarPush } from '../services/notificacao.service';
+import { enviarPush, getTokenUsuario } from '../services/notificacao.service';
 
-export const onAgendamentoUpdate = onDocumentUpdated(
-  { document: "agendamentos/{docId}", region: REGION },
-  async (event) => {
-    const antes = event.data?.before.data();
-    const depois = event.data?.after.data();
+const NOTIF_TYPES = {
+  CONFIRMADO: 'NEW_SLOT',
+  CANCELADO: 'GENERAL',
+  CONCLUIDO: 'APPOINTMENT_DONE',
+} as const;
 
-    if (!antes || !depois) return;
+// 🔐 IDPOTÊNCIA
+async function alreadyProcessed(id: string, status: string) {
+  const ref = db.collection('eventLocks').doc(`${id}_${status}`);
 
-   if (antes.status !== depois.status) {
-
-  let titulo = '';
-  let mensagem = '';
-  let type: 'APPOINTMENT_DONE' | 'NEW_SLOT' | 'GENERAL' = 'GENERAL';
-
-  // ===== CLIENTE RECEBE =====
-
-  if (depois.status === 'confirmado') {
-    type = 'NEW_SLOT';
-    titulo = 'Agendamento Confirmado';
-    mensagem = `Seu agendamento de ${depois.servicoNome} foi confirmado.`;
-  }
-
-  if (depois.status === 'cancelado') {
-    type = 'GENERAL';
-    titulo = 'Agendamento Cancelado';
-    mensagem = `Seu agendamento de ${depois.servicoNome} foi cancelado.`;
-  }
-
-  if (depois.status === 'concluido') {
-    type = 'APPOINTMENT_DONE';
-    titulo = 'Atendimento Concluído';
-    mensagem = `Seu serviço de ${depois.servicoNome} foi concluído.`;
-  }
-
-  if (titulo) {
-    // 🔔 PUSH → cliente
-    if (depois.fcmTokenCliente) {
-      await enviarPush(
-        depois.fcmTokenCliente,
-        titulo,
-        mensagem,
-        {
-          type,
-          agendamentoId: event.params.docId,
-          estabelecimentoId: depois.estabelecimentoId
-        }
-      );
-    }
-
-    // 💾 SALVA NOTIFICAÇÃO → SOMENTE CLIENTE
-    await db.collection('notificacoes').add({
-      clienteId: depois.clienteUid,
-      // ❌ NÃO SALVAR adminId AQUI
-      agendamentoId: event.params.docId,
-      estabelecimentoId: depois.estabelecimentoId,
-      estabelecimentoNome: depois.estabelecimentoNome,
-      titulo,
-      mensagem,
-      type,
-      lida: false,
-      apagada: false,
-      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  try {
+    await ref.create({
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-  }
-}if (antes.status !== depois.status) {
-
-  let titulo = '';
-  let mensagem = '';
-  let type: 'APPOINTMENT_DONE' | 'NEW_SLOT' | 'GENERAL' = 'GENERAL';
-
-  // ===== CLIENTE RECEBE =====
-
-  if (depois.status === 'confirmado') {
-    type = 'NEW_SLOT';
-    titulo = 'Agendamento Confirmado';
-    mensagem = `Seu agendamento de ${depois.servicoNome} foi confirmado.`;
-  }
-
-  if (depois.status === 'cancelado') {
-    type = 'GENERAL';
-    titulo = 'Agendamento Cancelado';
-    mensagem = `Seu agendamento de ${depois.servicoNome} foi cancelado.`;
-  }
-
-  if (depois.status === 'concluido') {
-    type = 'APPOINTMENT_DONE';
-    titulo = 'Atendimento Concluído';
-    mensagem = `Seu serviço de ${depois.servicoNome} foi concluído.`;
-  }
-
-  if (titulo) {
-    // 🔔 PUSH → cliente
-    if (depois.fcmTokenCliente) {
-      await enviarPush(
-        depois.fcmTokenCliente,
-        titulo,
-        mensagem,
-        {
-          type,
-          agendamentoId: event.params.docId,
-          estabelecimentoId: depois.estabelecimentoId
-        }
-      );
-    }
-
-    // 💾 SALVA NOTIFICAÇÃO → SOMENTE CLIENTE
-    await db.collection('notificacoes').add({
-      clienteId: depois.clienteUid,
-      // ❌ NÃO SALVAR adminId AQUI
-      agendamentoId: event.params.docId,
-      estabelecimentoId: depois.estabelecimentoId,
-      estabelecimentoNome: depois.estabelecimentoNome,
-      titulo,
-      mensagem,
-      type,
-      lida: false,
-      apagada: false,
-      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    return false;
+  } catch {
+    return true;
   }
 }
 
-    // RANKING (mantido igual)
-    const notaNova = depois.avaliacaoCliente;
-    const notaAntiga = antes.avaliacaoCliente;
+// 🔔 BUILDER
+function buildNotification(status: string, servicoNome: string) {
+  switch (status) {
+    case 'confirmado':
+      return {
+        type: NOTIF_TYPES.CONFIRMADO,
+        titulo: 'Agendamento Confirmado',
+        mensagem: `Seu agendamento de ${servicoNome || 'serviço'} foi confirmado.`,
+      };
 
-   if (
-  depois.status === 'concluido' &&
-  notaNova &&
-  (notaAntiga == null || notaAntiga !== notaNova)
-) {
-      const estRef = db.collection('estabelecimentos').doc(depois.estabelecimentoId);
+    case 'cancelado':
+      return {
+        type: NOTIF_TYPES.CANCELADO,
+        titulo: 'Agendamento Cancelado',
+        mensagem: `Seu agendamento de ${servicoNome || 'serviço'} foi cancelado.`,
+      };
 
-      await db.runTransaction(async (t) => {
-        const estDoc = await t.get(estRef);
-        if (!estDoc.exists) return;
+    case 'concluido':
+      return {
+        type: NOTIF_TYPES.CONCLUIDO,
+        titulo: 'Atendimento Concluído',
+        mensagem: `Seu serviço de ${servicoNome || 'serviço'} foi concluído.`,
+      };
 
-        const d = estDoc.data() || {};
+    default:
+      return null;
+  }
+}
 
-        const isEdicao = notaAntiga !== undefined && notaAntiga !== null;
+// ⭐ RANKING
+async function updateRanking(estId: string, oldNota: number | null, newNota: number) {
+  const estRef = db.collection('estabelecimentos').doc(estId);
 
-        const totalAvaliacoes = isEdicao
-          ? (d.quantidadeAvaliacoes || 1)
-          : (d.quantidadeAvaliacoes || 0) + 1;
+  await db.runTransaction(async (t) => {
+    const snap = await t.get(estRef);
+    if (!snap.exists) return;
 
-        const somaNotas = (d.somaNotas || 0) - (notaAntiga || 0) + notaNova;
+    const d = snap.data() || {};
 
-        const novaMedia = somaNotas / totalAvaliacoes;
+    const totalAtual = d.quantidadeAvaliacoes || 0;
+    const somaAtual = d.somaNotas || 0;
 
-        t.update(estRef, {
-          avaliacao: Math.round(novaMedia * 10) / 10,
-          quantidadeAvaliacoes: totalAvaliacoes,
-          somaNotas: somaNotas,
-          rankingScore: (novaMedia * 2) + (totalAvaliacoes * 0.5),
-          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+    const isUpdate = oldNota != null;
+
+    const quantidadeAvaliacoes = isUpdate ? totalAtual : totalAtual + 1;
+
+    const somaNotas = isUpdate
+      ? somaAtual - oldNota + newNota
+      : somaAtual + newNota;
+
+    const media = somaNotas / Math.max(quantidadeAvaliacoes, 1);
+
+    t.update(estRef, {
+      avaliacao: Math.round(media * 10) / 10,
+      quantidadeAvaliacoes,
+      somaNotas,
+      rankingScore: (media * 2) + (quantidadeAvaliacoes * 0.5),
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+// 🚀 TRIGGER PRINCIPAL
+export const onAgendamentoUpdate = onDocumentUpdated(
+  { document: 'agendamentos/{docId}', region: REGION },
+  async (event) => {
+
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    const id = event.params.docId;
+
+    if (!before || !after) return;
+
+    const statusChanged = before.status !== after.status;
+
+    // 🔐 evita duplicação
+    if (statusChanged) {
+      const processed = await alreadyProcessed(id, after.status);
+      if (processed) return;
+    }
+
+    // 🔔 NOTIFICAÇÃO
+    if (statusChanged) {
+      const notif = buildNotification(after.status, after.servicoNome);
+
+      if (notif && after.clienteUid) {
+
+        // 🔥 PUSH (CORRIGIDO)
+        const tokens = await getTokenUsuario(after.clienteUid, 'cliente');
+
+        if (tokens.length > 0) {
+          await enviarPush(
+  tokens,
+  notif.titulo,
+  notif.mensagem,
+  {
+    type: notif.type,
+    agendamentoId: id,
+  }
+);
+        }
+
+        // 💾 SALVA NOTIFICAÇÃO
+        await db.collection('notificacoes').add({
+          clienteId: after.clienteUid,
+          adminId: after.adminId || null,
+
+          agendamentoId: id,
+          estabelecimentoId: after.estabelecimentoId,
+          estabelecimentoNome: after.estabelecimentoNome,
+
+          titulo: notif.titulo,
+          mensagem: notif.mensagem,
+          type: notif.type,
+
+          lida: false,
+          apagada: false,
+          processedByTrigger: true,
+
+          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+
+          expiraEm: admin.firestore.Timestamp.fromDate(
+            new Date(Date.now() + 1000 * 60 * 60 * 24 * 30)
+          ),
         });
-      });
+      }
+    }
+
+    // ⭐ RANKING
+    const notaNova = after.avaliacaoCliente;
+    const notaAntiga = before.avaliacaoCliente;
+
+    const mudouAvaliacao =
+      after.status === 'concluido' &&
+      notaNova != null &&
+      (notaAntiga == null || notaAntiga !== notaNova);
+
+    if (mudouAvaliacao) {
+      await updateRanking(
+        after.estabelecimentoId,
+        notaAntiga ?? null,
+        notaNova
+      );
     }
   }
 );

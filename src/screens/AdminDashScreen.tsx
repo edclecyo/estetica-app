@@ -60,7 +60,7 @@ export default function AdminDashScreen() {
   const [verificado, setVerificado] = useState(false);
   const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
   const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
-
+const [loadingAcao, setLoadingAcao] = useState(false);
   
   // ===== LÓGICA =====
 const temEstabelecimento = estabs.length > 0;
@@ -73,47 +73,57 @@ const principal = useMemo(() => {
 // 👉 NOVA REGRA CENTRAL
 const agora = new Date();
 
+const planoFree = planoAtual === 'free';
+const semPlano = !planoAtual;
+
+
 const trialAtivo =
-  planoAtual === 'trial' &&
-  principal?.expiraEm?.toDate &&
-  principal.expiraEm.toDate() > agora;
-
-const planoAtivo =
-  assinaturaAtiva === true || trialAtivo;
-
-const isBloqueado = useMemo(() => {
-  if (loading) return true;
-  if (!temEstabelecimento) return true;
-
-  const trialAtivo =
   planoAtual === 'trial' &&
   diasRestantes !== null &&
   diasRestantes > 0;
 
-  const planoAtivo =
-    assinaturaAtiva === true || trialAtivo;
+const trialExpirado =
+  planoAtual === 'trial' &&
+  diasRestantes !== null &&
+  diasRestantes <= 0;
 
-  return !planoAtivo;
-}, [loading, temEstabelecimento, assinaturaAtiva, planoAtual, diasRestantes]);
+const planoPagoAtivo = assinaturaAtiva === true;
+
+// 🔥 REGRA FINAL
+const isBloqueado = useMemo(() => {
+  if (loading) return true;
+  if (!temEstabelecimento) return true;
+
+  // liberado se:
+  if (planoPagoAtivo) return false;
+  if (trialAtivo) return false;
+
+  return true;
+}, [loading, temEstabelecimento, planoPagoAtivo, trialAtivo]);
 
   // ===== ABA CONTROLE =====
   const mudarAba = (novaAba: any) => {
   if (loading) return;
 
-  // 🔓 sempre pode entrar em estabelecimentos
   if (novaAba === 'estabs') {
     setAba(novaAba);
     return;
   }
 
-  // 🔒 bloqueio geral
   if (isBloqueado) {
-    Alert.alert(
-      'Acesso bloqueado 🔒',
-      !temEstabelecimento
-        ? 'Crie seu primeiro estabelecimento para começar.'
-        : 'Ative seu plano ou período de teste para continuar.'
-    );
+    let mensagem = '';
+
+    if (!temEstabelecimento) {
+      mensagem = 'Crie seu primeiro estabelecimento para começar.';
+    } 
+    else if (semPlano) {
+      mensagem = 'Ative seu período de teste grátis ou plano.';
+    } 
+    else if (trialExpirado) {
+      mensagem = 'Seu trial expirou. Ative um plano.';
+    }
+
+    Alert.alert('Acesso bloqueado 🔒', mensagem);
     return;
   }
 
@@ -121,16 +131,27 @@ const isBloqueado = useMemo(() => {
 };
 
 const checarBloqueio = () => {
-  if (isBloqueado) {
-    Alert.alert(
-      'Função bloqueada 🔒',
-      !temEstabelecimento
-        ? 'Crie seu primeiro estabelecimento para liberar.'
-        : 'Seu plano expirou. Ative para continuar.'
-    );
-    return true;
+  if (!isBloqueado) return false;
+
+  let mensagem = '';
+
+  if (!temEstabelecimento) {
+    mensagem = 'Crie seu primeiro estabelecimento para começar.';
+  } 
+  else if (semPlano) {
+    // 🔥 NUNCA ativou trial
+    mensagem = 'Ative seu período de teste grátis ou escolha um plano.';
+  } 
+  else if (trialExpirado) {
+    // 🔥 TRIAL ACABOU
+    mensagem = 'Seu trial expirou. Ative um plano para continuar.';
+  } 
+  else {
+    mensagem = 'Ative um plano para continuar.';
   }
-  return false;
+
+  Alert.alert('Função bloqueada 🔒', mensagem);
+  return true;
 };
   // ===== LISTENERS =====
   useEffect(() => {
@@ -241,7 +262,7 @@ const checarBloqueio = () => {
     if (!admin?.id) return;
     const unsubNotif = firestore()
       .collection('notificacoes')
-      .where('adminId', '==', admin.id)
+     .where('userId', '==', admin.id)
       .where('lida', '==', false)
       .onSnapshot(snap => snap && setNotifNaoLidas(snap.docs.length));
     return unsubNotif;
@@ -253,11 +274,20 @@ useEffect(() => {
   // ===== HELPERS =====
   // ✅ formatDate declarado ANTES do chartData
   const formatDate = (date: any) => {
+  try {
     if (!date) return '';
-    if (typeof date === 'string') return date;
-    if (date?.toDate) return date.toDate().toLocaleDateString('pt-BR');
+
+    if (typeof date === 'string') {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('pt-BR');
+}
+
     return '';
-  };
+  } catch {
+    return '';
+  }
+};
 
   const gerarRelatorioPDF = async () => {
     try {
@@ -284,10 +314,9 @@ ${linhas}
 Gerado pelo BeautyHub`;
 
       await Share.open({
-        title: 'Relatório de Agendamentos',
-        message: conteudo,
-        type: 'text/plain',
-      });
+  title: 'Relatório',
+  message: conteudo,
+});
     } catch (error: any) {
       if (error?.message !== 'User did not share') {
         Alert.alert('Erro', 'Não foi possível gerar o relatório.');
@@ -304,8 +333,10 @@ Gerado pelo BeautyHub`;
 
   // ✅ atualizarStatus usando fetch direto com token (sem SDK functions)
  const atualizarStatus = async (id: string, novoStatus: string) => {
+   if (loadingAcao) return;
+
   try {
-    setLoading(true);
+    setLoadingAcao(true);
 
     const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
 
@@ -335,14 +366,9 @@ Gerado pelo BeautyHub`;
       return;
     }
 
-    if (e?.code === 'resource-exhausted') {
-      Alert.alert('Aguarde', 'Outra ação já está em andamento.');
-      return;
-    }
-
     Alert.alert('Erro', 'Algo deu errado.');
   } finally {
-    setLoading(false);
+    setLoadingAcao(false);
   }
 };
 
@@ -359,31 +385,52 @@ Gerado pelo BeautyHub`;
   , [agends]);
 
   // ✅ chartData usa formatDate que agora está declarado antes
-  const chartData = useMemo(() => {
-    const labels: string[] = [];
-    const valores: number[] = [];
-    const hoje = new Date();
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(hoje.getDate() - i);
-      labels.push(d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
-      const ds = d.toLocaleDateString('pt-BR');
-      valores.push(
-        agends.filter(a => formatDate(a.data) === ds && (a.status === 'confirmado' || a.status === 'concluido'))
-          .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
-      );
-    }
-    return { labels, datasets: [{ data: valores }] };
-  }, [agends]);
+ const chartData = useMemo(() => {
+  const labels: string[] = [];
+  const valores: number[] = [];
+  const hoje = new Date();
+
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(hoje.getDate() - i);
+
+    const label = d.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+    });
+
+    labels.push(label);
+
+    const ds = d.toLocaleDateString('pt-BR');
+
+    const totalDia = agends
+      .filter(a => {
+        const dataFormatada = formatDate(a.data);
+        if (!dataFormatada) return false;
+
+        return (
+          dataFormatada === ds &&
+          (a.status === 'confirmado' || a.status === 'concluido')
+        );
+      })
+      .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
+
+    valores.push(totalDia);
+  }
+
+  return {
+    labels,
+    datasets: [{ data: valores }],
+  };
+}, [agends]);
 
   const safeChartData = useMemo(() => {
-  if (!chartData || !chartData.datasets?.length) {
+  if (!chartData?.datasets?.length) {
     return {
-      labels: ['Sem dados'],
+      labels: ['-'],
       datasets: [{ data: [0] }],
     };
   }
-
   return chartData;
 }, [chartData]);
 
@@ -512,9 +559,12 @@ Gerado pelo BeautyHub`;
     try {
       setLoading(true);
 
-      const estabelecimentoId = estabs[0]?.id;
+      const estabelecimentoId = principal?.id;
 
-      const fn = functions('southamerica-east1').httpsCallable('iniciarTrial');
+      const fn = httpsCallable(
+  getFunctions(getApp(), 'southamerica-east1'),
+  'iniciarTrial'
+);
 
       const res = await fn({ estabelecimentoId });
 
@@ -545,33 +595,37 @@ Gerado pelo BeautyHub`;
                 <Text style={s.planoBadgeText}>{badge.label}</Text>
               </View>
               <View style={{ marginLeft: 12 }}>
-                <Text style={s.planoCardTitulo}>
-  {loading
-  ? 'Carregando informações...'
-  : !temEstabelecimento
-    ? 'Crie seu primeiro estabelecimento'
-    : !planoAtual
+          <Text style={s.planoCardTitulo}>
+  {
+    loading
+      ? 'Carregando informações...'
+      : !temEstabelecimento
+      ? 'Crie seu primeiro estabelecimento'
+      : semPlano || planoFree
       ? 'Comece seus 7 dias grátis'
-      : (isBloqueado
-          ? 'Assinatura Expirada'
-          : `Plano ${(planoAtual ?? '').toUpperCase()}`)}
+      : trialExpirado
+      ? 'Trial expirado'
+      : !assinaturaAtiva && planoAtual !== 'trial'
+      ? 'Assinatura expirada'
+      : `Plano ${(planoAtual ?? '').toUpperCase()}`
+  }
 </Text>
-           <Text style={s.planoCardSub}>
-  {loading
-    ? 'Aguarde...'
-    : !planoAtual && temEstabelecimento
-      ? 'Toque para ativar seu período de teste.'
-      : planoAtual === 'trial'
-        ? diasRestantes === 7
-          ? 'Parabéns! Seu período de 7 dias começou hoje.'
-          : diasRestantes === 0
-            ? 'Seu período de teste terminou.'
-            : `Você tem ${diasRestantes} dias restantes.`
-        : planoAtual === 'free'
-          ? 'Plano gratuito ativo. Atualize para liberar recursos.'
-          : !assinaturaAtiva
-            ? 'Sua assinatura expirou.'
-            : 'Plano ativo.'}
+    <Text style={s.planoCardSub}>
+  {
+    loading
+      ? 'Aguarde...'
+      : !temEstabelecimento
+      ? 'Crie um estabelecimento para começar.'
+      : semPlano || planoFree
+      ? 'Ative seu período de teste grátis ou escolha um plano.'
+      : trialAtivo
+      ? `Você tem ${diasRestantes} dias restantes.`
+      : trialExpirado
+      ? 'Seu período de teste terminou. Ative um plano.'
+      : !assinaturaAtiva
+      ? 'Sua assinatura expirou.'
+      : 'Plano ativo.'
+  }
 </Text>
               </View>
             </View>
@@ -713,8 +767,10 @@ Gerado pelo BeautyHub`;
               <Image source={{ uri: item.url }} style={s.storyMiniatura} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={s.storyInfoText}>
-                  {new Date(item.timestamp?.seconds * 1000).toLocaleDateString('pt-BR')}
-                </Text>
+  {item?.timestamp?.seconds
+    ? new Date(item.timestamp.seconds * 1000).toLocaleDateString('pt-BR')
+    : 'Sem data'}
+</Text>
                 <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas  •  👁️ {item.views || 0} views</Text>
               </View>
               <TouchableOpacity style={s.btnLixo} onPress={() => deletarStory(item.id)}>
@@ -765,12 +821,17 @@ Gerado pelo BeautyHub`;
               </View>
               {item.status === 'confirmado' && (
                 <View style={s.acoesWrap}>
-                  <TouchableOpacity style={s.btnConcluir} onPress={() => atualizarStatus(item.id, 'concluido')}>
-                    <Text style={s.btnConcluirText}>Concluir</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={s.btnCancelar} onPress={() => atualizarStatus(item.id, 'cancelado')}>
-                    <Text style={s.btnCancelarText}>Cancelar</Text>
-                  </TouchableOpacity>
+                  <TouchableOpacity
+  style={s.btnConcluir}
+  disabled={loadingAcao}
+  onPress={() => atualizarStatus(item.id, 'concluido')}
+>
+  {loadingAcao ? (
+    <ActivityIndicator color="#FFF" />
+  ) : (
+    <Text style={s.btnConcluirText}>Concluir</Text>
+  )}
+</TouchableOpacity>
                 </View>
               )}
             </View>

@@ -7,6 +7,24 @@ function assertString(v: any, name: string) {
   return v.trim();
 }
 
+export function gerarSlots(horario: string, duracaoMin: number) {
+  const [h, m] = horario.split(':').map(Number);
+
+  const inicio = new Date();
+  inicio.setHours(h, m, 0, 0);
+
+  const slots: string[] = [];
+  const passos = Math.ceil(duracaoMin / 30);
+
+  for (let i = 0; i < passos; i++) {
+    const slot = new Date(inicio);
+    slot.setMinutes(inicio.getMinutes() + i * 30);
+    slots.push(slot.toTimeString().slice(0, 5));
+  }
+
+  return slots;
+}
+
 /**
  * Converte DD/MM/AAAA + HH:mm em Date seguro
  */
@@ -28,13 +46,14 @@ export function parseDataHoraBR(data: string, horario: string): Date {
     throw new HttpsError('invalid-argument', 'Data ou horário inválido');
   }
 
-  const date = new Date(Date.UTC(a, m - 1, d, h - 3, min));
-  // -3 = Brasilia fixo (produção controlada)
+  // ✅ cria data local corretamente (Brasil)
+  const date = new Date(a, m - 1, d, h, min, 0, 0);
 
+  // valida se data é real
   if (
-    date.getUTCFullYear() !== a ||
-    date.getUTCMonth() !== m - 1 ||
-    date.getUTCDate() !== d
+    date.getFullYear() !== a ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d
   ) {
     throw new HttpsError('invalid-argument', 'Data inexistente');
   }
@@ -43,22 +62,21 @@ export function parseDataHoraBR(data: string, horario: string): Date {
 }
 export function dataKey(data: string) {
   const [d, m, a] = data.split('/');
-  return `${a}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+
+return `${a}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
 }
 /**
  * Moeda BR segura
  */
+const formatter = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL',
+});
+
 export function formatarMoeda(valor: any): string {
   const num = Number(valor);
-
-  if (!isFinite(num) || num < 0) {
-    return 'R$ 0,00';
-  }
-
-  return num.toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  });
+  if (!isFinite(num) || num < 0) return 'R$ 0,00';
+  return formatter.format(num);
 }
 
 /**
@@ -72,31 +90,28 @@ export function formatarDataExtenso(dataBr: any): string {
 
   const [d, m] = parts.map(Number);
 
-  const meses = [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-  ];
+  if (!d || !m || m < 1 || m > 12) return '';
 
-  if (m < 1 || m > 12) return '';
+  const meses = [
+    'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'
+  ];
 
   return `${d} de ${meses[m - 1]}`;
 }
 export function planoAtivo(est: any): boolean {
   if (!est) return false;
 
-  const agora = new Date();
+  const agora = Date.now();
 
-  // 🔥 protege contra expiraEm inválido
-  const expira = est?.expiraEm?.toDate?.() || null;
+  const expira = est?.expiraEm?.toDate?.();
 
   const trialAtivo =
     est?.plano === 'trial' &&
     expira &&
-    expira.getTime() > agora.getTime();
+    expira.getTime() > agora;
 
-  const assinaturaAtiva =
-    est?.assinaturaAtiva === true;
+  const assinaturaAtiva = est?.assinaturaAtiva === true;
 
-  // ✅ REGRA FINAL
   return trialAtivo || assinaturaAtiva;
 }

@@ -54,26 +54,24 @@ export default function AdminNotifScreen() {
     if (!admin?.id) return;
 
     const unsub = firestore()
-      .collection('notificacoes')
-      .where('adminId', '==', admin.id)
-      .where('apagada', '!=', true)
-      .orderBy('apagada')
-      .orderBy('criadoEm', 'desc')
-      .limit(50)
-      .onSnapshot(
+  .collection('notificacoes')
+  .where('adminId', '==', admin.id)
+  .orderBy('criadoEm', 'desc')
+  .limit(50)
+  .onSnapshot(
         snap => {
           const agora = new Date();
 
-          const lista = snap.docs
-            .map(doc => ({
-              id: doc.id,
-              ...doc.data(),
-            }))
-            .filter((item: any) => {
-              if (!item.expiraEm?.toDate) return true;
-
-              return item.expiraEm.toDate() > agora;
-            }) as Notif[];
+const lista = snap.docs
+  .map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+  }))
+  .filter((item: any) => item.apagada !== true)
+  .filter((item: any) => {
+    if (!item.expiraEm?.toDate) return true;
+    return item.expiraEm.toDate() > agora;
+  }) as Notif[];
 
           setNotifs(lista);
           setLoading(false);
@@ -109,41 +107,17 @@ export default function AdminNotifScreen() {
     }
   }
 
-  function getInfo(item: Notif) {
-    const tipo = item.type || item.status;
+    function getInfo(item: Notif) {
+    const tipo = item.type;
 
     switch (tipo) {
 
-      case 'NEW_BOOKING':
+      case 'agendamento':
         return {
-          emoji: '📥',
+          emoji: '📅',
           cor: '#4CAF50',
-          label: 'Novo Agendamento',
+          label: 'Agendamento',
           bg: '#E8F5E9',
-        };
-
-      case 'NEW_SLOT':
-        return {
-          emoji: '📢',
-          cor: '#FF9800',
-          label: 'Novo Horário',
-          bg: '#FFF3E0',
-        };
-
-      case 'APPOINTMENT_DONE':
-        return {
-          emoji: '⭐',
-          cor: '#2196F3',
-          label: 'Concluído',
-          bg: '#E3F2FD',
-        };
-
-      case 'GENERAL':
-        return {
-          emoji: '📋',
-          cor: '#999',
-          label: 'Aviso',
-          bg: '#F5F5F5',
         };
 
       default:

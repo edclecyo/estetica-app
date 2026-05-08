@@ -259,14 +259,30 @@ const checarBloqueio = () => {
   }, [admin?.id]);
 
   useEffect(() => {
-    if (!admin?.id) return;
-    const unsubNotif = firestore()
-      .collection('notificacoes')
-     .where('userId', '==', admin.id)
-      .where('lida', '==', false)
-      .onSnapshot(snap => snap && setNotifNaoLidas(snap.docs.length));
-    return unsubNotif;
-  }, [admin?.id]);
+  if (!admin?.id) return;
+
+  console.log('🔔 ESCUTANDO NOTIFICAÇÕES ADMIN:', admin.id);
+
+  const unsubNotif = firestore()
+    .collection('notificacoes')
+    .where('adminId', '==', admin.id)
+    .where('tipo', '==', 'admin')
+    .where('lida', '==', false)
+    .onSnapshot(
+      snap => {
+
+        console.log('🔔 NOTIFICAÇÕES:', snap.docs.length);
+
+        setNotifNaoLidas(snap.docs.length);
+      },
+      err => {
+        console.log('ERRO NOTIF:', err);
+      }
+    );
+
+  return unsubNotif;
+}, [admin?.id]);
+
 useEffect(() => {
   console.log('ADMIN.ID:', admin?.id);
   console.log('AUTH UID:', auth().currentUser?.uid);

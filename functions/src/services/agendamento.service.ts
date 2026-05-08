@@ -44,6 +44,9 @@ export const criarAgendamento = onCall(
 
     let agendamentoId = '';
 
+    // 🔥 ADICIONE ISSO
+    let adminId = '';
+
     await db.runTransaction(async (t) => {
 
       const rateSnap = await t.get(rateRef);
@@ -63,95 +66,255 @@ export const criarAgendamento = onCall(
 
       if (rateSnap.exists) {
         const last = rateSnap.data()?.timestamp || 0;
+
         if (now - last < RATE_LIMIT_MS) {
-          throw new HttpsError('resource-exhausted', 'Aguarde antes de agendar novamente.');
+          throw new HttpsError(
+            'resource-exhausted',
+            'Aguarde antes de agendar novamente.'
+          );
         }
       }
 
-      const servicos = Array.isArray(est.servicos) ? est.servicos : [];
+      const servicos = Array.isArray(est.servicos)
+        ? est.servicos
+        : [];
 
       const servico = servicos.find((s: any) =>
-        String(s?.nome || '').trim() === String(servicoNome).trim()
+        String(s?.nome || '').trim() ===
+        String(servicoNome).trim()
       );
 
       if (!servico) {
-        throw new HttpsError('invalid-argument', 'Serviço inválido');
+        throw new HttpsError(
+          'invalid-argument',
+          'Serviço inválido'
+        );
       }
 
       parseDataHoraBR(dataBr, horario);
 
       const agRef = db.collection('agendamentos').doc();
+
       agendamentoId = agRef.id;
 
-      t.set(rateRef, { timestamp: now }, { merge: true });
+      t.set(rateRef, {
+        timestamp: now,
+      }, {
+        merge: true,
+      });
 
- // AGENDAMENTO
-t.set(agRef, {
-  estabelecimentoId,
-  estabelecimentoNome: est?.nome || 'Estabelecimento',
-  adminId: est?.adminId || null,
+      // AGENDAMENTO
+      t.set(agRef, {
+        estabelecimentoId,
+        estabelecimentoNome:
+          est?.nome || 'Estabelecimento',
 
-  servicoNome,
-  servicoPreco: Number(servico.preco || 0),
+        adminId:
+          est?.adminId || null,
 
-  clienteNome,
-  clienteUid,
+        servicoNome,
 
-  data: dataBr,
-  dataKey: key,
-  horario,
+        servicoPreco:
+          Number(servico.preco || 0),
 
-  status: 'confirmado',
-  formaPagamento: formaPagamento || 'local',
+        clienteNome,
+        clienteUid,
 
-  criadoEm: FieldValue.serverTimestamp(),
-  atualizadoEm: FieldValue.serverTimestamp(),
-});
+        data: dataBr,
+        dataKey: key,
+        horario,
 
-// HORÁRIO OCUPADO
-const horarioRef = db.collection('horariosOcupados').doc();
+        status: 'confirmado',
 
-t.set(horarioRef, {
-  estabelecimentoId,
-  data: dataBr,
-  horario,
-  agendamentoId: agRef.id,
-  criadoEm: FieldValue.serverTimestamp(),
-});
+        formaPagamento:
+          formaPagamento || 'local',
 
-// CLIENTE NOTIF
-const notifCliente = db.collection('notificacoes').doc();
+        criadoEm:
+          FieldValue.serverTimestamp(),
 
-t.set(notifCliente, {
-  clienteId: clienteUid,
-  tipo: 'cliente',
-  type: 'agendamento',
-  agendamentoId: agRef.id,
-  titulo: 'Agendamento confirmado',
-  mensagem: `Seu horário de ${servicoNome} foi confirmado para ${dataBr} às ${horario}.`,
-  lida: false,
-  criadoEm: FieldValue.serverTimestamp(),
-});
+        atualizadoEm:
+          FieldValue.serverTimestamp(),
+      });
+
+      // 🔥 SALVA ADMIN ID PRA USAR NO PUSH
+      adminId = est?.adminId || '';
+
+      // HORÁRIO OCUPADO
+      const horarioRef =
+        db.collection('horariosOcupados').doc();
+
+      t.set(horarioRef, {
+        estabelecimentoId,
+        data: dataBr,
+        horario,
+        agendamentoId: agRef.id,
+
+        criadoEm:
+          FieldValue.serverTimestamp(),
+      });
+
+      // CLIENTE NOTIF
+      const notifCliente =
+        db.collection('notificacoes').doc();
+
+      t.set(notifCliente, {
+        clienteId: clienteUid,
+
+        tipo: 'cliente',
+        type: 'agendamento',
+
+        agendamentoId: agRef.id,
+
+        titulo: 'Agendamento confirmado',
+
+        mensagem:
+          `Seu horário de ${servicoNome} foi confirmado para ${dataBr} às ${horario}.`,
+
+        lida: false,
+
+        criadoEm:
+          FieldValue.serverTimestamp(),
+      });
+
+      // ADMIN NOTIF
+      const notifAdmin =
+        db.collection('notificacoes').doc();
+
+      t.set(notifAdmin, {
+        adminId:
+          est?.adminId || null,
+
+        tipo: 'admin',
+        type: 'agendamento',
+
+        agendamentoId: agRef.id,
+
+        titulo: 'Novo agendamento',
+
+        mensagem:
+          `${clienteNome} marcou ${servicoNome} para ${dataBr} às ${horario}.`,
+
+        lida: false,
+
+        criadoEm:
+          FieldValue.serverTimestamp(),
+      });
 
     });
 
-    // PUSH CLIENTE
-    const clienteSnap = await db.collection('clientes').doc(clienteUid).get();
+    // ─────────────────────────────────────────────
+    // 🔥 PUSH CLIENTE
+    // ─────────────────────────────────────────────
+    const clienteSnap = await db
+      .collection('clientes')
+      .doc(clienteUid)
+      .get();
 
     if (clienteSnap.exists) {
-      const token = clienteSnap.data()?.fcmToken;
+
+      const token =
+        clienteSnap.data()?.fcmToken;
+
+      console.log(
+        'TOKEN CLIENTE:',
+        token
+      );
 
       if (token) {
+
         await admin.messaging().send({
           token,
+
           notification: {
             title: 'Agendamento confirmado',
-            body: `Seu horário foi confirmado para ${horario}`,
+
+            body:
+              `Seu horário foi confirmado para ${horario}`,
+          },
+
+          data: {
+            type: 'agendamento',
+            agendamentoId,
+          },
+
+          android: {
+            priority: 'high',
+          },
+
+          apns: {
+            payload: {
+              aps: {
+                sound: 'default',
+              },
+            },
           },
         });
+
+        console.log(
+          '✅ PUSH CLIENTE ENVIADO'
+        );
       }
     }
 
-    return { id: agendamentoId };
+    // ─────────────────────────────────────────────
+    // 🔥 PUSH ADMIN
+    // ─────────────────────────────────────────────
+    if (adminId) {
+
+      const adminSnap = await db
+        .collection('admins')
+        .doc(adminId)
+        .get();
+
+      if (adminSnap.exists) {
+
+        const adminToken =
+          adminSnap.data()?.fcmToken;
+
+        console.log(
+          'TOKEN ADMIN:',
+          adminToken
+        );
+
+        if (adminToken) {
+
+          await admin.messaging().send({
+            token: adminToken,
+
+            notification: {
+              title: 'Novo agendamento',
+
+              body:
+                `${clienteNome} marcou ${servicoNome} às ${horario}`,
+            },
+
+            data: {
+              type: 'agendamento',
+              agendamentoId,
+            },
+
+            android: {
+              priority: 'high',
+            },
+
+            apns: {
+              payload: {
+                aps: {
+                  sound: 'default',
+                },
+              },
+            },
+          });
+
+          console.log(
+            '✅ PUSH ADMIN ENVIADO'
+          );
+        }
+      }
+    }
+
+    return {
+      id: agendamentoId,
+    };
   }
 );

@@ -1,12 +1,18 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Alert
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  SafeAreaView,
 } from 'react-native';
 
 import { WebView } from 'react-native-webview';
 import firestore from '@react-native-firebase/firestore';
-import functions from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
@@ -21,39 +27,96 @@ export default function CartaoScreen({ route, navigation }: any) {
   const [ready, setReady] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Monitora o Firestore para confirmação do pagamento via Webhook
   const monitorarPagamento = () => {
-    unsubscribeRef.current?.();
 
-    unsubscribeRef.current = firestore()
-      .collection('estabelecimentos')
-      .doc(estabelecimentoId)
-      .onSnapshot((doc) => {
-        const data = doc.data();
-        if (!data) return;
+  unsubscribeRef.current?.();
 
-        if (data.paymentType !== 'credit_card') return;
+  unsubscribeRef.current = firestore()
+    .collection('estabelecimentos')
+    .doc(estabelecimentoId)
+    .onSnapshot((doc) => {
 
-        if (data.statusPagamento === 'approved') {
-          if (isProcessing) return;
+      const data = doc.data();
 
-          setIsProcessing(true);
-          unsubscribeRef.current?.();
+      if (!data) return;
 
-          Alert.alert('Sucesso', 'Assinatura ativada!');
+      const status = data.statusPagamento;
 
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'AdminDash', params: { estabelecimentoId } }]
-          });
-        }
+      // =========================================
+      // APROVADO
+      // =========================================
 
-        if (data.statusPagamento === 'rejected') {
-          unsubscribeRef.current?.();
-          setLoading(false);
-          Alert.alert('Pagamento recusado');
-        }
-      });
-  };
+      if (
+        ['approved', 'authorized']
+          .includes(status) &&
+        data.planoPendente === planoId
+      ) {
+
+        if (isProcessing) return;
+
+        setIsProcessing(true);
+
+        unsubscribeRef.current?.();
+
+        setLoading(false);
+
+        Alert.alert(
+          'Sucesso',
+          'Assinatura ativada com sucesso!'
+        );
+
+        navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: 'AdminDash',
+              params: {
+                estabelecimentoId
+              }
+            }
+          ],
+        });
+
+        return;
+      }
+
+      // =========================================
+      // PENDENTE
+      // =========================================
+
+      if (
+        ['pending', 'in_process']
+          .includes(status)
+      ) {
+
+        setLoading(true);
+
+        return;
+      }
+
+      // =========================================
+      // RECUSADO
+      // =========================================
+
+      if (
+        ['rejected', 'cancelled']
+          .includes(status)
+      ) {
+
+        unsubscribeRef.current?.();
+
+        setLoading(false);
+
+        Alert.alert(
+          'Pagamento Recusado',
+          'Verifique os dados do cartão ou tente outro.'
+        );
+
+        return;
+      }
+    });
+};
 
   useEffect(() => {
     return () => unsubscribeRef.current?.();
@@ -69,97 +132,99 @@ export default function CartaoScreen({ route, navigation }: any) {
 
       if (data.type === 'TOKEN') {
         setLoading(true);
-
         const user = auth().currentUser;
-        if (!user?.email) throw new Error('Sessão expirada');
+        if (!user?.email) throw new Error('Sessão expirada. Faça login novamente.');
 
-        const fn = functions()
-          .httpsCallable('criarAssinaturaCartao');
+        // Inicialização Modular correta para evitar "Property functions doesn't exist"
+        const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
+        const criarAssinatura = httpsCallable(functionsInstance, 'criarAssinaturaCartao');
 
-        await fn({
-          estabelecimentoId,
-          plano: planoId,
-          email: user.email,
-          token: data.token
-        });
+        await criarAssinatura({
+  estabelecimentoId,
+  plano: planoId,
+  email: user.email,
+
+  token: data.token,
+
+  payment_method_id:
+    data.payment_method_id,
+
+  issuer_id:
+    data.issuer_id,
+
+  installments:
+    data.installments,
+
+  payer:
+    data.payer,
+
+  valor: Number(valor),
+});
 
         monitorarPagamento();
       }
 
       if (data.type === 'ERROR') {
-        throw new Error(data.message);
+        setLoading(false);
+        Alert.alert('Erro no Checkout', data.message);
       }
 
+      if (data.type === 'DEBUG') {
+        console.log('WEBVIEW_DEBUG:', data.message);
+      }
     } catch (e: any) {
       setLoading(false);
-      Alert.alert('Erro', e.message);
+      console.log('ERRO_PROCESSAMENTO:', e);
+      Alert.alert('Erro', e.message || 'Falha ao processar pagamento');
     }
   };
 
   const html = gerarHTML(valor);
 
   return (
-    <View style={styles.container}>
-
-      {/* HEADER */}
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Icon name="chevron-left" size={32} color="#C9A96E" />
         </TouchableOpacity>
-
-        <Text style={styles.title}>Cartão</Text>
+        <Text style={styles.title}>Pagamento com Cartão</Text>
       </View>
 
-      {/* RESUMO */}
       <LinearGradient colors={['#1A1A1A', '#0D0D0D']} style={styles.summaryCard}>
-        <Text style={styles.planoNome}>{planoId?.toUpperCase()}</Text>
-        <Text style={styles.valorTxt}>R$ {Number(valor).toFixed(2)}</Text>
+        <Text style={styles.planoNome}>PLANO {planoId?.toUpperCase()}</Text>
+        <Text style={styles.valorTxt}>
+          R$ {Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+        </Text>
       </LinearGradient>
 
-      {/* WEBVIEW - SEM SCROLLVIEW (IMPORTANTE) */}
       <View style={styles.webWrapper}>
+        <WebView
+          ref={webRef}
+          source={{ html, baseUrl: 'https://www.mercadopago.com.br' }}
+          originWhitelist={['*']}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          startInLoadingState={true}
+          mixedContentMode="always"
+          style={{ flex: 1, backgroundColor: 'transparent' }}
+          onMessage={onMessage}
+        />
 
         {!ready && (
           <View style={styles.loaderWeb}>
             <ActivityIndicator size="large" color="#C9A96E" />
-            <Text style={{ color: '#888', marginTop: 10 }}>
-              Carregando checkout...
-            </Text>
+            <Text style={{ color: '#888', marginTop: 10 }}>Iniciando ambiente seguro...</Text>
           </View>
         )}
-
-        <WebView
-          ref={webRef}
-          source={{ html }}
-
-          originWhitelist={['*']}
-          javaScriptEnabled
-          domStorageEnabled
-          startInLoadingState
-
-          mixedContentMode="always"
-          allowsInlineMediaPlayback
-
-          onMessage={onMessage}
-
-          onLoadEnd={() => setReady(true)}
-          onError={() => {
-            Alert.alert('Erro', 'Falha ao carregar checkout');
-          }}
-
-          style={{ flex: 1 }}
-        />
       </View>
 
-      {/* LOADING PROCESSAMENTO */}
       {loading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#C9A96E" />
-          <Text style={styles.loadingText}>Processando pagamento...</Text>
+          <Text style={styles.loadingText}>Validando com a operadora...</Text>
         </View>
       )}
-
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -167,111 +232,100 @@ const gerarHTML = (valor: number) => `
 <!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<script src="https://sdk.mercadopago.com/js/v2"></script>
-<style>
-  body { margin:0; background:#0D0D0D; font-family:sans-serif; }
-  #cardPaymentBrick_container { padding: 10px; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <script src="https://sdk.mercadopago.com/js/v2"></script>
+  <style>
+    body { background: #0D0D0D; margin: 0; padding: 15px; font-family: sans-serif; }
+    #cardPaymentBrick_container { width: 100%; min-height: 500px; }
+  </style>
 </head>
 <body>
+  <div id="cardPaymentBrick_container"></div>
+  <script>
+    const sendLog = (msg) => {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "DEBUG", message: msg }));
+    };
 
-<div id="cardPaymentBrick_container"></div>
+    window.onload = async function() {
+      try {
+        sendLog("Iniciando SDK Mercado Pago...");
+        const mp = new MercadoPago('APP_USR-1a1b8d87-b82c-4023-8862-6757eab7de2e', { locale: 'pt-BR' });
+        const bricksBuilder = mp.bricks();
 
-<script>
-  const mp = new MercadoPago('SUA_PUBLIC_KEY', { locale: 'pt-BR' });
-  const bricksBuilder = mp.bricks();
+        const settings = {
+          initialization: { amount: ${Number(valor)} },
+          callbacks: {
+            onReady: () => {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: "READY" }));
+            },
+            onSubmit: async (cardFormData) => {
+  window.ReactNativeWebView.postMessage(JSON.stringify({
+    type: "TOKEN",
+token: cardFormData.token,
+payment_method_id: cardFormData.payment_method_id,
+issuer_id: cardFormData.issuer_id,
+installments: cardFormData.installments,
+payer: cardFormData.payer
+  }));
 
-  const render = async () => {
-    await bricksBuilder.create('cardPayment', 'cardPaymentBrick_container', {
-      initialization: { amount: ${valor} },
-      callbacks: {
-        onReady: () => {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: "READY" }));
-        },
-        onSubmit: (data) => {
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: "TOKEN",
-            token: data.token
-          }));
-        },
-        onError: () => {
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: "ERROR",
-            message: "Erro no cartão"
-          }));
-        }
+  return new Promise((resolve) => resolve());
+},
+            onError: (error) => {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: "ERROR",
+                message: "Erro ao carregar o checkout. Tente novamente."
+              }));
+            }
+          },
+          customization: {
+            visual: { style: { theme: 'dark' } }
+          }
+        };
+
+        window.cardPaymentBrickController = await bricksBuilder.create('cardPayment', 'cardPaymentBrick_container', settings);
+        sendLog("Brick renderizado.");
+      } catch (e) {
+        sendLog("Erro: " + e.message);
       }
-    });
-  };
-
-  render();
-</script>
-
+    };
+  </script>
 </body>
 </html>
 `;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 50,
-    paddingHorizontal: 20
+    paddingHorizontal: 20,
+    height: 60,
   },
-
-  title: {
-    color: '#fff',
-    fontSize: 20,
-    marginLeft: 10,
-    fontWeight: 'bold'
-  },
-
+  title: { color: '#fff', fontSize: 18, marginLeft: 10, fontWeight: 'bold' },
   summaryCard: {
     margin: 20,
     padding: 20,
-    borderRadius: 15
-  },
-
-  planoNome: {
-    color: '#C9A96E',
-    fontSize: 18,
-    fontWeight: 'bold'
-  },
-
-  valorTxt: {
-    color: '#fff',
-    fontSize: 22,
-    marginTop: 5
-  },
-
-  webWrapper: {
-    flex: 1,
-    marginHorizontal: 10,
     borderRadius: 15,
-    overflow: 'hidden',
-    backgroundColor: '#0D0D0D'
+    borderWidth: 1,
+    borderColor: '#333',
   },
-
+  planoNome: { color: '#C9A96E', fontSize: 14, fontWeight: 'bold', letterSpacing: 1 },
+  valorTxt: { color: '#fff', fontSize: 26, marginTop: 5, fontWeight: '300' },
+  webWrapper: { flex: 1, backgroundColor: '#0D0D0D' },
   loaderWeb: {
-    position: 'absolute',
-    top: 120,
-    width: '100%',
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0D0D0D',
+    justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10
+    zIndex: 10,
   },
-
   loadingOverlay: {
-    position: 'absolute',
-    bottom: 40,
-    alignSelf: 'center',
-    alignItems: 'center'
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 99,
   },
-
-  loadingText: {
-    color: '#C9A96E',
-    marginTop: 10
-  }
+  loadingText: { color: '#C9A96E', marginTop: 15, fontSize: 16 },
 });

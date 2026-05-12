@@ -1,51 +1,89 @@
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
+
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-import { enviarPush, getTokenUsuario } from '../services/notificacao.service';
 
+import {
+  enviarPush,
+  getTokenUsuario
+} from '../services/notificacao.service';
+
+// ─────────────────────────────
+// TIPOS DE NOTIFICAÇÃO
+// ─────────────────────────────
 const NOTIF_TYPES = {
   CONFIRMADO: 'NEW_SLOT',
   CANCELADO: 'GENERAL',
   CONCLUIDO: 'APPOINTMENT_DONE',
 } as const;
 
+// ─────────────────────────────
 // 🔐 IDPOTÊNCIA
-async function alreadyProcessed(id: string, status: string) {
-  const ref = db.collection('eventLocks').doc(`${id}_${status}`);
+// evita push duplicado
+// ─────────────────────────────
+async function alreadyProcessed(
+  id: string,
+  status: string
+) {
+
+  const ref = db
+    .collection('eventLocks')
+    .doc(`${id}_${status}`);
 
   try {
+
     await ref.create({
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt:
+        admin.firestore.FieldValue.serverTimestamp(),
     });
+
     return false;
+
   } catch {
+
     return true;
   }
 }
 
-// 🔔 BUILDER
-function buildNotification(status: string, servicoNome: string) {
+// ─────────────────────────────
+// 🔔 MONTAR NOTIFICAÇÃO
+// ─────────────────────────────
+function buildNotification(
+  status: string,
+  servicoNome: string
+) {
+
   switch (status) {
+
     case 'confirmado':
       return {
         type: NOTIF_TYPES.CONFIRMADO,
         titulo: 'Agendamento Confirmado',
-        mensagem: `Seu agendamento de ${servicoNome || 'serviço'} foi confirmado.`,
+        mensagem:
+          `Seu agendamento de ${
+            servicoNome || 'serviço'
+          } foi confirmado.`,
       };
 
     case 'cancelado':
       return {
         type: NOTIF_TYPES.CANCELADO,
         titulo: 'Agendamento Cancelado',
-        mensagem: `Seu agendamento de ${servicoNome || 'serviço'} foi cancelado.`,
+        mensagem:
+          `Seu agendamento de ${
+            servicoNome || 'serviço'
+          } foi cancelado.`,
       };
 
     case 'concluido':
       return {
         type: NOTIF_TYPES.CONCLUIDO,
         titulo: 'Atendimento Concluído',
-        mensagem: `Seu serviço de ${servicoNome || 'serviço'} foi concluído.`,
+        mensagem:
+          `Seu serviço de ${
+            servicoNome || 'serviço'
+          } foi concluído.`,
       };
 
     default:
@@ -53,120 +91,258 @@ function buildNotification(status: string, servicoNome: string) {
   }
 }
 
-// ⭐ RANKING
-async function updateRanking(estId: string, oldNota: number | null, newNota: number) {
-  const estRef = db.collection('estabelecimentos').doc(estId);
+// ─────────────────────────────
+// ⭐ UPDATE RANKING
+// ─────────────────────────────
+async function updateRanking(
+  estId: string,
+  oldNota: number | null,
+  newNota: number
+) {
+
+  const estRef =
+    db.collection('estabelecimentos').doc(estId);
 
   await db.runTransaction(async (t) => {
+
     const snap = await t.get(estRef);
+
     if (!snap.exists) return;
 
     const d = snap.data() || {};
 
-    const totalAtual = d.quantidadeAvaliacoes || 0;
-    const somaAtual = d.somaNotas || 0;
+    const totalAtual =
+      Number(d.quantidadeAvaliacoes || 0);
 
-    const isUpdate = oldNota != null;
+    const somaAtual =
+      Number(d.somaNotas || 0);
 
-    const quantidadeAvaliacoes = isUpdate ? totalAtual : totalAtual + 1;
+    const isUpdate =
+      oldNota != null;
 
-    const somaNotas = isUpdate
-      ? somaAtual - oldNota + newNota
-      : somaAtual + newNota;
+    const quantidadeAvaliacoes =
+      isUpdate
+        ? totalAtual
+        : totalAtual + 1;
 
-    const media = somaNotas / Math.max(quantidadeAvaliacoes, 1);
+    const somaNotas =
+      isUpdate
+        ? somaAtual - oldNota + newNota
+        : somaAtual + newNota;
+
+    const media =
+      somaNotas /
+      Math.max(quantidadeAvaliacoes, 1);
 
     t.update(estRef, {
-      avaliacao: Math.round(media * 10) / 10,
+
+      avaliacao:
+        Math.round(media * 10) / 10,
+
       quantidadeAvaliacoes,
+
       somaNotas,
-      rankingScore: (media * 2) + (quantidadeAvaliacoes * 0.5),
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+
+      rankingScore:
+        (media * 2) +
+        (quantidadeAvaliacoes * 0.5),
+
+      atualizadoEm:
+        admin.firestore.FieldValue.serverTimestamp(),
     });
   });
 }
 
+// ─────────────────────────────
 // 🚀 TRIGGER PRINCIPAL
-export const onAgendamentoUpdate = onDocumentUpdated(
-  { document: 'agendamentos/{docId}', region: REGION },
-  async (event) => {
+// ─────────────────────────────
+export const onAgendamentoUpdate =
+  onDocumentUpdated(
+    {
+      document: 'agendamentos/{docId}',
+      region: REGION,
+    },
 
-    const before = event.data?.before.data();
-    const after = event.data?.after.data();
-    const id = event.params.docId;
+    async (event) => {
 
-    if (!before || !after) return;
+      const before =
+        event.data?.before.data();
 
-    const statusChanged = before.status !== after.status;
+      const after =
+        event.data?.after.data();
 
-    // 🔐 evita duplicação
-    if (statusChanged) {
-      const processed = await alreadyProcessed(id, after.status);
-      if (processed) return;
-    }
+      const id =
+        event.params.docId;
 
-    // 🔔 NOTIFICAÇÃO
-    if (statusChanged) {
-      const notif = buildNotification(after.status, after.servicoNome);
+      if (!before || !after) {
+        return;
+      }
 
-      if (notif && after.clienteUid) {
+      // ─────────────────────────
+      // 🔥 SÓ PROCESSA
+      // QUANDO STATUS MUDA
+      // ─────────────────────────
+      const statusChanged =
+        before.status !== after.status &&
+        after.status != null;
 
-        // 🔥 PUSH (CORRIGIDO)
-        const tokens = await getTokenUsuario(after.clienteUid, 'cliente');
+      // 🚫 ignora qualquer update
+      // irrelevante
+      if (!statusChanged) {
 
-        if (tokens.length > 0) {
-          await enviarPush(
-  tokens,
-  notif.titulo,
-  notif.mensagem,
-  {
-    type: notif.type,
-    agendamentoId: id,
-  }
-);
+        // ⭐ mesmo sem troca de status
+        // ainda atualiza ranking
+        const notaNova =
+          after.avaliacaoCliente;
+
+        const notaAntiga =
+          before.avaliacaoCliente;
+
+        const mudouAvaliacao =
+          after.status === 'concluido' &&
+          notaNova != null &&
+          (
+            notaAntiga == null ||
+            notaAntiga !== notaNova
+          );
+
+        if (mudouAvaliacao) {
+
+          await updateRanking(
+            after.estabelecimentoId,
+            notaAntiga ?? null,
+            notaNova
+          );
         }
 
+        return;
+      }
+
+      // ─────────────────────────
+      // 🔐 ANTI DUPLICAÇÃO
+      // ─────────────────────────
+      const processed =
+        await alreadyProcessed(
+          id,
+          after.status
+        );
+
+      if (processed) {
+        return;
+      }
+
+      // ─────────────────────────
+      // 🔔 BUILD NOTIF
+      // ─────────────────────────
+      const notif =
+        buildNotification(
+          after.status,
+          after.servicoNome
+        );
+
+      if (
+        notif &&
+        after.clienteUid
+      ) {
+
+        // ───────────────────────
+        // 🔥 TOKENS CLIENTE
+        // ───────────────────────
+        const tokens =
+          await getTokenUsuario(
+            after.clienteUid,
+            'cliente'
+          );
+
+        // ───────────────────────
+        // 🔥 PUSH
+        // ───────────────────────
+        if (tokens.length > 0) {
+
+          await enviarPush(
+            tokens,
+            notif.titulo,
+            notif.mensagem,
+            {
+              type: notif.type,
+              agendamentoId: id,
+            }
+          );
+        }
+
+        // ───────────────────────
         // 💾 SALVA NOTIFICAÇÃO
-        await db.collection('notificacoes').add({
-          clienteId: after.clienteUid,
-          adminId: after.adminId || null,
+        // ───────────────────────
+        await db
+          .collection('notificacoes')
+          .add({
 
-          agendamentoId: id,
-          estabelecimentoId: after.estabelecimentoId,
-          estabelecimentoNome: after.estabelecimentoNome,
+            clienteId:
+              after.clienteUid,
 
-          titulo: notif.titulo,
-          mensagem: notif.mensagem,
-          type: notif.type,
+            adminId:
+              after.adminId || null,
 
-          lida: false,
-          apagada: false,
-          processedByTrigger: true,
+            agendamentoId: id,
 
-          criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            estabelecimentoId:
+              after.estabelecimentoId,
 
-          expiraEm: admin.firestore.Timestamp.fromDate(
-            new Date(Date.now() + 1000 * 60 * 60 * 24 * 30)
-          ),
-        });
+            estabelecimentoNome:
+              after.estabelecimentoNome,
+
+            titulo:
+              notif.titulo,
+
+            mensagem:
+              notif.mensagem,
+
+            type:
+              notif.type,
+
+            lida: false,
+
+            apagada: false,
+
+            processedByTrigger: true,
+
+            criadoEm:
+              admin.firestore.FieldValue.serverTimestamp(),
+
+            expiraEm:
+              admin.firestore.Timestamp.fromDate(
+                new Date(
+                  Date.now() +
+                  1000 * 60 * 60 * 24 * 30
+                )
+              ),
+          });
+      }
+
+      // ─────────────────────────
+      // ⭐ RANKING
+      // ─────────────────────────
+      const notaNova =
+        after.avaliacaoCliente;
+
+      const notaAntiga =
+        before.avaliacaoCliente;
+
+      const mudouAvaliacao =
+        after.status === 'concluido' &&
+        notaNova != null &&
+        (
+          notaAntiga == null ||
+          notaAntiga !== notaNova
+        );
+
+      if (mudouAvaliacao) {
+
+        await updateRanking(
+          after.estabelecimentoId,
+          notaAntiga ?? null,
+          notaNova
+        );
       }
     }
-
-    // ⭐ RANKING
-    const notaNova = after.avaliacaoCliente;
-    const notaAntiga = before.avaliacaoCliente;
-
-    const mudouAvaliacao =
-      after.status === 'concluido' &&
-      notaNova != null &&
-      (notaAntiga == null || notaAntiga !== notaNova);
-
-    if (mudouAvaliacao) {
-      await updateRanking(
-        after.estabelecimentoId,
-        notaAntiga ?? null,
-        notaNova
-      );
-    }
-  }
-);
+  );

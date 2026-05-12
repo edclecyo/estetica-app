@@ -1,4 +1,5 @@
 import * as admin from 'firebase-admin';
+
 import { db } from '../config/firebase';
 
 // ─────────────────────────────────────────────
@@ -9,21 +10,44 @@ export async function getTokenUsuario(
   tipo: 'cliente' | 'admin'
 ): Promise<string[]> {
 
-  const colecao = tipo === 'admin' ? 'admins' : 'clientes';
+  const colecao =
+    tipo === 'admin'
+      ? 'admins'
+      : 'clientes';
 
-  const snap = await db.collection(colecao).doc(userId).get();
+  const snap =
+    await db
+      .collection(colecao)
+      .doc(userId)
+      .get();
 
-  if (!snap.exists) return [];
+  if (!snap.exists) {
+    return [];
+  }
 
-  const token = snap.data()?.fcmToken;
+  const token =
+    snap.data()?.fcmToken;
 
-  if (!token) return [];
+  if (!token) {
+    return [];
+  }
 
-  return Array.isArray(token) ? token : [token];
+  // 🔥 normaliza
+  const tokens =
+    Array.isArray(token)
+      ? token
+      : [token];
+
+  // 🔥 remove vazios/duplicados
+  return [
+    ...new Set(
+      tokens.filter(Boolean)
+    )
+  ];
 }
 
 // ─────────────────────────────────────────────
-// 🔔 ENVIAR PUSH (AGORA LIMPO)
+// 🔔 ENVIAR PUSH
 // ─────────────────────────────────────────────
 export async function enviarPush(
   tokens: string[],
@@ -32,49 +56,143 @@ export async function enviarPush(
   data?: Record<string, any>,
   badgeCount?: number
 ) {
+
   try {
-    if (!tokens.length) return;
 
-    const message: admin.messaging.MulticastMessage = {
-      tokens,
+    // 🔥 evita envio inútil
+    if (!tokens?.length) {
+      return;
+    }
 
-      notification: {
-        title,
-        body,
-      },
+    // 🔥 remove duplicados
+    const uniqueTokens =
+      [...new Set(tokens)];
 
-      data: data
-        ? Object.fromEntries(
-            Object.entries(data).map(([k, v]) => [k, String(v)])
-          )
-        : {},
+    // 🔥 firebase suporta até 500
+    const chunks: string[][] = [];
 
-      android: {
-        priority: 'high',
+    for (
+      let i = 0;
+      i < uniqueTokens.length;
+      i += 500
+    ) {
+
+      chunks.push(
+        uniqueTokens.slice(i, i + 500)
+      );
+    }
+
+    // ─────────────────────────
+    // 🚀 ENVIA EM LOTES
+    // ─────────────────────────
+    for (const chunk of chunks) {
+
+      const message:
+        admin.messaging.MulticastMessage = {
+
+        tokens: chunk,
+
         notification: {
-          sound: 'default',
-          channelId: 'default_channel',
-          visibility: 'public',
+          title,
+          body,
         },
-      },
 
-      apns: {
-        headers: {
-          'apns-priority': '10',
-        },
-        payload: {
-          aps: {
+        data: data
+          ? Object.fromEntries(
+              Object.entries(data)
+                .map(([k, v]) => [
+                  k,
+                  String(v)
+                ])
+            )
+          : {},
+
+        android: {
+
+          priority: 'high',
+
+          notification: {
             sound: 'default',
-            badge: badgeCount ?? 1,
-            contentAvailable: true,
+            channelId: 'default_channel',
+            visibility: 'public',
           },
         },
-      },
-    };
 
-    await admin.messaging().sendEachForMulticast(message);
+        apns: {
+
+          headers: {
+            'apns-priority': '10',
+          },
+
+          payload: {
+            aps: {
+              sound: 'default',
+              badge: badgeCount ?? 1,
+              contentAvailable: true,
+            },
+          },
+        },
+      };
+
+      // 🔥 RESULTADO
+      const response =
+        await admin.messaging()
+          .sendEachForMulticast(message);
+
+      // ───────────────────────
+      // 🧹 LIMPA TOKENS INVÁLIDOS
+      // ───────────────────────
+      const invalidTokens: string[] = [];
+
+      response.responses.forEach(
+        (r, index) => {
+
+          if (!r.success) {
+
+            const code =
+              r.error?.code || '';
+
+            // token morto
+            if (
+              code ===
+                'messaging/registration-token-not-registered'
+              ||
+              code ===
+                'messaging/invalid-registration-token'
+            ) {
+
+              invalidTokens.push(
+                chunk[index]
+              );
+            }
+          }
+        }
+      );
+
+      // ───────────────────────
+      // 🧹 REMOVE TOKEN INVÁLIDO
+      // ───────────────────────
+      if (invalidTokens.length > 0) {
+
+        console.log(
+          '🧹 Tokens inválidos:',
+          invalidTokens.length
+        );
+
+        // 🔥 remove depois
+        // no login novo ele salva novamente
+      }
+
+      console.log(
+        `✅ Push enviado: ${response.successCount} sucesso / ${response.failureCount} falhas`
+      );
+    }
 
   } catch (err) {
-    console.error('🔥 Erro push:', err);
+
+    console.error(
+      '🔥 Erro push:',
+      err
+    );
   }
 }

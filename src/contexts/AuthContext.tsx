@@ -38,64 +38,89 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // --- MONITORAMENTO DE AUTH ---
   useEffect(() => {
-    const unsubscribe = auth().onAuthStateChanged(async firebaseUser => {
-      setUser(firebaseUser);
-      setIsResolvingAdmin(true);
 
-      if (firebaseUser) {
-        try {
-          const snap = await firestore()
-            .collection('admins')
-            .doc(firebaseUser.uid)
-            .get();
+  const unsubscribe = auth().onAuthStateChanged(
+    async firebaseUser => {
 
-          if (snap.exists && snap.data()?.ativo) {
-            const dados = snap.data()!;
-            setAdmin({ id: firebaseUser.uid, ...dados } as Admin);
-            // ✅ isSuperAdmin definido como estado separado
-            setIsSuperAdmin(dados.cargo === 'Super Admin');
-          } else {
-            setAdmin(null);
-            setIsSuperAdmin(false);
-          }
-        } catch (e) {
-          console.log('Erro ao buscar admin:', e);
+      try {
+
+        setLoading(true);
+        setIsResolvingAdmin(true);
+
+        // 🔥 deslogado
+        if (!firebaseUser) {
+          setUser(null);
+          setAdmin(null);
+          setIsSuperAdmin(false);
+
+          setLoading(false);
+          setIsResolvingAdmin(false);
+
+          return;
+        }
+
+        setUser(firebaseUser);
+
+        const snap = await firestore()
+          .collection('admins')
+          .doc(firebaseUser.uid)
+          .get();
+
+        if (snap.exists && snap.data()?.ativo) {
+
+          const dados = snap.data()!;
+
+          setAdmin({
+            id: firebaseUser.uid,
+            ...dados,
+          } as Admin);
+
+          setIsSuperAdmin(
+            dados.cargo === 'Super Admin'
+          );
+
+        } else {
+
           setAdmin(null);
           setIsSuperAdmin(false);
         }
-      } else {
+
+      } catch (e) {
+
+        console.log('Erro auth:', e);
+
         setAdmin(null);
         setIsSuperAdmin(false);
+
+      } finally {
+
+        setLoading(false);
+        setIsResolvingAdmin(false);
       }
+    }
+  );
 
-      setLoading(false);
-      setIsResolvingAdmin(false);
-    });
+  return unsubscribe;
 
-    return unsubscribe;
-  }, []);
+}, []);
 
   // --- LOGOUT ---
-  const signOut = async () => {
-    if (user && admin) {
-      try {
-        await messaging().unsubscribeFromTopic(`admin_${user.uid}`);
-      } catch (e) {
-        console.log('Erro ao desinscrever do tópico:', e);
-      }
-    }
-    try {
-      await auth().signOut();
-    } catch (e) {
-      console.log('signOut error:', e);
-    }
-  };
+ const signOut = async () => {
+  const user = auth().currentUser;
 
+  if (!user) return;
+
+  try {
+    await auth().signOut();
+  } catch (e) {
+    console.log('signOut error:', e);
+  }
+};
   return (
     <AuthContext.Provider value={{
       user,
       admin,
-      cliente: admin ? null : user,
+      cliente: user && !admin ? user : null,
       loading,
       isAdmin: !!admin,
       isCliente: !!user && !admin,

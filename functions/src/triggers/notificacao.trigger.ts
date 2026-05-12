@@ -1,106 +1,138 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+
 import { REGION } from '../config/region';
-import { getTokenUsuario, enviarPush } from '../services/notificacao.service';
 
-export const aoCriarNotificacao = onDocumentCreated(
-  { document: "notificacoes/{docId}", region: REGION },
-  async (event) => {
+import {
+  getTokenUsuario,
+  enviarPush
+} from '../services/notificacao.service';
 
-    const snapshot = event.data;
-    if (!snapshot) return;
+// ─────────────────────────────
+// 🚀 AO CRIAR NOTIFICAÇÃO
+// ─────────────────────────────
+export const aoCriarNotificacao =
+  onDocumentCreated(
+    {
+      document: 'notificacoes/{docId}',
+      region: REGION,
+      maxInstances: 20,
+    },
 
-    const data = snapshot.data() as any;
-    const docId = event.params?.docId || '';
+    async (event) => {
 
-    const pushData = {
-  type: String(data.type || "notification"),
-  docId: String(docId),
-  agendamentoId: String(data.agendamentoId || ""),
-  clienteNome: String(data.clienteNome || ""),
-  servicoNome: String(data.servicoNome || ""),
-  formaPagamento: String(data.formaPagamento || ""),
-};
+      const snapshot = event.data;
 
-    try {
-
-      // ─────────────────────────────
-      // 👤 CLIENTE
-      // ─────────────────────────────
-      if (data.tipo === 'cliente' && data.userId) {
-
-        const tokens = await getTokenUsuario(data.userId, 'cliente');
-
-        let title = "Atualização";
-        let body = data.mensagem || "";
-
-        switch (data.type) {
-
-          case "agendamento":
-            title = "Agendamento confirmado";
-            body = data.mensagem || "Seu agendamento foi confirmado.";
-            break;
-
-          case "cancelamento":
-            title = "Agendamento cancelado";
-            body = data.mensagem || "Seu agendamento foi cancelado.";
-            break;
-
-          case "lembrete":
-            title = "Seu horário é hoje!";
-            body = data.mensagem || "Não esqueça do seu horário.";
-            break;
-        }
-
-        await enviarPush(
-          tokens,
-          title,
-          body,
-          pushData
-        );
-
-        console.log(`✅ Push cliente enviado: ${data.userId}`);
+      if (!snapshot) {
+        return;
       }
 
-      // ─────────────────────────────
-      // 🧑‍💼 ADMIN
-      // ─────────────────────────────
-      if (data.tipo === 'admin' && data.userId) {
+      const data = snapshot.data() as any;
 
-        const tokens = await getTokenUsuario(data.userId, 'admin');
+      const docId =
+        event.params?.docId || '';
 
-        let title = "Nova atualização";
-        let body = data.mensagem || "";
+      try {
 
-        switch (data.type) {
+        // ─────────────────────────
+        // 🔥 PAYLOAD
+        // ─────────────────────────
+        const pushData = {
 
-          case "agendamento":
-            title = "Novo agendamento";
-            body = data.mensagem || "Um cliente fez um novo agendamento.";
-            break;
+          type:
+            String(
+              data.type || 'notification'
+            ),
 
-          case "cancelamento":
-            title = "Agendamento cancelado";
-            body = data.mensagem || "Um agendamento foi cancelado.";
-            break;
+          docId:
+            String(docId),
 
-          case "lembrete":
-            title = "Lembrete de horário";
-            body = data.mensagem || "Existe um horário próximo.";
-            break;
+          agendamentoId:
+            String(
+              data.agendamentoId || ''
+            ),
+
+          clienteNome:
+            String(
+              data.clienteNome || ''
+            ),
+
+          servicoNome:
+            String(
+              data.servicoNome || ''
+            ),
+
+          formaPagamento:
+            String(
+              data.formaPagamento || ''
+            ),
+        };
+
+        // ─────────────────────────
+        // 👤 CLIENTE
+        // ─────────────────────────
+        if (
+          data.tipo === 'cliente' &&
+          data.clienteId
+        ) {
+
+          const tokens =
+            await getTokenUsuario(
+              data.clienteId,
+              'cliente'
+            );
+
+          if (!tokens?.length) {
+            return;
+          }
+
+          await enviarPush(
+            tokens,
+            data.titulo || 'Atualização',
+            data.mensagem || '',
+            pushData
+          );
+
+          console.log(
+            `✅ Push cliente enviado: ${data.clienteId}`
+          );
         }
 
-        await enviarPush(
-          tokens,
-          title,
-          body,
-          pushData
+        // ─────────────────────────
+        // 🧑‍💼 ADMIN
+        // ─────────────────────────
+        if (
+          data.tipo === 'admin' &&
+          data.adminId
+        ) {
+
+          const tokens =
+            await getTokenUsuario(
+              data.adminId,
+              'admin'
+            );
+
+          if (!tokens?.length) {
+            return;
+          }
+
+          await enviarPush(
+            tokens,
+            data.titulo || 'Nova atualização',
+            data.mensagem || '',
+            pushData
+          );
+
+          console.log(
+            `✅ Push admin enviado: ${data.adminId}`
+          );
+        }
+
+      } catch (err: any) {
+
+        console.error(
+          '❌ Erro ao enviar push:',
+          err?.message || err
         );
-
-        console.log(`✅ Push admin enviado: ${data.userId}`);
       }
-
-    } catch (err: any) {
-      console.error("❌ Erro ao enviar push:", err?.message || err);
     }
-  }
-);
+  );

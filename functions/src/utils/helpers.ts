@@ -7,19 +7,30 @@ function assertString(v: any, name: string) {
   return v.trim();
 }
 
-export function gerarSlots(horario: string, duracaoMin: number) {
-  const [h, m] = horario.split(':').map(Number);
-
-  const inicio = new Date();
-  inicio.setHours(h, m, 0, 0);
+export function gerarSlots(
+  horarioInicial: string,
+  duracaoMin: number,
+  intervaloMin = 30
+) {
 
   const slots: string[] = [];
-  const passos = Math.ceil(duracaoMin / 30);
 
-  for (let i = 0; i < passos; i++) {
-    const slot = new Date(inicio);
-    slot.setMinutes(inicio.getMinutes() + i * 30);
-    slots.push(slot.toTimeString().slice(0, 5));
+  const [h, m] = horarioInicial.split(':').map(Number);
+
+  let atual = h * 60 + m;
+
+  const fim = atual + duracaoMin;
+
+  while (atual < fim) {
+
+    const hh = Math.floor(atual / 60);
+    const mm = atual % 60;
+
+    slots.push(
+      `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+    );
+
+    atual += intervaloMin;
   }
 
   return slots;

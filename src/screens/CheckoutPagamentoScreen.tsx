@@ -1,16 +1,34 @@
 import React, { useState, useRef, useEffect } from 'react';
+
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Alert, Image, ScrollView
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView
 } from 'react-native';
 
-import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import {
+  getFunctions,
+  httpsCallable
+} from '@react-native-firebase/functions';
+
 import { getApp } from '@react-native-firebase/app';
+
 import firestore from '@react-native-firebase/firestore';
+
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+
 import Clipboard from '@react-native-clipboard/clipboard';
 
-export default function CheckoutScreen({ route, navigation }: any) {
+export default function CheckoutScreen({
+  route,
+  navigation
+}: any) {
+
   const {
     planoId,
     estabelecimentoId,
@@ -18,316 +36,750 @@ export default function CheckoutScreen({ route, navigation }: any) {
     valor
   } = route.params;
 
-  const [loading, setLoading] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [pix, setPix] = useState<any>(null);
-  const [statusPix, setStatusPix] = useState<string>('idle');
-  const [expirado, setExpirado] = useState(false);
-  const [copiado, setCopiado] = useState(false);
+  const functionsInstance = getFunctions(
+    getApp(),
+    'southamerica-east1'
+  );
 
-  const unsubscribeRef = useRef<any>(null);
-  const timerRef = useRef<any>(null);
+  // =====================================================
+  // STATES
+  // =====================================================
 
-  const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
+  const [loading, setLoading] =
+    useState(false);
 
-  // ================= CLEANUP =================
+  const [pix, setPix] =
+    useState<any>(null);
+
+  const [copiado, setCopiado] =
+    useState(false);
+
+  const [statusPix, setStatusPix] =
+    useState('idle');
+
+  const [expirado, setExpirado] =
+    useState(false);
+
+  // PLANO ATIVO
+  const [planoAtual, setPlanoAtual] =
+    useState('');
+
+  // PLANO DO PIX PENDENTE
+  const [planoPixAtual, setPlanoPixAtual] =
+    useState('');
+
+  const [assinaturaAtiva, setAssinaturaAtiva] =
+    useState(false);
+
+  const [alertaExibido, setAlertaExibido] =
+    useState(false);
+
+  const unsubscribeRef =
+    useRef<any>(null);
+
+  const timerRef =
+    useRef<any>(null);
+
+  // =====================================================
+  // TEMPO REAL
+  // =====================================================
+
   useEffect(() => {
-    return () => {
-      unsubscribeRef.current?.();
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  // ================= CARREGAR PIX EXISTENTE =================
-  useEffect(() => {
-    const carregarPix = async () => {
-      const doc = await firestore()
-        .collection('estabelecimentos')
-        .doc(estabelecimentoId)
-        .get();
-
-      const data = doc.data();
-      if (!data) return;
-
-      const expira = data.pixExpiraEm?.toDate?.();
-
-      if (
-        data.pixStatus === 'pending' &&
-        data.pixQrCodeBase64 &&
-        expira &&
-        expira > new Date()
-      ) {
-        setPix({
-          qr_code: data.pixQrCode,
-          qr_code_base64: data.pixQrCodeBase64
-        });
-
-        setStatusPix('pending');
-        iniciarMonitoramentoPix();
-
-        const restante = expira.getTime() - Date.now();
-
-        if (restante > 0) {
-          timerRef.current = setTimeout(() => {
-            setExpirado(true);
-          }, restante);
-        }
-      }
-
-      if (expira && expira <= new Date()) {
-        setExpirado(true);
-        setStatusPix('expired');
-      }
-    };
-
-    carregarPix();
-  }, []);
-
-  // ================= MONITORAMENTO =================
-  const iniciarMonitoramentoPix = () => {
-    unsubscribeRef.current?.();
 
     unsubscribeRef.current = firestore()
       .collection('estabelecimentos')
       .doc(estabelecimentoId)
       .onSnapshot((doc) => {
+
         const data = doc.data();
+
         if (!data) return;
 
-        const rawStatus = data.pixStatus || 'pending';
+        // =================================================
+        // STATUS PIX
+        // =================================================
 
-        const status = ['approved', 'pending', 'rejected', 'cancelled']
-          .includes(rawStatus)
-          ? rawStatus
-          : 'pending';
+        const status =
+          data.pixStatus || 'idle';
 
         setStatusPix(status);
 
-        if (status === 'approved') {
-          if (isProcessing) return;
+        // =================================================
+        // PLANO ATIVO
+        // =================================================
 
-          setIsProcessing(true);
+        setPlanoAtual(
+          data.plano || ''
+        );
 
-          unsubscribeRef.current?.();
-          if (timerRef.current) clearTimeout(timerRef.current);
+        // =================================================
+        // PLANO PENDENTE
+        // =================================================
 
-          Alert.alert('Pagamento confirmado', 'Seu plano foi ativado!', [
-            {
-              text: 'Entrar',
-              onPress: () =>
-                navigation.replace('AdminDash', { estabelecimentoId })
-            }
-          ]);
+        setPlanoPixAtual(
+          data.planoPendente || ''
+        );
+
+        // =================================================
+        // ASSINATURA
+        // =================================================
+
+        setAssinaturaAtiva(
+          data.assinaturaAtiva === true
+        );
+
+        // =================================================
+        // PIX SOMENTE DO PLANO ATUAL
+        // =================================================
+
+        if (
+          status === 'pending' &&
+          data.pixQrCodeBase64 &&
+          data.planoPendente === planoId
+        ) {
+
+          setPix({
+            qr_code: data.pixQrCode,
+            qr_code_base64:
+              data.pixQrCodeBase64
+          });
+
+        } else {
+
+          setPix(null);
+
         }
-      });
-  };
 
-  // ================= PIX =================
-  const pagarPix = async () => {
-    if (loading) return;
+        // =================================================
+        // EXPIRAÇÃO
+        // =================================================
+
+        const expira =
+          data.pixExpiraEm?.toDate?.();
+
+        if (expira) {
+
+          const expirou =
+            expira.getTime() <= Date.now();
+
+          setExpirado(expirou);
+
+          if (!expirou) {
+
+            const restante =
+              expira.getTime() - Date.now();
+
+            if (timerRef.current) {
+              clearTimeout(timerRef.current);
+            }
+
+            timerRef.current =
+              setTimeout(() => {
+
+                setExpirado(true);
+
+              }, restante);
+
+          }
+
+        } else {
+
+          setExpirado(false);
+
+        }
+
+        // =================================================
+        // PIX APROVADO
+        // =================================================
+
+        if (
+          status === 'approved' &&
+          data.assinaturaAtiva &&
+          !alertaExibido
+        ) {
+
+          setAlertaExibido(true);
+
+          if (timerRef.current) {
+            clearTimeout(timerRef.current);
+          }
+
+          setPix(null);
+
+          Alert.alert(
+            'Pagamento aprovado',
+            'Seu plano foi ativado com sucesso!',
+            [
+              {
+                text: 'Continuar',
+                onPress: () => {
+
+                  navigation.replace(
+                    'AdminDash',
+                    { estabelecimentoId }
+                  );
+
+                }
+              }
+            ]
+          );
+        }
+
+        // =================================================
+        // LIMPA PIX
+        // =================================================
+
+        if (
+          status !== 'pending' &&
+          status !== 'approved'
+        ) {
+
+          setPix(null);
+
+        }
+
+      });
+
+    return () => {
+
+      unsubscribeRef.current?.();
+
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+
+    };
+
+  }, []);
+  
+const verificarConta = async () => {
+
+  const doc = await firestore()
+    .collection('estabelecimentos')
+    .doc(estabelecimentoId)
+    .get();
+
+  const data = doc.data();
+
+  if (!data) return false;
+
+  if (!data.pixChave || !data.pixTipo) {
+    return false;
+  }
+
+  return true;
+};
+  // =====================================================
+  // PAGAR PIX
+  // =====================================================
+
+ const pagarPix = async () => {
+
+  if (
+    assinaturaAtiva &&
+    planoAtual === planoId
+  ) {
+    Alert.alert('Plano já ativo');
+    return;
+  }
+
+  try {
 
     setLoading(true);
-    setExpirado(false);
-    setIsProcessing(false);
-    setPix(null);
-    setStatusPix('pending');
 
-    try {
-      const fn = httpsCallable(functionsInstance, 'criarPagamentoPixAssinatura');
+    // 🔥 VERIFICA CONTA PIX PRIMEIRO
+    const temConta = await verificarConta();
 
-      const { data } = await fn({
-        estabelecimentoId,
-        plano: planoId,
-        valor: valor
-      });
-
-      if (!data?.qr_code_base64) {
-        throw new Error('Falha ao gerar QR Code');
-      }
-
-      setPix(data);
-
-      if (timerRef.current) clearTimeout(timerRef.current);
-
-      // 30 min (igual backend)
-      timerRef.current = setTimeout(() => {
-        setExpirado(true);
-      }, 1000 * 60 * 30);
-
-      iniciarMonitoramentoPix();
-
-    } catch (e: any) {
-      console.error(e);
-
-      if (e?.code === 'resource-exhausted') {
-        iniciarMonitoramentoPix();
-      } else {
-        Alert.alert('Erro', e?.message || 'Erro ao gerar PIX');
-      }
-    } finally {
+    if (!temConta) {
       setLoading(false);
-    }
-  };
 
-  // ================= CARTÃO =================
-  const pagarCartao = () => {
-    navigation.navigate('CartaoScreen', {
+      Alert.alert(
+        'Configuração necessária',
+        'Você precisa configurar seus dados de recebimento PIX antes de continuar.',
+        [
+          {
+            text: 'Cancelar',
+            style: 'cancel'
+          },
+          {
+            text: 'Configurar agora',
+            onPress: () => {
+              navigation.navigate(
+                'ContaBancariaScreen',
+                { estabelecimentoId }
+              );
+            }
+          }
+        ]
+      );
+
+      return;
+    }
+
+    setPix(null);
+    setExpirado(false);
+    setStatusPix('pending');
+    setAlertaExibido(false);
+
+    const fn = httpsCallable(
+      functionsInstance,
+      'criarPagamentoPixAssinatura'
+    );
+
+    const { data }: any = await fn({
       estabelecimentoId,
-      planoId,
+      plano: planoId,
       valor
     });
+
+    if (!data?.qr_code_base64) {
+      throw new Error('PIX inválido');
+    }
+
+    setPix(data);
+
+  } catch (e: any) {
+
+    console.error(e);
+
+    // 🔥 CASO BACKEND BLOQUEIE DIRETO
+    if (
+      e?.message?.includes('CONTA_BANCARIA_INCOMPLETA')
+    ) {
+      setLoading(false);
+
+      Alert.alert(
+        'Configurar PIX',
+        'Você precisa cadastrar sua conta bancária antes de gerar o PIX',
+        [
+          {
+            text: 'Cancelar',
+            style: 'cancel'
+          },
+          {
+            text: 'Configurar',
+            onPress: () => {
+              navigation.navigate(
+                'ContaBancariaScreen',
+                { estabelecimentoId }
+              );
+            }
+          }
+        ]
+      );
+
+      return;
+    }
+
+    Alert.alert(
+      'Erro',
+      e?.message || 'Erro ao gerar PIX'
+    );
+
+  } finally {
+    setLoading(false);
+  }
+};
+  // =====================================================
+  // PAGAR CARTÃO
+  // =====================================================
+
+  const pagarCartao = () => {
+
+    if (
+      assinaturaAtiva &&
+      planoAtual === planoId
+    ) {
+
+      Alert.alert(
+        'Plano já ativo',
+        'Você já possui este plano.'
+      );
+
+      return;
+    }
+
+    navigation.navigate(
+      'CartaoScreen',
+      {
+        estabelecimentoId,
+        planoId,
+        valor
+      }
+    );
   };
 
-  // ================= COPIAR =================
+  // =====================================================
+  // COPIAR PIX
+  // =====================================================
+
   const copiarPix = () => {
+
     if (!pix?.qr_code) return;
-    Clipboard.setString(pix.qr_code);
+
+    Clipboard.setString(
+      pix.qr_code
+    );
+
     setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
+
+    setTimeout(() => {
+
+      setCopiado(false);
+
+    }, 2000);
   };
 
-  const statusLabel = (status: string) => {
-    if (expirado) return 'EXPIRADO';
+  // =====================================================
+  // LABEL STATUS
+  // =====================================================
 
-    switch (status) {
-      case 'approved': return 'APROVADO';
-      case 'pending': return 'PENDENTE';
-      case 'rejected': return 'RECUSADO';
-      case 'cancelled': return 'CANCELADO';
-      default: return 'AGUARDANDO';
+  const statusLabel = () => {
+
+    if (expirado) {
+      return 'EXPIRADO';
+    }
+
+    switch (statusPix) {
+
+      case 'approved':
+        return 'APROVADO';
+
+      case 'pending':
+        return 'PENDENTE';
+
+      case 'rejected':
+        return 'RECUSADO';
+
+      case 'cancelled':
+        return 'CANCELADO';
+
+      default:
+        return 'AGUARDANDO';
     }
   };
 
+  // =====================================================
+  // MESMO PLANO
+  // =====================================================
+
+  const mesmoPlano =
+    assinaturaAtiva &&
+    planoAtual === planoId;
+
+  // =====================================================
+  // PIX DESSE PLANO
+  // =====================================================
+
+  const pixDessePlano =
+    planoPixAtual === planoId &&
+    statusPix === 'pending';
+
+  // =====================================================
+  // RENDER
+  // =====================================================
+
   return (
-    <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 40 }}>
+
+    <ScrollView
+      style={s.container}
+      contentContainerStyle={{
+        paddingBottom: 40
+      }}
+    >
+
+      {/* HEADER */}
 
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-left" size={24} color="#C9A96E" />
+
+        <TouchableOpacity
+          onPress={() =>
+            navigation.goBack()
+          }
+        >
+
+          <Icon
+            name="arrow-left"
+            size={24}
+            color="#C9A96E"
+          />
+
         </TouchableOpacity>
-        <Text style={s.title}>Finalizar Assinatura</Text>
+
+        <Text style={s.title}>
+          Finalizar Assinatura
+        </Text>
+
       </View>
+
+      {/* CARD */}
 
       <View style={s.card}>
-        <Text style={s.plano}>{planoNome}</Text>
-        <Text style={s.desc}>Gestão completa</Text>
-        <Text style={s.valor}>R$ {Number(valor).toFixed(2)}</Text>
+
+        <Text style={s.plano}>
+          {planoNome}
+        </Text>
+
+        <Text style={s.desc}>
+          Gestão completa
+        </Text>
+
+        <Text style={s.valor}>
+          R$ {Number(valor).toFixed(2)}
+        </Text>
 
         <View style={s.badgeRow}>
-          <Text style={[
-            s.badge,
-            statusPix === 'approved' && { backgroundColor: '#1DB954' },
-            statusPix === 'pending' && { backgroundColor: '#C9A96E' },
-            expirado && { backgroundColor: '#FF4D4D' },
-          ]}>
-            {statusLabel(statusPix)}
+
+          <Text
+            style={[
+
+              s.badge,
+
+              pixDessePlano && {
+                backgroundColor: '#C9A96E'
+              },
+
+              assinaturaAtiva &&
+              mesmoPlano && {
+                backgroundColor: '#1DB954'
+              },
+
+              expirado &&
+              pixDessePlano && {
+                backgroundColor: '#FF4D4D'
+              }
+
+            ]}
+          >
+
+            {pixDessePlano
+              ? statusLabel()
+              : assinaturaAtiva &&
+                mesmoPlano
+              ? 'ATIVO'
+              : 'DISPONÍVEL'}
+
           </Text>
+
         </View>
+
+        {mesmoPlano && (
+
+          <Text style={s.currentPlan}>
+            Plano atual ativo
+          </Text>
+
+        )}
+
       </View>
 
-      {isProcessing ? (
-        <View style={s.processingBox}>
-          <ActivityIndicator size="large" color="#C9A96E" />
-          <Text style={s.processingText}>Confirmando pagamento...</Text>
+      {/* PIX */}
+
+      <TouchableOpacity
+        style={[
+
+          s.btnPix,
+
+          mesmoPlano && {
+            opacity: 0.5
+          }
+
+        ]}
+        onPress={pagarPix}
+        disabled={
+          loading ||
+          mesmoPlano
+        }
+      >
+
+        {loading ? (
+
+          <ActivityIndicator color="#000" />
+
+        ) : (
+
+          <>
+            <Icon
+              name="qrcode"
+              size={18}
+              color="#000"
+            />
+
+            <Text style={s.btnText}>
+
+              {mesmoPlano
+                ? 'Plano Atual'
+                : pixDessePlano
+                ? 'Gerar Novo PIX'
+                : 'Pagar com PIX'}
+
+            </Text>
+          </>
+
+        )}
+
+      </TouchableOpacity>
+
+      {/* CARTÃO */}
+
+      <TouchableOpacity
+        style={[
+
+          s.btnCartao,
+
+          mesmoPlano && {
+            opacity: 0.5
+          }
+
+        ]}
+        onPress={pagarCartao}
+        disabled={mesmoPlano}
+      >
+
+        <Icon
+          name="credit-card"
+          size={18}
+          color="#FFF"
+        />
+
+        <Text
+          style={[
+            s.btnText,
+            { color: '#FFF' }
+          ]}
+        >
+
+          {mesmoPlano
+            ? 'Plano Atual'
+            : 'Pagar com Cartão'}
+
+        </Text>
+
+      </TouchableOpacity>
+
+      {/* QR CODE */}
+
+      {pix &&
+        pixDessePlano &&
+        !expirado &&
+        statusPix !== 'approved' && (
+
+        <View style={s.pixBox}>
+
+          <Text style={s.pixTitle}>
+            Escaneie o QR Code
+          </Text>
+
+          <View style={s.qrWrapper}>
+
+            <Image
+              style={s.qr}
+              source={{
+                uri:
+                  `data:image/png;base64,${pix.qr_code_base64}`
+              }}
+            />
+
+          </View>
+
+          <TouchableOpacity
+            style={s.copyBtn}
+            onPress={copiarPix}
+          >
+
+            <Icon
+              name={
+                copiado
+                  ? 'check'
+                  : 'content-copy'
+              }
+              size={16}
+              color="#C9A96E"
+            />
+
+            <Text style={s.copyText}>
+
+              {copiado
+                ? 'Copiado!'
+                : 'Copiar PIX'}
+
+            </Text>
+
+          </TouchableOpacity>
+
         </View>
-      ) : (
-        <>
-          <TouchableOpacity
-            style={[s.btnPix, loading && { opacity: 0.7 }]}
-            onPress={pagarPix}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#000" />
-            ) : (
-              <>
-                <Icon name="qrcode" size={18} color="#000" />
-                <Text style={s.btnText}>
-                  {pix ? 'Gerar novo PIX' : 'Pagar com PIX'}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
 
-          <TouchableOpacity
-            style={s.btnCartao}
-            onPress={pagarCartao}
-          >
-            <Icon name="credit-card" size={18} color="#fff" />
-            <Text style={[s.btnText, { color: '#fff' }]}>Pagar com Cartão</Text>
-          </TouchableOpacity>
-
-          {pix && !expirado && (
-            <View style={s.pixBox}>
-              <Text style={s.pixTitle}>Escaneie o QR Code</Text>
-
-              <View style={s.qrWrapper}>
-                <Image
-                  style={s.qr}
-                  source={{ uri: `data:image/png;base64,${pix.qr_code_base64}` }}
-                />
-              </View>
-
-              <TouchableOpacity style={s.copyBtn} onPress={copiarPix}>
-                <Icon name={copiado ? "check" : "content-copy"} size={16} color="#C9A96E" />
-                <Text style={s.copyText}>
-                  {copiado ? 'Copiado!' : 'Copiar PIX'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </>
       )}
+
     </ScrollView>
   );
 }
+
 const s = StyleSheet.create({
+
   container: {
     flex: 1,
     backgroundColor: '#000',
     padding: 20
   },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 20
   },
+
   title: {
     color: '#FFF',
     fontSize: 18,
     marginLeft: 10,
     fontWeight: 'bold'
   },
+
   card: {
     backgroundColor: '#111',
     padding: 20,
     borderRadius: 15,
     marginBottom: 20
   },
+
   plano: {
     color: '#C9A96E',
-    fontSize: 16,
-    fontWeight: 'bold'
+    fontSize: 18,
+    fontWeight: 'bold',
+    textTransform: 'capitalize'
   },
+
   desc: {
-    color: '#aaa',
+    color: '#AAA',
     marginTop: 5
   },
+
   valor: {
     color: '#FFF',
     fontSize: 28,
     marginTop: 10
   },
+
   badgeRow: {
-    marginTop: 10
+    marginTop: 15
   },
+
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 8,
     color: '#000',
+    fontWeight: 'bold',
+    alignSelf: 'flex-start'
+  },
+
+  currentPlan: {
+    color: '#1DB954',
+    marginTop: 10,
     fontWeight: 'bold'
   },
+
   btnPix: {
     backgroundColor: '#C9A96E',
     padding: 15,
@@ -338,6 +790,7 @@ const s = StyleSheet.create({
     gap: 10,
     marginBottom: 10
   },
+
   btnCartao: {
     backgroundColor: '#333',
     padding: 15,
@@ -347,42 +800,42 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     gap: 10
   },
+
   btnText: {
     color: '#000',
     fontWeight: 'bold'
   },
+
   pixBox: {
     marginTop: 20,
     alignItems: 'center'
   },
+
   pixTitle: {
     color: '#FFF',
     marginBottom: 10
   },
+
   qrWrapper: {
     backgroundColor: '#FFF',
     padding: 10,
     borderRadius: 10
   },
+
   qr: {
-    width: 200,
-    height: 200
+    width: 220,
+    height: 220
   },
+
   copyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    gap: 5
+    gap: 5,
+    marginTop: 10
   },
+
   copyText: {
     color: '#C9A96E'
-  },
-  processingBox: {
-    marginTop: 30,
-    alignItems: 'center'
-  },
-  processingText: {
-    color: '#FFF',
-    marginTop: 10
   }
+
 });

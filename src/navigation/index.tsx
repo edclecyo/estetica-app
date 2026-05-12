@@ -25,6 +25,7 @@ import PostarStory from '../screens/PostarStory';
 import AssinaturaScreen from '../screens/AssinaturaScreen';
 import CheckoutPagamentoScreen from '../screens/CheckoutPagamentoScreen';
 import CartaoScreen from '../screens/CartaoScreen';
+import ContaBancariaScreen from '../screens/ContaBancariaScreen';
 
 // Telas Super Admin
 import SuperAdminDashScreen from '../screens/SuperAdminDashScreen';
@@ -139,6 +140,7 @@ export default function Navigation() {
             <Stack.Screen name="Assinatura" component={AssinaturaScreen} />
 			   <Stack.Screen name="CheckoutPagamentoScreen" component={CheckoutPagamentoScreen} />
 			   <Stack.Screen name="CartaoScreen" component={CartaoScreen} />
+			   <Stack.Screen name="ContaBancariaScreen" component={ContaBancariaScreen} />
           </Stack.Group>
 
         // ─── CLIENTE ───

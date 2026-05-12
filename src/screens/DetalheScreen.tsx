@@ -51,7 +51,6 @@ const BannerMedia = ({ data, style }: { data: any, style: any }) => {
     );
   }
 
-
   return (
     <View style={style}>
       <Text style={{ textAlign: 'center' }}>
@@ -60,7 +59,6 @@ const BannerMedia = ({ data, style }: { data: any, style: any }) => {
     </View>
   );
 };
-
 
 export default function DetalheScreen() {
   const navigation = useNavigation<any>();
@@ -78,12 +76,11 @@ export default function DetalheScreen() {
   const [nome, setNome] = useState('');
   const [confirmado, setConfirmado] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState('');
-const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
-  
-  const podePagarNoApp =
-  estab?.plano === 'pro' || estab?.plano === 'elite';
-  
+  const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
+
+  const podePagarNoApp = estab?.plano === 'pro' || estab?.plano === 'elite';
   const datas = getDatas();
+
 
   useEffect(() => {
     const unsub = firestore()
@@ -94,7 +91,7 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
           setEstab({ id: snap.id, ...snap.data() } as Estabelecimento);
         }
         setLoading(false);
-      }, () => setLoading(false));
+      });
 
     const user = auth().currentUser;
     if (user?.displayName) {
@@ -112,124 +109,102 @@ const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
     .collection('horariosOcupados')
     .where('estabelecimentoId', '==', estabelecimentoId)
     .where('data', '==', dataSel.full)
-    .onSnapshot(
-      snap => {
-        if (snap && snap.docs) {
-         const ocupados = snap.docs
-  .map(d => d.data()?.horario as string)
-  .filter(h => !!h);
+    .onSnapshot(snap => {
 
-          setHorariosOcupados(ocupados);
-        } else {
-          setHorariosOcupados([]);
-        }
-      },
-      error => {
-        console.error('Erro ao buscar horários:', error);
-        setHorariosOcupados([]);
-      }
-    );
+     const ocupados = snap.docs
+  .map(doc => {
 
-  return () => unsub();
-}, [dataSel, estabelecimentoId]);
+    const horario = String(doc.data()?.horario || '');
 
-  const confirmar = async () => {
-  if (!servicoSel || !dataSel || !horarioSel || !nome || !formaPagamento) {
-    Alert.alert('Atenção', 'Preencha todos os campos!');
-    return;
-  }
+    // evita erro se vier vazio
+    if (!horario.includes(':')) {
+      return null;
+    }
 
-  const user = auth().currentUser;
-  if (!user?.uid) {
-    Alert.alert('Erro', 'Usuário não autenticado.');
-    return;
-  }
+    const [h, m] = horario.split(':');
 
-  try {
-  setSalvando(true);
+    // normaliza 9:0 -> 09:00
+    const hora = String(
+      parseInt(h || '0', 10)
+    ).padStart(2, '0');
 
-  const servicos = Array.isArray(estab?.servicos) ? estab.servicos : [];
-  const servico = servicos.find(s => s.nome === servicoSel);
+    const minuto = String(
+      parseInt(m || '0', 10)
+    ).padStart(2, '0');
 
-  if (!servico) {
-    throw new Error('Serviço não encontrado');
-  }
+    return `${hora}:${minuto}`;
+  })
+  .filter(Boolean) as string[];
 
-  const precoLimpo =
-    typeof servico.preco === 'number'
-      ? servico.preco
-      : Number(String(servico.preco || 0).replace(',', '.'));
+console.log('HORARIOS OCUPADOS:', ocupados);
 
-  // ✅ INSTÂNCIA CORRETA COM REGIÃO
-  const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
-
-const criarAgendamento = httpsCallable(functionsInstance, 'criarAgendamento');
-
-  const res: any = await criarAgendamento({
-  estabelecimentoId,
-  servicoNome: servicoSel,
-  clienteNome: nome,
-  clienteUid: user.uid, // 🔥 ADICIONA ISSO
-  data: dataSel.full,
-  horario: horarioSel,
-  formaPagamento,
+setHorariosOcupados(ocupados);
 });
 
-  console.log('Resposta:', res.data);
+return () => unsub();
 
-  const agendamentoId = res.data?.id || res.data?.data?.id;
+}, [dataSel, estabelecimentoId]);
 
-  if (!agendamentoId) {
-    throw new Error('Erro ao criar agendamento');
-  }
+// 🔥 serviço selecionado
+const servicoObj = estab?.servicos?.find(
+  s => s.nome === servicoSel
+);
 
-  await AsyncStorage.setItem('clienteNome', nome);
+  const confirmar = async () => {
+    if (!servicoSel || !dataSel || !horarioSel || !nome || !formaPagamento) {
+      Alert.alert('Atenção', 'Preencha todos os campos!');
+      return;
+    }
 
-  if (formaPagamento === 'app') {
-    navigation.navigate('PagamentoCliente', {
-      agendamentoId,
-      estabelecimentoId,
-      servicoNome: servicoSel,
-      valor: precoLimpo,
-      nomeEstabelecimento: estab?.nome,
-    });
-    return;
-  }
+    const user = auth().currentUser;
+    if (!user?.uid) return;
 
-  setConfirmado(true);
+    try {
+      setSalvando(true);
 
-} catch (e: any) {
-  console.error('Erro ao agendar:', e);
+      const servicos = Array.isArray(estab?.servicos) ? estab.servicos : [];
+      const servico = servicos.find(s => s.nome === servicoSel);
 
-  switch (e?.code) {
-    case 'already-exists':
-      Alert.alert('Horário indisponível', 'Esse horário já foi reservado.');
-      break;
+      if (!servico) throw new Error('Serviço não encontrado');
 
-    case 'failed-precondition':
-      Alert.alert('Plano inativo', e?.message);
-      break;
+      const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
+      const criarAgendamento = httpsCallable(functionsInstance, 'criarAgendamento');
 
-    case 'resource-exhausted':
-      Alert.alert('Aguarde', 'Muitas tentativas. Tente novamente.');
-      break;
+      const res: any = await criarAgendamento({
+        estabelecimentoId,
+        servicoNome: servicoSel,
+        clienteNome: nome,
+        clienteUid: user.uid,
+        data: dataSel.full,
+        horario: horarioSel,
+        formaPagamento,
+      });
 
-    case 'unauthenticated':
-      Alert.alert('Sessão expirada', 'Faça login novamente.');
-      break;
+      const agendamentoId = res.data?.id;
+      if (!agendamentoId) throw new Error('Erro ao criar agendamento');
 
-    case 'not-found':
-      Alert.alert('Erro', 'Função não encontrada (deploy/região)');
-      break;
+      await AsyncStorage.setItem('clienteNome', nome);
 
-    default:
-      Alert.alert('Erro', e?.message || 'Não foi possível agendar.');
-  }
+      if (formaPagamento === 'app') {
+        navigation.navigate('PagamentoCliente', {
+          agendamentoId,
+          estabelecimentoId,
+          servicoNome: servicoSel,
+          valor: servicoObj?.preco,
+          nomeEstabelecimento: estab?.nome,
+        });
+        return;
+      }
 
-} finally {
-  setSalvando(false);
-}
+      setConfirmado(true);
+
+    } catch (e: any) {
+      Alert.alert('Erro', e?.message || 'Falha ao agendar');
+    } finally {
+      setSalvando(false);
+    }
   };
+
  const abrirWhatsApp = async () => {
     const raw = estab?.telefone;
 
@@ -245,13 +220,11 @@ const criarAgendamento = httpsCallable(functionsInstance, 'criarAgendamento');
       return;
     }
 
-const numeroFinal = tel.startsWith('55')
-  ? tel
-  : `55${tel}`;
+    const numeroFinal = tel.startsWith('55') ? tel : `55${tel}`;
 
-const url = `https://wa.me/${numeroFinal}?text=${encodeURIComponent(
-  `Olá! Vim pelo app e gostaria de marcar um horário.`
-)}`;
+    const url = `https://wa.me/${numeroFinal}?text=${encodeURIComponent(
+      `Olá! Vim pelo app e gostaria de marcar um horário.`
+    )}`;
 
     const canOpen = await Linking.canOpenURL(url);
 
@@ -270,27 +243,75 @@ const url = `https://wa.me/${numeroFinal}?text=${encodeURIComponent(
       </View>
     );
   }
-const todosHorarios = estab?.horarios || [];
+  
+function gerarSlotsTela(
+  horariosBase: string[],
+  intervalo = 30
+) {
+  const slots: string[] = [];
 
-const horariosLivres = todosHorarios.filter(h => {
+  const horariosMin = horariosBase
+    .map(h => {
+      const [hh, mm] = h.split(':').map(Number);
+      return hh * 60 + mm;
+    })
+    .sort((a, b) => a - b);
+
+  for (let i = 0; i < horariosMin.length; i++) {
+
+    const atual = horariosMin[i];
+
+    const proximo =
+      horariosMin[i + 1] || atual + 60;
+
+    for (
+      let m = atual;
+      m < proximo;
+      m += intervalo
+    ) {
+
+      const hh = String(Math.floor(m / 60)).padStart(2, '0');
+
+      const mm = String(m % 60).padStart(2, '0');
+
+      slots.push(`${hh}:${mm}`);
+    }
+  }
+
+  return [...new Set(slots)];
+}
+
+const todosHorarios = gerarSlotsTela(
+  Array.isArray(estab?.horarios)
+    ? estab.horarios
+    : [],
+  Number(estab?.intervaloMin || 30)
+);
+
+const semHorarios = todosHorarios.every(h => {
+
+  const ocupado = horariosOcupados.includes(h);
+
   const [hora, minuto] = h.split(':').map(Number);
+
   const agora = new Date();
 
-  const isHoje = dataSel?.full === agora.toLocaleDateString('pt-BR');
+  const isHoje =
+    dataSel?.full === agora.toLocaleDateString('pt-BR');
 
   const jaPassou =
     isHoje &&
-    (agora.getHours() > hora ||
-      (agora.getHours() === hora && agora.getMinutes() >= minuto));
+    (
+      agora.getHours() > hora ||
+      (
+        agora.getHours() === hora &&
+        agora.getMinutes() >= minuto
+      )
+    );
 
-  const ocupado =
-    (horariosOcupados || []).includes(h) || jaPassou;
-
-  return !ocupado;
+  return ocupado || jaPassou;
 });
-
-const semHorarios = horariosLivres.length === 0;
-  if (confirmado) {
+ if (confirmado) {
     return (
       <View style={s.confirmWrap}>
         <View style={s.confirmCard}>
@@ -383,19 +404,60 @@ const semHorarios = horariosLivres.length === 0;
             <View style={s.secao}>
               <Text style={s.secaoTitulo}>Horário</Text>
               <View style={s.horariosWrap}>
-                {estab?.horarios?.map(h => {
-                  const [hora, minuto] = h.split(':').map(Number);
-                  const agora = new Date();
-                  const isHoje = dataSel?.full === agora.toLocaleDateString('pt-BR');
-                  const jaPassou = isHoje && (agora.getHours() > hora || (agora.getHours() === hora && agora.getMinutes() >= minuto));
-                 const ocupado = (horariosOcupados || []).includes(h) || jaPassou;
-                  
-                  return (
-                    <TouchableOpacity key={h} disabled={ocupado} onPress={() => { setHorarioSel(h); setStep(Math.max(step, 4)); }} style={[s.horarioChip, horarioSel === h && s.horarioChipAtivo, ocupado && s.horarioChipOcupado]}>
-                      <Text style={[s.horarioText, horarioSel === h && { color: '#fff' }, ocupado && { color: '#ccc' }]}>{h}{ocupado ? ' ✕' : ''}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+            {todosHorarios.map(h => {
+
+  const ocupado = horariosOcupados.includes(h);
+
+  const [hora, minuto] = h.split(':').map(Number);
+
+  const agora = new Date();
+
+  const isHoje =
+    dataSel?.full === agora.toLocaleDateString('pt-BR');
+
+  const jaPassou =
+    isHoje &&
+    (
+      agora.getHours() > hora ||
+      (
+        agora.getHours() === hora &&
+        agora.getMinutes() >= minuto
+      )
+    );
+
+  const indisponivel = ocupado || jaPassou;
+
+  return (
+    <TouchableOpacity
+      key={h}
+      disabled={indisponivel}
+      onPress={() => {
+        setHorarioSel(h);
+        setStep(Math.max(step, 4));
+      }}
+      style={[
+        s.horarioChip,
+        horarioSel === h && s.horarioChipAtivo,
+        ocupado && s.horarioChipOcupado,
+        jaPassou && s.horarioChipPassado
+      ]}
+    >
+      <Text
+        style={[
+          s.horarioText,
+          horarioSel === h && { color: '#fff' },
+          indisponivel && { color: '#999' }
+        ]}
+      >
+        {h}
+
+        {ocupado && ' 🔒'}
+
+        {jaPassou && !ocupado && ' ⏰'}
+      </Text>
+    </TouchableOpacity>
+  );
+})}
               </View>
             </View>
           )}
@@ -579,7 +641,15 @@ const s = StyleSheet.create({
   horariosWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   horarioChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: '#fff' },
   horarioChipAtivo: { backgroundColor: '#1A1A1A' },
-  horarioChipOcupado: { backgroundColor: '#eee', opacity: 0.5 },
+ horarioChipOcupado: {
+  backgroundColor: '#ECECEC',
+  borderWidth: 1,
+  borderColor: '#D8D8D8'
+},
+horarioChipPassado: {
+  backgroundColor: '#F7F7F7',
+  opacity: 0.5
+},
   horarioText: { fontSize: 13, fontWeight: '600' },
   nomeLogadoWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, padding: 14 },
   nomeLogadoIc: { fontSize: 20 },

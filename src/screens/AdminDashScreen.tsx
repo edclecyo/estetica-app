@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, Dimensions,
-  StatusBar, Image, ScrollView, Platform
+  StatusBar, Image, Linking, ScrollView, Platform
 } from 'react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
@@ -45,23 +45,54 @@ const EstabImage = ({ item }: { item: Estabelecimento }) => {
 // ===== SCREEN =====
 export default function AdminDashScreen() {
   const navigation = useNavigation<any>();
+
   const { admin, signOut } = useAuth();
 
-  const [aba, setAba] = useState<'dash' | 'agends' | 'estabs' | 'stories'>('dash');
-  const [estabs, setEstabs] = useState<Estabelecimento[]>([]);
-  const [agends, setAgends] = useState<Agendamento[]>([]);
-  const [meusStories, setMeusStories] = useState<any[]>([]);
-  const [totalLikes, setTotalLikes] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [notifNaoLidas, setNotifNaoLidas] = useState(0);
+  const [aba, setAba] = useState<
+    'dash' | 'agends' | 'estabs' | 'stories'
+  >('dash');
 
-  const [planoAtual, setPlanoAtual] = useState<string | null>(null);
-  const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
-  const [verificado, setVerificado] = useState(false);
-  const [solicitacaoStatus, setSolicitacaoStatus] = useState<string | null>(null);
-  const [diasRestantes, setDiasRestantes] = useState<number | null>(null);
-const [loadingAcao, setLoadingAcao] = useState(false);
-  
+  const [estabs, setEstabs] = useState<
+    Estabelecimento[]
+  >([]);
+
+  const [agends, setAgends] = useState<
+    Agendamento[]
+  >([]);
+
+  const [meusStories, setMeusStories] =
+    useState<any[]>([]);
+
+  const [totalLikes, setTotalLikes] =
+    useState(0);
+
+  const [loadingId, setLoadingId] =
+    useState<string | null>(null);
+
+  const [notifNaoLidas, setNotifNaoLidas] =
+    useState(0);
+
+  const [planoAtual, setPlanoAtual] =
+    useState<string | null>(null);
+
+  const [assinaturaAtiva, setAssinaturaAtiva] =
+    useState(false);
+
+  const [verificado, setVerificado] =
+    useState(false);
+
+  const [solicitacaoStatus, setSolicitacaoStatus] =
+    useState<string | null>(null);
+
+  const [diasRestantes, setDiasRestantes] =
+    useState<number | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [loadingAcaoId, setLoadingAcaoId] =
+  useState<string | null>(null);
+  const [whatsSuporte, setWhatsSuporte] = useState<string | null>(null);
   // ===== LÓGICA =====
 const temEstabelecimento = estabs.length > 0;
 const isNovoUsuario = !temEstabelecimento;
@@ -250,12 +281,12 @@ const checarBloqueio = () => {
         }
       });
 
-    return () => {
-      unsubEstabs();
-      unsubAgends();
-      unsubStories();
-      unsubSelo();
-    };
+   return () => {
+  unsubEstabs?.();
+  unsubAgends?.();
+  unsubStories?.();
+  unsubSelo?.();
+};
   }, [admin?.id]);
 
   useEffect(() => {
@@ -271,16 +302,21 @@ const checarBloqueio = () => {
     .onSnapshot(
       snap => {
 
-        console.log('🔔 NOTIFICAÇÕES:', snap.docs.length);
+        console.log('🔔 TOTAL NÃO LIDAS:', snap.size);
 
-        setNotifNaoLidas(snap.docs.length);
+        snap.docs.forEach(doc => {
+          console.log('NOTIF:', doc.id, doc.data());
+        });
+
+        setNotifNaoLidas(snap.size);
       },
       err => {
         console.log('ERRO NOTIF:', err);
       }
     );
 
-  return unsubNotif;
+  return () => unsubNotif();
+
 }, [admin?.id]);
 
 useEffect(() => {
@@ -305,7 +341,7 @@ useEffect(() => {
   }
 };
 
-  const gerarRelatorioPDF = async () => {
+  const compartilharRelatorio = async () => {
     try {
       const linhas = agends.map(a =>
         `📅 ${a.data} às ${a.horario}\n👤 ${a.clienteNome}\n✂️ ${a.servicoNome}\n💰 R$ ${a.servicoPreco}\n📌 ${a.status?.toUpperCase()}\n`
@@ -349,12 +385,15 @@ Gerado pelo BeautyHub`;
 
   // ✅ atualizarStatus usando fetch direto com token (sem SDK functions)
  const atualizarStatus = async (id: string, novoStatus: string) => {
-   if (loadingAcao) return;
+ if (loadingAcaoId === id) return;
 
   try {
-    setLoadingAcao(true);
+setLoadingAcaoId(id);
 
-    const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
+    const functionsInstance = getFunctions(
+      getApp(),
+      'southamerica-east1'
+    );
 
     const functionName =
       novoStatus === 'concluido'
@@ -369,31 +408,120 @@ Gerado pelo BeautyHub`;
 
     console.log('Resposta função:', res.data);
 
+    Alert.alert(
+      'Sucesso ✅',
+      novoStatus === 'cancelado'
+        ? 'Agendamento cancelado.'
+        : 'Agendamento concluído.'
+    );
+
   } catch (e: any) {
-    console.error(e);
+    console.log('ERRO FIREBASE:', JSON.stringify(e));
 
-    if (e?.code === 'failed-precondition') {
-      Alert.alert('Plano necessário 🔒', e.message);
+    const code = e?.code || '';
+    const message = e?.message || 'Erro interno';
+
+    // 🔒 Plano
+    if (code.includes('failed-precondition')) {
+      Alert.alert(
+        'Plano necessário 🔒',
+        message
+      );
       return;
     }
 
-    if (e?.code === 'permission-denied') {
-      Alert.alert('Sem permissão', 'Você não pode fazer isso.');
+    // 🚫 Permissão
+    if (code.includes('permission-denied')) {
+      Alert.alert(
+        'Sem permissão',
+        'Você não pode fazer isso.'
+      );
       return;
     }
 
-    Alert.alert('Erro', 'Algo deu errado.');
+    // 🔑 Login
+    if (code.includes('unauthenticated')) {
+      Alert.alert(
+        'Sessão expirada',
+        'Faça login novamente.'
+      );
+      return;
+    }
+
+    // ❌ Não encontrado
+    if (code.includes('not-found')) {
+      Alert.alert(
+        'Agendamento não encontrado',
+        'Esse agendamento não existe mais.'
+      );
+      return;
+    }
+
+    // ⚠️ Argumento inválido
+    if (code.includes('invalid-argument')) {
+      Alert.alert(
+        'Erro',
+        'Dados inválidos enviados.'
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Erro',
+      message
+    );
+
   } finally {
-    setLoadingAcao(false);
+    setLoadingAcaoId(null);
   }
 };
-
+const [saindo, setSaindo] = useState(false);
   const handleLogout = () => {
-    Alert.alert('Sair', 'Deseja sair do painel?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Sair', style: 'destructive', onPress: async () => await signOut() },
-    ]);
-  };
+  if (saindo) return;
+
+  Alert.alert(
+    'Sair',
+    'Deseja sair do painel?',
+    [
+      {
+        text: 'Cancelar',
+        style: 'cancel',
+      },
+      {
+        text: 'Sair',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setSaindo(true);
+
+            // limpa estados locais antes
+            setEstabs([]);
+            setAgends([]);
+            setMeusStories([]);
+            setNotifNaoLidas(0);
+
+            // firebase logout
+            await auth().signOut();
+
+            // se usa context:
+            await signOut();
+
+          } catch (e) {
+            console.log('ERRO LOGOUT:', e);
+
+            Alert.alert(
+              'Erro',
+              'Não foi possível sair da conta.'
+            );
+
+          } finally {
+            setSaindo(false);
+          }
+        },
+      },
+    ]
+  );
+};
 
   const receitaTotal = useMemo(() =>
     agends.filter(a => a.status === 'confirmado' || a.status === 'concluido')
@@ -591,7 +719,7 @@ Gerado pelo BeautyHub`;
     } catch (e: any) {
       console.error(e);
 
-      if (e?.code === 'failed-precondition') {
+      if (e?.code?.includes('failed-precondition')) {
         Alert.alert('Trial já usado', e?.message);
       } else {
         Alert.alert('Erro', e?.message || 'Erro ao ativar trial');
@@ -697,7 +825,7 @@ Gerado pelo BeautyHub`;
                 );
               })}
             </View>
-            <TouchableOpacity style={s.btnRelatorioFaturamento} onPress={gerarRelatorioPDF} activeOpacity={0.8}>
+            <TouchableOpacity style={s.btnRelatorioFaturamento} onPress={compartilharRelatorio} activeOpacity={0.8}>
               <Text style={s.btnRelatorioFaturamentoText}>📊 Gerar relatório mensal</Text>
             </TouchableOpacity>
           </View>
@@ -768,6 +896,69 @@ Gerado pelo BeautyHub`;
               <Text style={s.statL}>Negativas</Text>
             </View>
           </View>
+		  {/* BOTÃO CONTA BANCÁRIA */}
+<TouchableOpacity
+  style={s.contaBancariaBtn}
+  activeOpacity={0.85}
+  onPress={() =>
+  navigation.navigate('ContaBancariaScreen', {
+    estabelecimentoId: principal?.id,
+  })
+}
+>
+  <View style={s.contaBancariaIcon}>
+    <Text style={{ fontSize: 22 }}>🏦</Text>
+  </View>
+
+  <View style={{ flex: 1 }}>
+    <Text style={s.contaBancariaTitulo}>
+      Cadastrar Conta Bancária
+    </Text>
+
+    <Text style={s.contaBancariaSub}>
+      Preencha os dados para recebimentos e saques
+    </Text>
+  </View>
+
+  <Text style={s.contaBancariaArrow}>→</Text>
+</TouchableOpacity>
+
+{/* CARD SUPORTE */}
+<View style={s.suporteCard}>
+
+  <View style={s.suporteLogo}>
+    <Text style={s.suporteLogoText}>BH</Text>
+  </View>
+
+  <Text style={s.suporteTitulo}>
+    Suporte Administrativo
+  </Text>
+
+  <Text style={s.suporteTexto}>
+    Em caso de dúvidas, problemas técnicos, pagamentos,
+    verificação ou suporte da plataforma,
+    entre em contato diretamente com o suporte oficial.
+  </Text>
+
+  <View style={s.suporteInfos}>
+    <Text style={s.suporteInfo}>📧 suporte@beautyhub.com</Text>
+    <Text style={s.suporteInfo}>🕐 Atendimento: 08h às 22h</Text>
+  </View>
+
+  <TouchableOpacity
+    style={s.whatsBtn}
+    activeOpacity={0.85}
+    onPress={() => {
+      Linking.openURL(
+        'https://wa.me/5588997839664?text=Olá,%20preciso%20de%20suporte%20no%20BeautyHub'
+      );
+    }}
+  >
+    <Text style={s.whatsBtnText}>
+      💬 Falar com Suporte
+    </Text>
+  </TouchableOpacity>
+</View>
         </ScrollView>
       )}
 
@@ -807,7 +998,7 @@ Gerado pelo BeautyHub`;
           ListHeaderComponent={
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
               <Text style={[s.secTitulo, { marginBottom: 0 }]}>Gerenciar Agendamentos</Text>
-              <TouchableOpacity style={s.btnPdf} onPress={gerarRelatorioPDF}>
+              <TouchableOpacity style={s.btnPdf} onPress={compartilharRelatorio}>
                 <Text style={s.btnPdfText}>📄 PDF</Text>
               </TouchableOpacity>
             </View>
@@ -836,20 +1027,40 @@ Gerado pelo BeautyHub`;
                 </Text>
               </View>
               {item.status === 'confirmado' && (
-                <View style={s.acoesWrap}>
-                  <TouchableOpacity
-  style={s.btnConcluir}
-  disabled={loadingAcao}
-  onPress={() => atualizarStatus(item.id, 'concluido')}
->
-  {loadingAcao ? (
-    <ActivityIndicator color="#FFF" />
-  ) : (
-    <Text style={s.btnConcluirText}>Concluir</Text>
-  )}
-</TouchableOpacity>
-                </View>
-              )}
+  <View style={s.acoesWrap}>
+
+    {/* CONCLUIR */}
+    <TouchableOpacity
+      style={s.btnConcluir}
+      disabled={loadingAcaoId === item.id}
+      onPress={() => atualizarStatus(item.id, 'concluido')}
+    >
+      {loadingAcaoId === item.id ? (
+        <ActivityIndicator color={GOLD} />
+      ) : (
+        <Text style={s.btnConcluirText}>
+          Concluir
+        </Text>
+      )}
+    </TouchableOpacity>
+
+    {/* CANCELAR */}
+    <TouchableOpacity
+      style={s.btnCancelar}
+      disabled={loadingAcaoId === item.id}
+      onPress={() => atualizarStatus(item.id, 'cancelado')}
+    >
+      {loadingAcaoId === item.id ? (
+        <ActivityIndicator color="#999" />
+      ) : (
+        <Text style={s.btnCancelarText}>
+          Cancelar
+        </Text>
+      )}
+    </TouchableOpacity>
+
+  </View>
+)}
             </View>
           )}
         />
@@ -1076,4 +1287,118 @@ financeiroCardDash: {
   fabArrow: { color: GOLD, fontSize: 20, fontWeight: '800', marginLeft: 'auto' },
   btnPdf: { backgroundColor: '#1A1A1A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: GOLD },
   btnPdfText: { color: GOLD, fontSize: 12, fontWeight: '800' },
+contaBancariaBtn: {
+  backgroundColor: '#1A1A1A',
+  borderRadius: 22,
+  padding: 18,
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginTop: 22,
+  marginBottom: 18,
+  borderWidth: 1,
+  borderColor: 'rgba(201,169,110,0.25)',
+},
+
+contaBancariaIcon: {
+  width: 58,
+  height: 58,
+  borderRadius: 18,
+  backgroundColor: 'rgba(201,169,110,0.12)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 16,
+},
+
+contaBancariaTitulo: {
+  color: '#FFF',
+  fontSize: 15,
+  fontWeight: '800',
+},
+
+contaBancariaSub: {
+  color: '#AAA',
+  fontSize: 12,
+  marginTop: 4,
+  lineHeight: 18,
+},
+
+contaBancariaArrow: {
+  color: GOLD,
+  fontSize: 22,
+  fontWeight: '800',
+},
+
+suporteCard: {
+  backgroundColor: '#FFF',
+  borderRadius: 24,
+  padding: 24,
+  marginBottom: 120,
+
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.05,
+  shadowRadius: 10,
+  elevation: 3,
+},
+
+suporteLogo: {
+  width: 72,
+  height: 72,
+  borderRadius: 24,
+  backgroundColor: '#1A1A1A',
+  justifyContent: 'center',
+  alignItems: 'center',
+  alignSelf: 'center',
+  marginBottom: 18,
+  borderWidth: 2,
+  borderColor: GOLD,
+},
+
+suporteLogoText: {
+  color: GOLD,
+  fontSize: 24,
+  fontWeight: '900',
+},
+
+suporteTitulo: {
+  color: '#1A1A1A',
+  fontSize: 18,
+  fontWeight: '800',
+  textAlign: 'center',
+  marginBottom: 10,
+},
+
+suporteTexto: {
+  color: '#666',
+  fontSize: 13,
+  textAlign: 'center',
+  lineHeight: 22,
+},
+
+suporteInfos: {
+  marginTop: 18,
+  gap: 8,
+},
+
+suporteInfo: {
+  color: '#444',
+  fontSize: 13,
+  fontWeight: '600',
+  textAlign: 'center',
+},
+
+whatsBtn: {
+  backgroundColor: '#25D366',
+  borderRadius: 18,
+  paddingVertical: 16,
+  marginTop: 22,
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+
+whatsBtnText: {
+  color: '#FFF',
+  fontSize: 15,
+  fontWeight: '800',
+},
 });

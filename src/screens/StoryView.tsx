@@ -13,6 +13,7 @@ import {
   ScrollView,
   ActivityIndicator,
   PanResponder,
+  Platform,
 } from "react-native";
 
 import firestore, {
@@ -39,6 +40,9 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import Feather from "react-native-vector-icons/Feather";
 
 const { width, height } = Dimensions.get("window");
+
+const FOOTER_BOTTOM = Platform.OS === "ios" ? 48 : 36;
+const STORY_BOTTOM_SAFE = Platform.OS === "ios" ? 125 : 110;
 
 export default function StoryView() {
   const route: any = useRoute();
@@ -477,11 +481,11 @@ function abrirAgendamento() {
           }}
         >
           <Feather
-            name="send"
-            size={28}
-            color="#FFF"
-            style={{ marginLeft: 20 }}
-          />
+  name="send"
+  size={28}
+  color="#FFF"
+  style={{ marginTop: 24 }}
+/>
         </TouchableOpacity>
       </View>
 
@@ -623,14 +627,6 @@ const s = StyleSheet.create({
   progressWrapper: {
     zIndex: 20,
   },
-bottomActionArea: {
-  position: "absolute",
-  bottom: 28,
-  left: 18,
-  right: 95,
-  zIndex: 60,
-  elevation: 60,
-},
 
 adminSwipeBox: {
   alignItems: "center",
@@ -708,15 +704,24 @@ agendarStoryText: {
   },
 
   captionOverlay: {
-    position: "absolute",
-    bottom: 115,
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    borderRadius: 16,
-    padding: 14,
-    zIndex: 40,
-  },
+  position: "absolute",
+  bottom: STORY_BOTTOM_SAFE,
+  left: 20,
+  right: 20,
+  backgroundColor: "rgba(0,0,0,0.45)",
+  borderRadius: 16,
+  padding: 14,
+  zIndex: 40,
+},
+
+bottomActionArea: {
+  position: "absolute",
+  bottom: FOOTER_BOTTOM,
+  left: 18,
+  right: 95,
+  zIndex: 60,
+  elevation: 60,
+},
 
   captionOverlayText: {
     color: "#FFF",
@@ -726,15 +731,19 @@ agendarStoryText: {
   },
 
   footer: {
-    position: "absolute",
-    bottom: 40,
-    right: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    zIndex: 50,
-    elevation: 50,
-  },
-
+  position: "absolute",
+  right: 18,
+  bottom: FOOTER_BOTTOM,
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 80,
+  elevation: 80,
+},
+likeBtn: {
+  marginBottom: 22,
+  alignItems: "center",
+  justifyContent: "center",
+},
   likeBtn: {
     zIndex: 50,
     elevation: 50,

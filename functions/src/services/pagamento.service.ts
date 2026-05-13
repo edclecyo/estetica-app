@@ -7,12 +7,18 @@ import { defineSecret } from 'firebase-functions/params';
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
 
-// 🔐 SECRET CORRETO
+// 🔐 SECRET
 const MP_ACCESS_TOKEN = defineSecret('MP_ACCESS_TOKEN');
 
-// ================= HELPERS =================
+// =====================================================
+// HELPERS
+// =====================================================
+
 function parseValor(valor: any): number {
-  if (typeof valor === 'number') return valor;
+
+  if (typeof valor === 'number') {
+    return valor;
+  }
 
   const n = Number(
     String(valor || 0)
@@ -24,51 +30,75 @@ function parseValor(valor: any): number {
 }
 
 const axiosInstance = axios.create({
-  timeout: 20000, 
+  timeout: 20000,
 });
 
 // =====================================================
-// 1. PIX CLIENTE (SEM MP - DIRETO)
+// 1. PIX CLIENTE
 // =====================================================
+
 export const criarPagamentoCliente = onCall(
   { region: REGION },
+
   async (req) => {
+
     if (!req.auth) {
-      throw new HttpsError('unauthenticated', 'Acesso negado');
+      throw new HttpsError(
+        'unauthenticated',
+        'Acesso negado'
+      );
     }
 
     const { agendamentoId } = req.data;
 
     if (!agendamentoId) {
-      throw new HttpsError('invalid-argument', 'ID obrigatório');
+      throw new HttpsError(
+        'invalid-argument',
+        'ID obrigatório'
+      );
     }
 
-    const agRef = db.collection('agendamentos').doc(agendamentoId);
+    const agRef =
+      db.collection('agendamentos')
+        .doc(agendamentoId);
+
     const agSnap = await agRef.get();
 
     if (!agSnap.exists) {
-      throw new HttpsError('not-found', 'Agendamento não encontrado');
+      throw new HttpsError(
+        'not-found',
+        'Agendamento não encontrado'
+      );
     }
 
     const ag = agSnap.data()!;
 
     if (ag.clienteUid !== req.auth.uid) {
-      throw new HttpsError('permission-denied', 'Sem permissão');
+      throw new HttpsError(
+        'permission-denied',
+        'Sem permissão'
+      );
     }
 
-    const estabSnap = await db
-      .collection('estabelecimentos')
-      .doc(ag.estabelecimentoId)
-      .get();
+    const estabSnap =
+      await db
+        .collection('estabelecimentos')
+        .doc(ag.estabelecimentoId)
+        .get();
 
     const estab = estabSnap.data();
 
     if (!estab) {
-      throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+      throw new HttpsError(
+        'not-found',
+        'Estabelecimento não encontrado'
+      );
     }
 
-    // 🚨 BLOQUEIO DE PLANO
-    if (!estab?.plano || !['pro', 'elite'].includes(estab.plano)) {
+    if (
+      !estab?.plano ||
+      !['pro', 'elite'].includes(estab.plano)
+    ) {
       throw new HttpsError(
         'failed-precondition',
         'Este estabelecimento não aceita pagamento pelo app'
@@ -91,153 +121,17 @@ export const criarPagamentoCliente = onCall(
     };
   }
 );
+
 // =====================================================
-// 3. CARTÃO ASSINATURA
+// 2. PIX ASSINATURA
 // =====================================================
-export const criarAssinaturaCartao = onCall(
-  {
-    region: REGION,
-    secrets: [MP_ACCESS_TOKEN],
-  },
-  async (req) => {
-    // 1. Validação de Autenticação
-    if (!req.auth) {
-      throw new HttpsError('unauthenticated', 'Acesso negado. Usuário não autenticado.');
-    }
 
-    const {
-      estabelecimentoId,
-      plano,
-      email,
-      token,
-      valor,
-      payment_method_id
-    } = req.data || {};
-
-    // 2. Validação de Dados de Entrada
-    if (!estabelecimentoId || !plano || !email || !token) {
-      throw new HttpsError('invalid-argument', 'Dados insuficientes para processar o pagamento.');
-    }
-
-    const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
-    const snap = await ref.get();
-
-    if (!snap.exists) {
-      throw new HttpsError('not-found', 'Estabelecimento não encontrado.');
-    }
-
-    const est = snap.data()!;
-
-    // 3. Verificação de Permissão (Dono do estabelecimento)
-    if (est.adminId !== req.auth.uid) {
-      throw new HttpsError('permission-denied', 'Você não tem permissão para realizar esta cobrança.');
-    }
-
-    // 4. Evitar duplicidade de plano ativo
-    if (est.assinaturaAtiva && est.plano === plano) {
-      throw new HttpsError('already-exists', 'Este plano já está ativo para este estabelecimento.');
-    }
-
-    try {
-      const accessToken = MP_ACCESS_TOKEN.value();
-      if (!accessToken) {
-        throw new HttpsError('internal', 'Configuração do Mercado Pago ausente (AccessToken).');
-      }
-
-      // Garante que o valor seja um número válido para o MP
-      const valorFinal = parseValor(valor);
-      if (valorFinal <= 0) {
-        throw new HttpsError('invalid-argument', 'O valor da assinatura deve ser maior que zero.');
-      }
-
-      // =================================================
-      // CHAMADA À API DO MERCADO PAGO
-      // =================================================
-      const response = await axiosInstance.post(
-        'https://api.mercadopago.com/v1/payments',
-        {
-          transaction_amount: valorFinal,
-          token: token,
-          description: `Assinatura Plano ${plano.toUpperCase()} - ${estabelecimentoId}`,
-          installments: 1,
-          payment_method_id: payment_method_id,
-          payer: {
-            email: email.trim().toLowerCase(),
-          },
-          external_reference: estabelecimentoId,
-          notification_url: "SUA_URL_DE_WEBHOOK_AQUI", // Opcional: para receber atualizações automáticas
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Idempotency-Key': `card_${estabelecimentoId}_${Date.now()}`,
-            'Content-Type': 'application/json'
-          },
-        }
-      );
-
-      const data: any = response.data;
-
-      // =================================================
-      // PROCESSAMENTO DO STATUS
-      // =================================================
-      const aprovado = data.status === 'approved' || data.status === 'authorized';
-
-      // Atualiza o Firestore com o resultado da transação
-      await ref.update({
-        planoPendente: plano,
-        statusPagamento: data.status || 'pending',
-        paymentType: 'credit_card',
-        assinaturaAtiva: aprovado,
-        statusPlano: aprovado ? 'ativo' : 'pendente',
-        pagamentoId: String(data.id),
-        atualizadoEm: FieldValue.serverTimestamp(),
-        // Opcional: guardar o motivo da rejeição se não for aprovado
-        statusDetail: data.status_detail || null 
-      });
-
-      return {
-        success: true,
-        status: data.status,
-        id: data.id,
-        detail: data.status_detail
-      };
-
-    } catch (error: any) {
-      const mpError = error?.response?.data;
-      
-      // Log detalhado no console do Firebase para você debugar
-      console.error('--- ERRO MERCADO PAGO ---');
-      console.error('Status:', error?.response?.status);
-      console.error('Dados:', JSON.stringify(mpError, null, 2));
-
-      // 1. Erros de validação de campos (Ex: e-mail inválido, cartão inválido)
-      if (mpError?.cause && Array.isArray(mpError.cause) && mpError.cause.length > 0) {
-        const desc = mpError.cause[0].description;
-        throw new HttpsError('invalid-argument', `Mercado Pago: ${desc}`);
-      }
-
-      // 2. Erros de parâmetros genéricos
-      if (mpError?.message) {
-        throw new HttpsError('internal', `Erro MP: ${mpError.message}`);
-      }
-
-      // 3. Erro de rede ou desconhecido
-      throw new HttpsError(
-        'internal',
-        'Não foi possível validar o cartão junto à operadora.'
-      );
-    }
-  }
-);
-// =====================================================
-// 2. PIX ASSINATURA (MERCADO PAGO)
-// =====================================================
 export const criarPagamentoPixAssinatura = onCall(
   {
     region: REGION,
     secrets: [MP_ACCESS_TOKEN],
   },
+
   async (req) => {
 
     if (!req.auth) {
@@ -247,30 +141,30 @@ export const criarPagamentoPixAssinatura = onCall(
       );
     }
 
-   const {
-  estabelecimentoId,
-  plano,
-  valor
-} = req.data || {};
+    const {
+      estabelecimentoId,
+      plano,
+      valor
+    } = req.data || {};
 
-    if (!estabelecimentoId || !plano || !valor) {
+    if (
+      !estabelecimentoId ||
+      !plano ||
+      !valor
+    ) {
       throw new HttpsError(
         'invalid-argument',
         'Dados inválidos'
       );
     }
 
-    const ref = db
-      .collection('estabelecimentos')
-      .doc(estabelecimentoId);
+    const ref =
+      db.collection('estabelecimentos')
+        .doc(estabelecimentoId);
 
-    const lockRef = db
-      .collection('locks')
-      .doc(`pix_assinatura_${estabelecimentoId}`);
-
-    // =====================================================
-    // VALIDAÇÕES
-    // =====================================================
+    const lockRef =
+      db.collection('locks')
+        .doc(`pix_assinatura_${estabelecimentoId}`);
 
     const snap = await ref.get();
 
@@ -283,12 +177,6 @@ export const criarPagamentoPixAssinatura = onCall(
 
     const est = snap.data()!;
 
-if (!est?.pixChave || !est?.pixTipo) {
-  throw new HttpsError(
-    'failed-precondition',
-    'CONTA_BANCARIA_INCOMPLETA'
-  );
-}
     if (est.adminId !== req.auth.uid) {
       throw new HttpsError(
         'permission-denied',
@@ -296,15 +184,17 @@ if (!est?.pixChave || !est?.pixTipo) {
       );
     }
 
-    // 🔥 NÃO COMPRA O MESMO PLANO
+    // 🔥 REMOVIDO:
+    // NÃO PRECISA pixChave/pixTipo
+    // pois o PIX é da SUA conta Mercado Pago
+
     if (
       est.assinaturaAtiva &&
       est.plano === plano
     ) {
-
       throw new HttpsError(
         'already-exists',
-        'Este plano já está ativo'
+        'Plano já ativo'
       );
     }
 
@@ -319,17 +209,13 @@ if (!est?.pixChave || !est?.pixTipo) {
       const created =
         lockSnap.data()?.createdAt?.toMillis?.() || 0;
 
-      const diff = Date.now() - created;
-
-      if (diff < 60000) {
-
+      if (Date.now() - created < 60000) {
         throw new HttpsError(
           'resource-exhausted',
-          'Pagamento em processamento'
+          'Em processamento'
         );
       }
 
-      // LOCK VELHO
       await lockRef.delete();
     }
 
@@ -339,46 +225,76 @@ if (!est?.pixChave || !est?.pixTipo) {
 
     try {
 
-      // =====================================================
-      // MERCADO PAGO
-      // =====================================================
-
-      const valorFinal = parseValor(valor);
-
-      const accessToken = String(
-  MP_ACCESS_TOKEN.value() || ''
-).trim();
+      const accessToken =
+        String(MP_ACCESS_TOKEN.value() || '').trim();
 
       if (!accessToken) {
-
         throw new HttpsError(
           'internal',
           'MP não configurado'
         );
       }
 
+      // =====================================================
+      // USER
+      // =====================================================
+
+      const snapUser =
+        await db.collection('users')
+          .doc(req.auth.uid)
+          .get();
+
+      const user = snapUser.data();
+
+      // =====================================================
+      // MERCADO PAGO
+      // =====================================================
+
       const response = await axiosInstance.post(
         'https://api.mercadopago.com/v1/payments',
+
         {
-          transaction_amount: valorFinal,
+          transaction_amount: parseValor(valor),
 
           payment_method_id: 'pix',
 
-          description:
-            `Assinatura plano ${plano}`,
+          description: `Assinatura plano ${plano}`,
 
           external_reference: estabelecimentoId,
 
+          notification_url:
+            'https://webhookmercadopago-eoqa32y7ca-rj.a.run.app',
+
           payer: {
+
             email:
+              user?.email ||
               req.auth.token.email ||
               'cliente@app.com',
+
+            first_name:
+              user?.nome || 'Cliente',
+
+            identification: user?.cpf
+              ? {
+                  type: 'CPF',
+                  number:
+                    user.cpf.replace(/\D/g, ''),
+                }
+              : undefined,
+
+            phone: user?.telefone
+              ? {
+                  number:
+                    user.telefone.replace(/\D/g, ''),
+                }
+              : undefined,
           },
         },
+
         {
           headers: {
-            Authorization:
-              `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
 
             'X-Idempotency-Key':
               `pix_${estabelecimentoId}_${Date.now()}`
@@ -399,12 +315,40 @@ if (!est?.pixChave || !est?.pixTipo) {
         qr?.qr_code || null;
 
       if (!qrBase64 && !qrText) {
-
         throw new HttpsError(
           'internal',
-          'PIX inválido retornado pelo MP'
+          'PIX inválido'
         );
       }
+
+      // =====================================================
+      // HISTÓRICO
+      // =====================================================
+
+      await db.collection('pagamentos').add({
+
+        estabelecimentoId,
+        plano,
+
+        valor: parseValor(valor),
+
+        clienteId: req.auth.uid,
+
+        clienteEmail:
+          req.auth.token.email || null,
+
+        clienteNome:
+          user?.nome || 'Estabelecimento',
+
+        status: 'pending',
+
+        metodo: 'pix',
+
+        mercadoPagoId: String(data.id),
+
+        criadoEm:
+          FieldValue.serverTimestamp(),
+      });
 
       // =====================================================
       // EXPIRAÇÃO
@@ -417,24 +361,22 @@ if (!est?.pixChave || !est?.pixTipo) {
       );
 
       // =====================================================
-      // LIMPA PIX ANTIGO + SALVA NOVO
+      // FIRESTORE
       // =====================================================
 
       await ref.update({
 
-        // PLANO
         planoPendente: plano,
 
-        // PAGAMENTO
-        pixStatus: 'pending',
-        statusPagamento: 'pending',
+        paymentStatus: 'pending',
 
         assinaturaAtiva: false,
 
-        // PIX
-        pixPagamentoId: String(data?.id),
+        pixPagamentoId:
+          String(data?.id),
 
         pixQrCode: qrText,
+
         pixQrCodeBase64: qrBase64,
 
         pixCriadoEm:
@@ -447,16 +389,10 @@ if (!est?.pixChave || !est?.pixTipo) {
           FieldValue.serverTimestamp(),
       });
 
-      // =====================================================
-      // REMOVE LOCK
-      // =====================================================
-
       await lockRef.delete();
 
       return {
-
         qr_code: qrText,
-
         qr_code_base64: qrBase64,
       };
 
@@ -467,12 +403,229 @@ if (!est?.pixChave || !est?.pixTipo) {
         error?.response?.data || error
       );
 
-      // REMOVE LOCK MESMO COM ERRO
       await lockRef.delete();
 
       throw new HttpsError(
         'internal',
         'Erro ao criar PIX'
+      );
+    }
+  }
+);
+
+// =====================================================
+// 3. CARTÃO ASSINATURA
+// =====================================================
+
+export const criarAssinaturaCartao = onCall(
+  {
+    region: REGION,
+    secrets: [MP_ACCESS_TOKEN],
+  },
+
+  async (req) => {
+
+    if (!req.auth) {
+      throw new HttpsError(
+        'unauthenticated',
+        'Acesso negado.'
+      );
+    }
+
+    const {
+      estabelecimentoId,
+      plano,
+      email,
+      token,
+      valor,
+      payment_method_id
+    } = req.data || {};
+
+    if (
+      !estabelecimentoId ||
+      !plano ||
+      !email ||
+      !token
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Dados insuficientes.'
+      );
+    }
+
+    const ref =
+      db.collection('estabelecimentos')
+        .doc(estabelecimentoId);
+
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      throw new HttpsError(
+        'not-found',
+        'Estabelecimento não encontrado.'
+      );
+    }
+
+    const est = snap.data()!;
+
+    if (est.adminId !== req.auth.uid) {
+      throw new HttpsError(
+        'permission-denied',
+        'Sem permissão.'
+      );
+    }
+
+    if (
+      est.assinaturaAtiva &&
+      est.plano === plano
+    ) {
+      throw new HttpsError(
+        'already-exists',
+        'Plano já ativo.'
+      );
+    }
+
+    try {
+
+      const accessToken =
+        MP_ACCESS_TOKEN.value();
+
+      if (!accessToken) {
+        throw new HttpsError(
+          'internal',
+          'MP não configurado.'
+        );
+      }
+
+      const valorFinal =
+        parseValor(valor);
+
+      const response =
+        await axiosInstance.post(
+
+          'https://api.mercadopago.com/v1/payments',
+
+          {
+            transaction_amount: valorFinal,
+
+            token,
+
+            description:
+              `Assinatura Plano ${plano}`,
+
+            installments: 1,
+
+            payment_method_id,
+
+            payer: {
+
+              email:
+                est.responsavelEmail || email,
+
+              first_name:
+                est.responsavelNome || 'Responsável',
+
+              identification:
+                est.responsavelCpf
+                  ? {
+                      type: 'CPF',
+                      number:
+                        est.responsavelCpf
+                          .replace(/\D/g, ''),
+                    }
+                  : undefined,
+
+              phone:
+                est.responsavelTelefone
+                  ? {
+                      number:
+                        est.responsavelTelefone
+                          .replace(/\D/g, ''),
+                    }
+                  : undefined,
+            },
+
+            external_reference:
+              estabelecimentoId,
+
+            notification_url:
+              'https://webhookmercadopago-eoqa32y7ca-rj.a.run.app',
+          },
+
+          {
+            headers: {
+
+              Authorization:
+                `Bearer ${accessToken}`,
+
+              'X-Idempotency-Key':
+                `card_${estabelecimentoId}_${Date.now()}`,
+            },
+          }
+        );
+
+      const data: any = response.data;
+
+      const aprovado =
+        data.status === 'approved' ||
+        data.status === 'authorized';
+
+      // =====================================================
+      // FIRESTORE
+      // =====================================================
+
+      await ref.update({
+
+        planoPendente: plano,
+
+        paymentStatus:
+          data.status || 'pending',
+
+        paymentType: 'credit_card',
+
+        pagamentoId:
+          String(data.id),
+
+        atualizadoEm:
+          FieldValue.serverTimestamp(),
+
+        statusDetail:
+          data.status_detail || null,
+
+        assinaturaAtiva: aprovado,
+
+        statusPlano:
+          aprovado
+            ? 'ativo'
+            : est.statusPlano || 'trial',
+
+        ...(aprovado && {
+          plano,
+        }),
+      });
+
+      return {
+
+        success: true,
+
+        status: data.status,
+
+        id: data.id,
+
+        detail:
+          data.status_detail
+      };
+
+    } catch (error: any) {
+
+      console.error(
+        'ERRO MP:',
+        error?.response?.data || error
+      );
+
+      throw new HttpsError(
+        'internal',
+        'Erro ao processar pagamento.'
       );
     }
   }

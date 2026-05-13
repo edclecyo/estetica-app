@@ -4,7 +4,8 @@ import {
   StyleSheet, ActivityIndicator, Alert, Platform, StatusBar,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
-import functions from '@react-native-firebase/functions';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -74,9 +75,19 @@ export default function SeloVerificacaoScreen() {
           onPress: async () => {
             try {
               setSolicitando(true);
-              await functions().httpsCallable('solicitarSelo')({
-                estabelecimentoId: estab.id,
-              });
+              const functionsInstance = getFunctions(
+  getApp(),
+  'southamerica-east1'
+);
+
+const fn = httpsCallable(
+  functionsInstance,
+  'solicitarSelo'
+);
+
+await fn({
+  estabelecimentoId: estab.id,
+});
               Alert.alert(
                 '✅ Solicitação Enviada!',
                 'Sua solicitação foi enviada para análise. Você será notificado em breve.'

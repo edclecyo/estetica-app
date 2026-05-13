@@ -11,6 +11,8 @@ export * from './services/agendamento.service';
 export * from './services/assinatura.service';
 export * from './services/pagamento.service';
 export * from './services/conta.service';
+export * from './services/selo.service';
+export * from './services/avaliacao.service';
 
 // 2. TRIGGERS (Gatilhos de Banco de Dados)
 // Funções que rodam sozinhas quando algo muda no Firestore (onDocumentCreated, etc).

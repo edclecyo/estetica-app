@@ -112,13 +112,15 @@ const lista = snap.docs
 
     switch (tipo) {
 
-      case 'agendamento':
-        return {
-          emoji: '📅',
-          cor: '#4CAF50',
-          label: 'Agendamento',
-          bg: '#E8F5E9',
-        };
+case 'NEW_BOOKING':
+case 'NEW_SLOT':
+case 'agendamento':
+  return {
+    emoji: '📅',
+    cor: '#4CAF50',
+    label: 'Agendamento',
+    bg: '#E8F5E9',
+  };
 
       default:
         return {

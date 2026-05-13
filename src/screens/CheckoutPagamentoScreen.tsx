@@ -99,8 +99,7 @@ export default function CheckoutScreen({
         // STATUS PIX
         // =================================================
 
-        const status =
-          data.pixStatus || 'idle';
+       const status = data.paymentStatus || 'idle';
 
         setStatusPix(status);
 
@@ -132,11 +131,14 @@ export default function CheckoutScreen({
         // PIX SOMENTE DO PLANO ATUAL
         // =================================================
 
-        if (
-          status === 'pending' &&
-          data.pixQrCodeBase64 &&
-          data.planoPendente === planoId
-        ) {
+        const isThisPix =
+  data.planoPendente === planoId;
+
+if (
+  data.paymentStatus === 'pending' &&
+  data.pixQrCodeBase64 &&
+  isThisPix
+) {
 
           setPix({
             qr_code: data.pixQrCode,
@@ -252,23 +254,7 @@ export default function CheckoutScreen({
 
   }, []);
   
-const verificarConta = async () => {
 
-  const doc = await firestore()
-    .collection('estabelecimentos')
-    .doc(estabelecimentoId)
-    .get();
-
-  const data = doc.data();
-
-  if (!data) return false;
-
-  if (!data.pixChave || !data.pixTipo) {
-    return false;
-  }
-
-  return true;
-};
   // =====================================================
   // PAGAR PIX
   // =====================================================
@@ -279,7 +265,9 @@ const verificarConta = async () => {
     assinaturaAtiva &&
     planoAtual === planoId
   ) {
+
     Alert.alert('Plano já ativo');
+
     return;
   }
 
@@ -287,38 +275,12 @@ const verificarConta = async () => {
 
     setLoading(true);
 
-    // 🔥 VERIFICA CONTA PIX PRIMEIRO
-    const temConta = await verificarConta();
-
-    if (!temConta) {
-      setLoading(false);
-
-      Alert.alert(
-        'Configuração necessária',
-        'Você precisa configurar seus dados de recebimento PIX antes de continuar.',
-        [
-          {
-            text: 'Cancelar',
-            style: 'cancel'
-          },
-          {
-            text: 'Configurar agora',
-            onPress: () => {
-              navigation.navigate(
-                'ContaBancariaScreen',
-                { estabelecimentoId }
-              );
-            }
-          }
-        ]
-      );
-
-      return;
-    }
-
     setPix(null);
+
     setExpirado(false);
+
     setStatusPix('pending');
+
     setAlertaExibido(false);
 
     const fn = httpsCallable(
@@ -342,41 +304,13 @@ const verificarConta = async () => {
 
     console.error(e);
 
-    // 🔥 CASO BACKEND BLOQUEIE DIRETO
-    if (
-      e?.message?.includes('CONTA_BANCARIA_INCOMPLETA')
-    ) {
-      setLoading(false);
-
-      Alert.alert(
-        'Configurar PIX',
-        'Você precisa cadastrar sua conta bancária antes de gerar o PIX',
-        [
-          {
-            text: 'Cancelar',
-            style: 'cancel'
-          },
-          {
-            text: 'Configurar',
-            onPress: () => {
-              navigation.navigate(
-                'ContaBancariaScreen',
-                { estabelecimentoId }
-              );
-            }
-          }
-        ]
-      );
-
-      return;
-    }
-
     Alert.alert(
       'Erro',
       e?.message || 'Erro ao gerar PIX'
     );
 
   } finally {
+
     setLoading(false);
   }
 };

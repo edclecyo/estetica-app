@@ -261,15 +261,19 @@ const removerAgendamentoLocal = async (id: string) => {
                 </View>
 
                 {podeAvaliar && (
-                  <TouchableOpacity
-                    style={s.avaliarBtn}
-                     onPress={() => {
-  navigation.navigate('Avaliar', { agendamentoId: item.id });
-}}
-                  >
-                    <Text style={s.avaliarBtnText}>⭐ Avaliar</Text>
-                  </TouchableOpacity>
-                )}
+  <TouchableOpacity
+    style={s.avaliarBtn}
+    onPress={() => {
+      navigation.navigate('Avaliar', {
+        agendamentoId: item.id,
+        estabelecimentoId: item.estabelecimentoId,
+        estabelecimentoNome: item.estabelecimentoNome,
+      });
+    }}
+  >
+    <Text style={s.avaliarBtnText}>⭐ Avaliar</Text>
+  </TouchableOpacity>
+)}
               </View>
 
             </View>

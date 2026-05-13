@@ -23,6 +23,8 @@ export default function CartaoScreen({ route, navigation }: any) {
   const webRef = useRef<WebView>(null);
   const unsubscribeRef = useRef<any>(null);
 
+const processedRef = useRef(false);
+
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -41,45 +43,52 @@ export default function CartaoScreen({ route, navigation }: any) {
 
       if (!data) return;
 
-      const status = data.statusPagamento;
+      const status = data.paymentStatus;
 
-      // =========================================
-      // APROVADO
-      // =========================================
+const planoOk =
+  data.plano === planoId ||
+  data.planoPendente === planoId;
 
-      if (
-        ['approved', 'authorized']
-          .includes(status) &&
-        data.planoPendente === planoId
-      ) {
+if (
+  status === 'approved' &&
+  planoOk
+) {
 
-        if (isProcessing) return;
+  if (processedRef.current) return;
 
-        setIsProcessing(true);
+  processedRef.current = true;
 
-        unsubscribeRef.current?.();
+  setIsProcessing(true);
 
-        setLoading(false);
+  unsubscribeRef.current?.();
 
-        Alert.alert(
-          'Sucesso',
-          'Assinatura ativada com sucesso!'
-        );
+  setLoading(false);
 
-        navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: 'AdminDash',
-              params: {
-                estabelecimentoId
+  Alert.alert(
+    'Sucesso',
+    'Assinatura ativada com sucesso!',
+    [
+      {
+        text: 'Continuar',
+        onPress: () => {
+          navigation.reset({
+            index: 0,
+            routes: [
+              {
+                name: 'AdminDash',
+                params: {
+                  estabelecimentoId
+                }
               }
-            }
-          ],
-        });
-
-        return;
+            ],
+          });
+        }
       }
+    ]
+  );
+
+  return;
+}
 
       // =========================================
       // PENDENTE
@@ -172,14 +181,26 @@ export default function CartaoScreen({ route, navigation }: any) {
       if (data.type === 'DEBUG') {
         console.log('WEBVIEW_DEBUG:', data.message);
       }
-    } catch (e: any) {
-      setLoading(false);
-      console.log('ERRO_PROCESSAMENTO:', e);
-      Alert.alert('Erro', e.message || 'Falha ao processar pagamento');
-    }
-  };
+   } catch (e: any) {
 
-  const html = gerarHTML(valor);
+  setLoading(false);
+
+  console.log(
+    'ERRO_FULL:',
+    JSON.stringify(e, null, 2)
+  );
+
+  Alert.alert(
+    'Erro',
+    e?.message ||
+    e?.details?.message ||
+    'Erro desconhecido'
+  );
+}
+
+};
+
+const html = gerarHTML(valor);
 
   return (
     <SafeAreaView style={styles.container}>

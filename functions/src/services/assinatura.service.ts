@@ -60,19 +60,46 @@ function isPlanoAtivo(est: any) {
 // ─────────────────────────────
 // 🔓 LIBERAR HORÁRIO
 // ─────────────────────────────
-function liberarHorario(ag: any, batch: FirebaseFirestore.WriteBatch) {
-  const key = dataKey(ag.data);
-  const slots = gerarSlots(ag.horario, ag.duracao || 30, ag.intervaloMin || 30);
+function liberarHorario(
+  ag: any,
+  batch: FirebaseFirestore.WriteBatch
+) {
+
+  const key =
+    ag.dataKey || dataKey(ag.data);
+
+  const duracao =
+    Number(
+      ag.servicoDuracaoMin ||
+      ag.duracao ||
+      30
+    );
+
+  const intervalo =
+    Number(
+      ag.intervaloMin || 30
+    );
+
+  const slots = gerarSlots(
+    ag.horario,
+    duracao,
+    intervalo
+  );
 
   batch.delete(
     db.collection('agendamentoLocks')
-      .doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`)
+      .doc(
+        `${ag.clienteUid}_${ag.data}_${ag.horario}`
+      )
   );
 
   for (const h of slots) {
+
     batch.delete(
       db.collection('horariosOcupados')
-        .doc(`${ag.estabelecimentoId}_${key}_${h}`)
+        .doc(
+          `${ag.estabelecimentoId}_${key}_${h}`
+        )
     );
   }
 }
@@ -201,14 +228,28 @@ export const concluirAgendamento = onCall({ region: REGION }, async (req) => {
         concluidoEm: FieldValue.serverTimestamp(),
       });
 
-      t.set(db.collection('notificacoes').doc(), {
-        userId: ag.clienteUid,
-        tipo: 'concluido',
-        titulo: 'Atendimento concluído',
-        mensagem: 'Seu agendamento foi finalizado.',
-        lida: false,
-        criadoEm: FieldValue.serverTimestamp(),
-      });
+     t.set(db.collection('notificacoes').doc(), {
+  clienteId: ag.clienteUid,
+  userId: ag.clienteUid,
+
+  tipo: 'cliente',
+  type: 'APPOINTMENT_DONE',
+
+  titulo: 'Atendimento concluído',
+  mensagem: 'Seu agendamento foi finalizado. Avalie sua experiência.',
+
+  agendamentoId,
+  estabelecimentoId: ag.estabelecimentoId,
+  estabelecimentoNome: ag.estabelecimentoNome || est?.nome || '',
+
+  clienteNome: ag.clienteNome || '',
+  servicoNome: ag.servicoNome || '',
+
+  lida: false,
+  apagada: false,
+
+  criadoEm: FieldValue.serverTimestamp(),
+});
 
       return { ok: true };
     });
@@ -237,8 +278,12 @@ export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
       const ag = snap.data();
 
       if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
-      if (ag.status !== 'pendente') throw new HttpsError('failed-precondition', 'Estado inválido');
-
+    if (!['pendente', 'confirmado'].includes(ag.status)) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Estado inválido'
+  );
+}
       const estRef = db.collection('estabelecimentos').doc(ag.estabelecimentoId);
       const estSnap = await t.get(estRef);
 

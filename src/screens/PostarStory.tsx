@@ -130,24 +130,51 @@ export default function PostarStory() {
         await ref.putFile(m.uri);
         const url = await ref.getDownloadURL();
 
-        await firestore().collection('stories').add({
-          adminId,
-          estabelecimentoId: estId,
-          nomeAdmin: nome,
-          nome,
-          avatar,
-          url,
-          imagem: url,
-          type: m.type,
-          caption: m.caption,
-          likesCount: 0,
-          views: 0,
-          visto: false,
-          ativo: true,
-          timestamp: firestore.Timestamp.now(),
-          createdAt: Date.now(),
-          expiresAt: Date.now() + 86400000,
-        });
+       await firestore().collection('stories').add({
+  adminId,
+  estabelecimentoId: estId,
+
+  nomeAdmin: nome,
+  nome,
+  avatar,
+
+  url,
+  imagem: url,
+
+  storagePath: filename,
+
+  type: m.type,
+  caption: m.caption || '',
+
+  likesCount: 0,
+  visualizacoes: 0,
+  compartilhamentos: 0,
+
+  visto: false,
+
+  ativo: true,
+  apagado: false,
+
+  timestamp: firestore.Timestamp.now(),
+
+  criadoEm:
+    firestore.FieldValue.serverTimestamp(),
+
+  expiraEm:
+    firestore.Timestamp.fromMillis(
+      Date.now() + 86400000
+    ),
+
+  deletarEm:
+    firestore.Timestamp.fromMillis(
+      Date.now() + 86400000
+    ),
+
+  createdAt: Date.now(),
+
+  expiresAt:
+    Date.now() + 86400000,
+});
       }
 
       setUploadProgress(100);

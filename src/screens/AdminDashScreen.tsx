@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { BarChart } from 'react-native-chart-kit';
 import Share from 'react-native-share';
 
+
 import type { Estabelecimento, Agendamento } from '../types';
 import SeloVerificado from '../assets/selo_verificado.png';
 
@@ -90,8 +91,9 @@ export default function AdminDashScreen() {
   const [loading, setLoading] =
     useState(true);
 
-  const [loadingAcaoId, setLoadingAcaoId] =
-  useState<string | null>(null);
+ const [loadingAcao, setLoadingAcao] =
+  useState<{ id: string; acao: 'concluido' | 'cancelado' } | null>(null);
+  
   const [whatsSuporte, setWhatsSuporte] = useState<string | null>(null);
   // ===== LÓGICA =====
 const temEstabelecimento = estabs.length > 0;
@@ -384,11 +386,14 @@ Gerado pelo BeautyHub`;
   };
 
   // ✅ atualizarStatus usando fetch direto com token (sem SDK functions)
- const atualizarStatus = async (id: string, novoStatus: string) => {
- if (loadingAcaoId === id) return;
+ const atualizarStatus = async (
+  id: string,
+  novoStatus: 'concluido' | 'cancelado'
+) => {
+  if (loadingAcao) return;
 
   try {
-setLoadingAcaoId(id);
+    setLoadingAcao({ id, acao: novoStatus });
 
     const functionsInstance = getFunctions(
       getApp(),
@@ -421,58 +426,35 @@ setLoadingAcaoId(id);
     const code = e?.code || '';
     const message = e?.message || 'Erro interno';
 
-    // 🔒 Plano
     if (code.includes('failed-precondition')) {
-      Alert.alert(
-        'Plano necessário 🔒',
-        message
-      );
+      Alert.alert('Plano necessário 🔒', message);
       return;
     }
 
-    // 🚫 Permissão
     if (code.includes('permission-denied')) {
-      Alert.alert(
-        'Sem permissão',
-        'Você não pode fazer isso.'
-      );
+      Alert.alert('Sem permissão', 'Você não pode fazer isso.');
       return;
     }
 
-    // 🔑 Login
     if (code.includes('unauthenticated')) {
-      Alert.alert(
-        'Sessão expirada',
-        'Faça login novamente.'
-      );
+      Alert.alert('Sessão expirada', 'Faça login novamente.');
       return;
     }
 
-    // ❌ Não encontrado
     if (code.includes('not-found')) {
-      Alert.alert(
-        'Agendamento não encontrado',
-        'Esse agendamento não existe mais.'
-      );
+      Alert.alert('Agendamento não encontrado', 'Esse agendamento não existe mais.');
       return;
     }
 
-    // ⚠️ Argumento inválido
     if (code.includes('invalid-argument')) {
-      Alert.alert(
-        'Erro',
-        'Dados inválidos enviados.'
-      );
+      Alert.alert('Erro', 'Dados inválidos enviados.');
       return;
     }
 
-    Alert.alert(
-      'Erro',
-      message
-    );
+    Alert.alert('Erro', message);
 
   } finally {
-    setLoadingAcaoId(null);
+    setLoadingAcao(null);
   }
 };
 const [saindo, setSaindo] = useState(false);
@@ -773,28 +755,45 @@ const [saindo, setSaindo] = useState(false);
 </Text>
               </View>
             </View>
-            <Text style={{ color: badge.cor, fontSize: 18, fontWeight: 'bold' }}>→</Text>
-          </TouchableOpacity>
+           <Text style={{ color: badge.cor, fontSize: 18, fontWeight: 'bold' }}>→</Text>
+</TouchableOpacity>
 
-          {/* ✅ CARD DE SELO */}
-          {mostrarCardSelo && (
-            <TouchableOpacity
-              style={[s.seloCard, { borderLeftColor: selo.cor }]}
-              onPress={() => {
-                // ✅ Rota corrigida — navega para Assinatura se SeloVerificacao não existir
-                Alert.alert('Selo Verificado', 'Entre em contato com o suporte do BeautyHub para solicitar o selo.');
-              }}
-              activeOpacity={0.85}
-            >
-              <Text style={s.seloEmoji}>{selo.emoji}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={s.seloTitulo}>{selo.titulo}</Text>
-                <Text style={s.seloSub}>{selo.sub}</Text>
-              </View>
-              <Text style={{ color: selo.cor, fontSize: 18 }}>→</Text>
-            </TouchableOpacity>
-          )}
+{/* BOTÃO SELO VERIFICADO */}
+{temEstabelecimento && (
+  <TouchableOpacity
+    style={s.seloVerificacaoBtn}
+    activeOpacity={0.85}
+    onPress={() => navigation.navigate('SeloVerificacaoScreen')}
+  >
+    <View style={s.seloVerificacaoIcon}>
+      <Image
+        source={SeloVerificado}
+        style={{
+          width: 30,
+          height: 30,
+          resizeMode: 'contain',
+        }}
+      />
+    </View>
 
+    <View style={{ flex: 1 }}>
+      <Text style={s.seloVerificacaoTitulo}>
+        {verificado
+          ? 'Seu selo está ativo'
+          : 'Solicitar selo verificado'}
+      </Text>
+
+      <Text style={s.seloVerificacaoSub}>
+        {verificado
+          ? 'Seu estabelecimento possui selo verificado.'
+          : 'Aumente sua credibilidade no BeautyHub'}
+      </Text>
+    </View>
+
+    <Text style={s.seloVerificacaoArrow}>→</Text>
+  </TouchableOpacity>
+)}
+ 
           {/* FATURAMENTO */}
           <View style={s.financeiroCardDash}>
             <Text style={s.financeiroTitulo}>RESUMO DE FATURAMENTO</Text>
@@ -1031,33 +1030,28 @@ const [saindo, setSaindo] = useState(false);
 
     {/* CONCLUIR */}
     <TouchableOpacity
-      style={s.btnConcluir}
-      disabled={loadingAcaoId === item.id}
-      onPress={() => atualizarStatus(item.id, 'concluido')}
-    >
-      {loadingAcaoId === item.id ? (
-        <ActivityIndicator color={GOLD} />
-      ) : (
-        <Text style={s.btnConcluirText}>
-          Concluir
-        </Text>
-      )}
-    </TouchableOpacity>
+  style={s.btnConcluir}
+  disabled={loadingAcao?.id === item.id}
+  onPress={() => atualizarStatus(item.id, 'concluido')}
+>
+  {loadingAcao?.id === item.id && loadingAcao?.acao === 'concluido' ? (
+    <ActivityIndicator color={GOLD} />
+  ) : (
+    <Text style={s.btnConcluirText}>Concluir</Text>
+  )}
+</TouchableOpacity>
 
-    {/* CANCELAR */}
-    <TouchableOpacity
-      style={s.btnCancelar}
-      disabled={loadingAcaoId === item.id}
-      onPress={() => atualizarStatus(item.id, 'cancelado')}
-    >
-      {loadingAcaoId === item.id ? (
-        <ActivityIndicator color="#999" />
-      ) : (
-        <Text style={s.btnCancelarText}>
-          Cancelar
-        </Text>
-      )}
-    </TouchableOpacity>
+<TouchableOpacity
+  style={s.btnCancelar}
+  disabled={loadingAcao?.id === item.id}
+  onPress={() => atualizarStatus(item.id, 'cancelado')}
+>
+  {loadingAcao?.id === item.id && loadingAcao?.acao === 'cancelado' ? (
+    <ActivityIndicator color="#999" />
+  ) : (
+    <Text style={s.btnCancelarText}>Cancelar</Text>
+  )}
+</TouchableOpacity>
 
   </View>
 )}
@@ -1180,6 +1174,45 @@ const s = StyleSheet.create({
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
   },
+  seloVerificacaoBtn: {
+  backgroundColor: '#1A1A1A',
+  borderRadius: 22,
+  padding: 18,
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 20,
+  borderWidth: 1,
+  borderColor: 'rgba(201,169,110,0.25)',
+},
+
+seloVerificacaoIcon: {
+  width: 58,
+  height: 58,
+  borderRadius: 18,
+  backgroundColor: 'rgba(201,169,110,0.12)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 16,
+},
+
+seloVerificacaoTitulo: {
+  color: '#FFF',
+  fontSize: 15,
+  fontWeight: '800',
+},
+
+seloVerificacaoSub: {
+  color: '#AAA',
+  fontSize: 12,
+  marginTop: 4,
+  lineHeight: 18,
+},
+
+seloVerificacaoArrow: {
+  color: GOLD,
+  fontSize: 22,
+  fontWeight: '800',
+},
   headerSub: { color: GOLD, fontSize: 10, letterSpacing: 2, fontWeight: '700' },
   headerTitulo: { color: '#FFF', fontSize: 22, fontWeight: '800' },
   headerAcoes: { flexDirection: 'row', alignItems: 'center', gap: 12 },

@@ -1,44 +1,81 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import * as admin from 'firebase-admin';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-import { db, bucket } from '../config/firebase'; // Garanta que 'bucket' é exportado aqui
+import { Timestamp } from 'firebase-admin/firestore';
+
+import { db, bucket } from '../config/firebase';
 import { REGION } from '../config/region';
 
-// ... (todo o seu código de verificarAssinaturas, manutencaoDiaria, etc)
-
 export const limparStories = onSchedule(
-  { schedule: "every 3 hours", region: REGION },
+  {
+    schedule: 'every 3 hours',
+    region: REGION,
+    retryCount: 2,
+    memory: '256MiB',
+    timeoutSeconds: 120,
+  },
+
   async () => {
     const agora = Timestamp.now();
-    const snap = await db.collection("stories")
-      .where("deletarEm", "<=", agora)
-      .limit(50)
+
+    const snap = await db
+      .collection('stories')
+      .where('deletarEm', '<=', agora)
+      .limit(100)
       .get();
 
-    if (snap.empty) return;
+    if (snap.empty) {
+      console.log('✅ Nenhum story para limpar.');
+      return;
+    }
 
     const batch = db.batch();
     const storageDeletions: Promise<any>[] = [];
 
     for (const doc of snap.docs) {
       const data = doc.data();
-      
-      // Se você salvar o path direto no banco, use data.path. 
-      // Se não, essa lógica de extrair da URL resolve:
-      if (data.url) {
-        const caminho = decodeURIComponent(data.url.split("/o/")[1]?.split("?")[0] || "");
-        if (caminho) {
-          storageDeletions.push(bucket.file(caminho).delete().catch(() => {
-            console.warn(`Arquivo não encontrado no Storage: ${caminho}`);
-            return null;
-          }));
+
+      let caminho = data.storagePath || '';
+
+      if (!caminho && data.url) {
+        try {
+          const match = String(data.url).match(/\/o\/(.*?)\?/);
+
+          if (match?.[1]) {
+            caminho = decodeURIComponent(match[1]);
+          }
+        } catch (e) {
+          console.error(
+            `❌ Erro ao parsear URL do story ${doc.id}:`,
+            e
+          );
         }
       }
+
+      if (caminho) {
+        const file = bucket.file(caminho);
+
+        storageDeletions.push(
+          file.delete().catch((err) => {
+            if (err?.code !== 404) {
+              console.warn(
+                `⚠️ erro ao deletar ${caminho}:`,
+                err?.message || err
+              );
+            }
+
+            return null;
+          })
+        );
+      }
+
       batch.delete(doc.ref);
     }
 
-    await Promise.all(storageDeletions);
+    await Promise.allSettled(storageDeletions);
+
     await batch.commit();
-    console.log("🧹 Stories e arquivos de mídia limpos.");
+
+    console.log(
+      `🧹 ${snap.size} stories removidos com sucesso.`
+    );
   }
 );

@@ -26,9 +26,11 @@ export interface MercadoPagoResponse {
 // 💰 PIX / QR PAYMENT
 // ─────────────────────────────────────────────
 export interface MPQrResponse {
-  id: number | string; // 🔥 MP às vezes retorna string
+  id: number | string;
   status?: string;
   status_detail?: string;
+  payment_type_id?: 'pix' | 'credit_card' | string;
+  external_reference?: string;
 
   point_of_interaction?: {
     type?: string;

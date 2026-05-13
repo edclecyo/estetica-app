@@ -625,68 +625,189 @@ await reference.putFile(uri);
               </TouchableOpacity>
             </View>
 
-            {/* DADOS GERAIS */}
-            <Text style={s.sectionTitle}>Dados Gerais</Text>
-            <View style={s.card}>
-              <View style={s.inputBox}>
-                <Text style={s.inputLabel}>NOME DO ESTABELECIMENTO</Text>
-                <TextInput style={s.input} value={nome} onChangeText={setNome} placeholderTextColor="#444" />
-              </View>
+{/* DADOS GERAIS */}
+<Text style={s.sectionTitle}>Dados Gerais</Text>
 
-              <Text style={s.inputLabel}>TIPO</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.typeList}>
-                {TIPOS.map(t => (
-                  <TouchableOpacity key={t} onPress={() => setTipo(t)}
-                    style={[s.typeChip, tipo === t && { borderColor: cor, backgroundColor: cor + '22' }]}>
-                    <Text style={[s.typeChipTxt, tipo === t && { color: cor, fontWeight: '900' }]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+<View style={s.card}>
+  <View style={s.inputBox}>
+    <Text style={s.inputLabel}>NOME DO ESTABELECIMENTO</Text>
+    <TextInput
+      style={s.input}
+      value={nome}
+      onChangeText={setNome}
+      placeholderTextColor="#444"
+    />
+  </View>
 
-              <View style={s.row}>
-                <View style={[s.inputBox, { flex: 2, marginRight: 10 }]}>
-                  <Text style={s.inputLabel}>
-                    CEP {(buscandoCep || buscandoEnd) && <ActivityIndicator size="small" color={cor} />}
-                  </Text>
-                  <TextInput style={s.input} value={cep} onChangeText={handleCepChange} maxLength={8} keyboardType="numeric" placeholderTextColor="#444" />
-                </View>
-                <View style={[s.inputBox, { flex: 1 }]}>
-                  <Text style={s.inputLabel}>Nº</Text>
-                  <TextInput style={s.input} value={numero} onChangeText={setNumero} keyboardType="numeric" placeholderTextColor="#444"
-                    onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
-                </View>
-              </View>
+  <Text style={s.inputLabel}>TIPO</Text>
 
-              <View style={s.inputBox}>
-                <Text style={s.inputLabel}>ENDEREÇO (RUA)</Text>
-                <TextInput style={s.input} value={endereco} onChangeText={setEndereco} placeholderTextColor="#444"
-                  onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
-              </View>
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    style={s.typeList}
+  >
+    {TIPOS.map(t => (
+      <TouchableOpacity
+        key={t}
+        onPress={() => setTipo(t)}
+        style={[
+          s.typeChip,
+          tipo === t && {
+            borderColor: cor,
+            backgroundColor: cor + '22',
+          },
+        ]}
+      >
+        <Text
+          style={[
+            s.typeChipTxt,
+            tipo === t && {
+              color: cor,
+              fontWeight: '900',
+            },
+          ]}
+        >
+          {t}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </ScrollView>
 
-              <View style={s.row}>
-                <View style={[s.inputBox, { flex: 1, marginRight: 10 }]}>
-                  <Text style={s.inputLabel}>BAIRRO</Text>
-                  <TextInput style={s.input} value={bairro} onChangeText={setBairro} placeholderTextColor="#444"
-                    onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
-                </View>
-                <View style={[s.inputBox, { flex: 1 }]}>
-                  <Text style={s.inputLabel}>CIDADE</Text>
-                  <TextInput style={s.input} value={cidade} onChangeText={setCidade} placeholderTextColor="#444"
-                    onBlur={() => geocodificarEndereco(endereco, cidade, numero, bairro)} />
-                </View>
-              </View>
+  <View style={s.row}>
+    <View style={[s.inputBox, { flex: 2, marginRight: 10 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+        <Text style={[s.inputLabel, { marginBottom: 0 }]}>CEP</Text>
 
-              <View style={s.inputBox}>
-                <Text style={s.inputLabel}>TEL</Text>
-                <TextInput style={s.input} value={telefone} onChangeText={setTelefone} keyboardType="phone-pad" placeholderTextColor="#444" />
-              </View>
+        {(buscandoCep || buscandoEnd) && (
+          <ActivityIndicator
+            size="small"
+            color={cor}
+            style={{ marginLeft: 6 }}
+          />
+        )}
+      </View>
 
-              <Text style={[s.inputLabel, { marginTop: 10 }]}>
-                LOCALIZAÇÃO NO MAPA {buscandoEnd && <ActivityIndicator size="small" color={cor} />}
-              </Text>
-              <Text style={s.mapHint}>Arraste o pino para ajustar a posição exata</Text>
+      <TextInput
+        style={s.input}
+        value={cep}
+        onChangeText={handleCepChange}
+        maxLength={8}
+        keyboardType="numeric"
+        placeholderTextColor="#444"
+      />
+    </View>
 
-     <View style={s.mapCard}>
+    <View style={[s.inputBox, { flex: 1 }]}>
+      <Text style={s.inputLabel}>Nº</Text>
+
+      <TextInput
+        style={s.input}
+        value={numero}
+        onChangeText={setNumero}
+        keyboardType="numeric"
+        placeholderTextColor="#444"
+        onBlur={() =>
+          geocodificarEndereco(
+            endereco,
+            cidade,
+            numero,
+            bairro
+          )
+        }
+      />
+    </View>
+  </View>
+
+  <View style={s.inputBox}>
+    <Text style={s.inputLabel}>ENDEREÇO (RUA)</Text>
+
+    <TextInput
+      style={s.input}
+      value={endereco}
+      onChangeText={setEndereco}
+      placeholderTextColor="#444"
+      onBlur={() =>
+        geocodificarEndereco(
+          endereco,
+          cidade,
+          numero,
+          bairro
+        )
+      }
+    />
+  </View>
+
+  <View style={s.row}>
+    <View style={[s.inputBox, { flex: 1, marginRight: 10 }]}>
+      <Text style={s.inputLabel}>BAIRRO</Text>
+
+      <TextInput
+        style={s.input}
+        value={bairro}
+        onChangeText={setBairro}
+        placeholderTextColor="#444"
+        onBlur={() =>
+          geocodificarEndereco(
+            endereco,
+            cidade,
+            numero,
+            bairro
+          )
+        }
+      />
+    </View>
+
+    <View style={[s.inputBox, { flex: 1 }]}>
+      <Text style={s.inputLabel}>CIDADE</Text>
+
+      <TextInput
+        style={s.input}
+        value={cidade}
+        onChangeText={setCidade}
+        placeholderTextColor="#444"
+        onBlur={() =>
+          geocodificarEndereco(
+            endereco,
+            cidade,
+            numero,
+            bairro
+          )
+        }
+      />
+    </View>
+  </View>
+
+  <View style={s.inputBox}>
+    <Text style={s.inputLabel}>TEL</Text>
+
+    <TextInput
+      style={s.input}
+      value={telefone}
+      onChangeText={setTelefone}
+      keyboardType="phone-pad"
+      placeholderTextColor="#444"
+    />
+  </View>
+
+  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+    <Text style={[s.inputLabel, { marginBottom: 0 }]}>
+      LOCALIZAÇÃO NO MAPA
+    </Text>
+
+    {buscandoEnd && (
+      <ActivityIndicator
+        size="small"
+        color={cor}
+        style={{ marginLeft: 6 }}
+      />
+    )}
+  </View>
+
+  <Text style={s.mapHint}>
+    Arraste o pino para ajustar a posição exata
+  </Text>
+
+  <View style={s.mapCard}>
   {!coordsOk ? (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
       <ActivityIndicator size="large" color={cor} />

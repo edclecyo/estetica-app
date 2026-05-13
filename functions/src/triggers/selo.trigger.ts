@@ -1,5 +1,5 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import * as admin from 'firebase-admin';
+
 import { FieldValue } from 'firebase-admin/firestore'; // Importação limpa
 
 import { db } from '../config/firebase';
@@ -52,9 +52,10 @@ export const verificarSeloAutomatico = onSchedule(
         // Lógica 2: Perder Selo (Se era verificado automaticamente)
         if (e.verificado && e.verificadoAutomatico) {
           const perdeuCriterios =
-            !e.assinaturaAtiva ||
-            (e.plano !== 'elite' && e.plano !== 'pro') ||
-            (e.avaliacoesNegativas || 0) >= 10;
+  !e.assinaturaAtiva ||
+  (e.plano !== 'elite' && e.plano !== 'pro') ||
+  (e.avaliacoesNegativas || 0) >= 10 ||
+  (e.nivelReputacao === 'ruim');
 
           if (perdeuCriterios) {
             await ref.update({

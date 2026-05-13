@@ -223,9 +223,11 @@ export default function HomeScreen() {
   // Monitora Notificações
   useEffect(() => {
     if (!user?.uid) { setNotificacoesNaoLidas(0); return; }
-    const unsub = firestore().collection('notificacoes')
-      .where('userId', '==', user.uid)
-	  .where('lida', '==', false)
+    const unsub = firestore()
+  .collection('notificacoes')
+  .where('userId', '==', user.uid)
+  .where('lida', '==', false)
+  .where('apagada', '==', false)
       .onSnapshot(snap => setNotificacoesNaoLidas(snap?.size || 0), () => {});
     return () => unsub();
   }, [user?.uid]);

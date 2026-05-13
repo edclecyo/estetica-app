@@ -3,115 +3,142 @@ import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-import { enviarPush, getTokenUsuario } from '../services/notificacao.service';
 import { dataKey, gerarSlots } from '../utils/helpers';
 
 // ─────────────────────────────────────────────
-// 📌 LEMBRETE
+// 📌 LEMBRETE DE AGENDAMENTO
+// Cria notificação no Firestore.
+// O push será enviado pelo trigger aoCriarNotificacao.
 // ─────────────────────────────────────────────
 export const lembreteAgendamento = onSchedule(
   {
     region: REGION,
-    schedule: "every 30 minutes",
-    memory: "256MiB",
+    schedule: 'every 30 minutes',
+    memory: '256MiB',
     timeoutSeconds: 120,
   },
-  async () => {
 
+  async () => {
     const agora = Timestamp.now();
 
-    const snap = await db.collection('agendamentos')
+    const snap = await db
+      .collection('agendamentos')
       .where('notificado', '==', false)
       .where('notificarEm', '<=', agora)
       .where('status', '==', 'confirmado')
       .limit(150)
       .get();
 
-    if (snap.empty) return;
+    if (snap.empty) {
+      return;
+    }
 
     const batch = db.batch();
-    const pushPromises: Promise<any>[] = [];
 
     const expiraData = new Date();
     expiraData.setDate(expiraData.getDate() + 30);
-    const expiraNotificacao = Timestamp.fromDate(expiraData);
+
+    const expiraNotificacao =
+      Timestamp.fromDate(expiraData);
 
     for (const doc of snap.docs) {
       const ag = doc.data();
 
-      // 💾 SALVA NOTIFICAÇÃO
-      batch.set(db.collection('notificacoes').doc(), {
+      if (!ag.clienteUid) {
+        batch.update(doc.ref, {
+          notificado: true,
+          notificadoEm: FieldValue.serverTimestamp(),
+        });
+
+        continue;
+      }
+
+      const notifRef = db
+        .collection('notificacoes')
+        .doc();
+
+      batch.set(notifRef, {
+        tipo: 'cliente',
+
         clienteId: ag.clienteUid,
+        userId: ag.clienteUid,
+
         adminId: ag.adminId || null,
 
         titulo: '⏰ Horário chegando!',
-        mensagem: `Lembrete: ${ag.servicoNome} às ${ag.horario} em ${ag.estabelecimentoNome || 'seu estabelecimento'}.`,
+        mensagem: `Lembrete: ${ag.servicoNome || 'serviço'} às ${ag.horario || ''} em ${ag.estabelecimentoNome || 'seu estabelecimento'}.`,
 
         agendamentoId: doc.id,
+
+        estabelecimentoId:
+          ag.estabelecimentoId || '',
+
+        estabelecimentoNome:
+          ag.estabelecimentoNome || '',
+
+        clienteNome:
+          ag.clienteNome || '',
+
+        servicoNome:
+          ag.servicoNome || '',
+
+        formaPagamento:
+          ag.formaPagamento || '',
+
         type: 'REMINDER',
 
         lida: false,
         apagada: false,
 
-        criadoEm: FieldValue.serverTimestamp(),
-        expiraEm: expiraNotificacao,
+        criadoEm:
+          FieldValue.serverTimestamp(),
+
+        expiraEm:
+          expiraNotificacao,
       });
 
-      // 🔄 MARCA COMO NOTIFICADO
       batch.update(doc.ref, {
         notificado: true,
         notificadoEm: FieldValue.serverTimestamp(),
       });
-
-      // 🔥 PUSH NOTIFICAÇÃO
-      if (ag.clienteUid) {
-        pushPromises.push(
-          (async () => {
-            const tokens = await getTokenUsuario(ag.clienteUid, 'cliente');
-
-            if (tokens.length > 0) {
-              await enviarPush(
-  tokens,
-  '⏰ Horário chegando!',
-  `Lembrete: ${ag.servicoNome} às ${ag.horario}`,
-  {
-    type: 'REMINDER',
-    agendamentoId: doc.id,
-  }
-);
-            }
-          })()
-        );
-      }
     }
 
     await batch.commit();
-    await Promise.allSettled(pushPromises);
 
-    console.log(`✅ ${snap.size} lembretes enviados`);
+    console.log(
+      `✅ ${snap.size} lembretes criados`
+    );
   }
 );
 
 // ─────────────────────────────────────────────
-// ⛔ EXPIRAÇÃO
+// ⛔ EXPIRAR AGENDAMENTOS
+// Libera horários ocupados de agendamentos vencidos.
 // ─────────────────────────────────────────────
 export const expirarAgendamentos = onSchedule(
   {
     region: REGION,
-    schedule: "every 5 minutes",
-    memory: "256MiB",
+    schedule: 'every 5 minutes',
+    memory: '256MiB',
+    timeoutSeconds: 120,
   },
-  async () => {
 
+  async () => {
     const agora = Date.now();
 
     const pageSize = 500;
-    let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+
+    let lastDoc:
+      | FirebaseFirestore.QueryDocumentSnapshot
+      | undefined;
 
     while (true) {
-
-      let query = db.collection('agendamentos')
-        .where('status', 'in', ['confirmado', 'pendente'])
+      let query = db
+        .collection('agendamentos')
+        .where('status', 'in', [
+          'confirmado',
+          'pendente',
+        ])
         .limit(pageSize);
 
       if (lastDoc) {
@@ -120,7 +147,9 @@ export const expirarAgendamentos = onSchedule(
 
       const snap = await query.get();
 
-      if (snap.empty) break;
+      if (snap.empty) {
+        break;
+      }
 
       let batch = db.batch();
       let ops = 0;
@@ -128,10 +157,15 @@ export const expirarAgendamentos = onSchedule(
       for (const doc of snap.docs) {
         const ag = doc.data();
 
-        if (!ag.data || !ag.horario) continue;
+        if (!ag.data || !ag.horario) {
+          continue;
+        }
 
-        const [dia, mes, ano] = ag.data.split('/');
-        const [hora, minuto] = ag.horario.split(':');
+        const [dia, mes, ano] =
+          String(ag.data).split('/');
+
+        const [hora, minuto] =
+          String(ag.horario).split(':');
 
         const inicio = new Date(
           Number(ano),
@@ -141,36 +175,62 @@ export const expirarAgendamentos = onSchedule(
           Number(minuto || 0)
         );
 
-        const duracao = ag.servicoDuracaoMin || 30;
-        const fim = new Date(inicio.getTime() + duracao * 60000);
+        if (isNaN(inicio.getTime())) {
+          continue;
+        }
+
+        const duracao =
+          Number(ag.servicoDuracaoMin || 30);
+
+        const fim = new Date(
+          inicio.getTime() + duracao * 60000
+        );
 
         if (fim.getTime() <= agora) {
-
           batch.update(doc.ref, {
             status: 'expirado',
-            expiradoEm: FieldValue.serverTimestamp(),
+            expiradoEm:
+              FieldValue.serverTimestamp(),
+            atualizadoEm:
+              FieldValue.serverTimestamp(),
           });
 
-          const key = dataKey(ag.data);
-          const slots = gerarSlots(ag.horario, duracao);
+          ops++;
 
-          for (const hora of slots) {
+          const key = dataKey(ag.data);
+          const slots = gerarSlots(
+            ag.horario,
+            duracao
+          );
+
+          for (const horaSlot of slots) {
             batch.delete(
-              db.collection('horariosOcupados')
-                .doc(`${ag.estabelecimentoId}_${key}_${hora}`)
+              db
+                .collection('horariosOcupados')
+                .doc(
+                  `${ag.estabelecimentoId}_${key}_${horaSlot}`
+                )
             );
+
             ops++;
           }
 
-          batch.delete(
-            db.collection('agendamentoLocks')
-              .doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`)
-          );
+          if (
+            ag.clienteUid &&
+            ag.data &&
+            ag.horario
+          ) {
+            batch.delete(
+              db
+                .collection('agendamentoLocks')
+                .doc(
+                  `${ag.clienteUid}_${ag.data}_${ag.horario}`
+                )
+            );
 
-          ops += 2;
+            ops++;
+          }
         }
-
-        ops++;
 
         if (ops >= 450) {
           await batch.commit();
@@ -179,9 +239,13 @@ export const expirarAgendamentos = onSchedule(
         }
       }
 
-      await batch.commit();
+      if (ops > 0) {
+        await batch.commit();
+      }
 
       lastDoc = snap.docs[snap.docs.length - 1];
     }
+
+    console.log('✅ Expiração de agendamentos concluída');
   }
 );

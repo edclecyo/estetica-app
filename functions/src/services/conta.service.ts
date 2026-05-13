@@ -84,7 +84,7 @@ export const salvarDadosConta = onCall(
     // =========================
     // VALIDAÇÃO PIX BACKEND
     // =========================
-    const pix = pixChave.trim();
+    const pix = String(pixChave || '').trim();
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

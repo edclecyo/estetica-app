@@ -25,27 +25,30 @@ export interface Estabelecimento {
   tipo: string;
   avaliacao: number;
   totalAvaliacoes: number;
-  img: string; // Emoji ou ID da imagem
-  fotoPerfil?: string; // URL do Firebase Storage (usado na sua Home)
+  img: string;
+  fotoPerfil?: string;
   cor: string;
   endereco: string;
   cidade: string;
   telefone: string;
   descricao: string;
   horarioFuncionamento: string;
-  diasFuncionamento?: string[]; // Necessário para a função 'estaAberto'
+  diasFuncionamento?: string[];
   servicos: Servico[];
   horarios: string[];
   adminId: string;
   ativo: boolean;
-  verificado?: boolean; // Usado na Seção de Verificados
-  plano?: 'bronze' | 'silver' | 'gold' | 'elite'; // Para o selo 'Elite'
-  // Suporte a Coordenadas (GPS)
+  verificado?: boolean;
+  plano?: 'bronze' | 'silver' | 'gold' | 'elite';
+
+  // 🔥 AQUI QUE ENTRA
+  paymentStatus?: 'none' | 'pending' | 'approved' | 'failed';
+
   coords?: {
     lat: number;
     lng: number;
   };
-  lat?: number; // Fallback caso não use o objeto coords
+  lat?: number;
   lng?: number;
 }
 

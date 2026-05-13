@@ -5,7 +5,10 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
-import { getFunctions } from '@react-native-firebase/functions';
+import {
+  getFunctions,
+  httpsCallable
+} from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
@@ -113,10 +116,19 @@ export default function AssinaturaScreen({ navigation }) {
     setLoadingAction('trial');
 
     try {
-      const fn = getFunctions(getApp(), 'southamerica-east1')
-        .httpsCallable('iniciarTrial');
+      const functionsInstance = getFunctions(
+  getApp(),
+  'southamerica-east1'
+);
 
-      const res = await fn({ estabelecimentoId: estId });
+const fn = httpsCallable(
+  functionsInstance,
+  'iniciarTrial'
+);
+
+const res = await fn({
+  estabelecimentoId: estId
+});
 
       if (res.data?.ok) {
         Alert.alert("Sucesso", "Trial ativado!");

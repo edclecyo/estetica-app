@@ -45,6 +45,7 @@ export default function ImpulsionarScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { admin } = useAuth();
+
   const estabelecimentoParam = route.params?.estabelecimentoId;
 
   const [estab, setEstab] = useState<any>(null);
@@ -55,23 +56,40 @@ export default function ImpulsionarScreen() {
   const [pagamentoId, setPagamentoId] = useState<string | null>(null);
   const [pagamento, setPagamento] = useState<any>(null);
   const [copiado, setCopiado] = useState(false);
+  const [alertaPago, setAlertaPago] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
+
     if (estabelecimentoParam) {
       const unsub = firestore()
         .collection('estabelecimentos')
         .doc(estabelecimentoParam)
-        .onSnapshot(doc => {
-          if (doc.exists) {
-            setEstab({ id: doc.id, ...doc.data() });
+        .onSnapshot(
+          doc => {
+            if (doc && doc.exists) {
+              setEstab({
+                id: doc.id,
+                ...doc.data(),
+              });
+            } else {
+              setEstab(null);
+            }
+
+            setLoading(false);
+          },
+          error => {
+            console.log('Erro ao carregar estabelecimento:', error);
+            setEstab(null);
+            setLoading(false);
           }
-          setLoading(false);
-        });
+        );
 
       return unsub;
     }
 
     if (!admin?.id) {
+      setEstab(null);
       setLoading(false);
       return;
     }
@@ -80,16 +98,27 @@ export default function ImpulsionarScreen() {
       .collection('estabelecimentos')
       .where('adminId', '==', admin.id)
       .limit(1)
-      .onSnapshot(snap => {
-        if (!snap.empty) {
-          setEstab({
-            id: snap.docs[0].id,
-            ...snap.docs[0].data(),
-          });
-        }
+      .onSnapshot(
+        snap => {
+          if (snap && !snap.empty) {
+            const doc = snap.docs[0];
 
-        setLoading(false);
-      });
+            setEstab({
+              id: doc.id,
+              ...doc.data(),
+            });
+          } else {
+            setEstab(null);
+          }
+
+          setLoading(false);
+        },
+        error => {
+          console.log('Erro ao buscar estabelecimento do admin:', error);
+          setEstab(null);
+          setLoading(false);
+        }
+      );
 
     return unsub;
   }, [admin?.id, estabelecimentoParam]);
@@ -100,27 +129,39 @@ export default function ImpulsionarScreen() {
     const unsub = firestore()
       .collection('pagamentos')
       .doc(pagamentoId)
-      .onSnapshot(doc => {
-        if (doc.exists) {
-          setPagamento({
-            id: doc.id,
-            ...doc.data(),
-          });
+      .onSnapshot(
+        doc => {
+          if (doc && doc.exists) {
+            setPagamento({
+              id: doc.id,
+              ...doc.data(),
+            });
+          }
+        },
+        error => {
+          console.log('Erro ao escutar pagamento:', error);
         }
-      });
+      );
 
     return unsub;
   }, [pagamentoId]);
 
   useEffect(() => {
-    if (pagamento?.status === 'approved') {
+    if (pagamento?.status === 'approved' && !alertaPago) {
+      setAlertaPago(true);
+
       Alert.alert(
         'Destaque ativo',
         'Pagamento confirmado. Seu estabelecimento entrou em destaque.',
-        [{ text: 'OK', onPress: () => navigation.navigate('AdminDash') }]
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('AdminDash'),
+          },
+        ]
       );
     }
-  }, [pagamento?.status, navigation]);
+  }, [pagamento?.status, alertaPago, navigation]);
 
   const pacoteSelecionado = useMemo(
     () => PACOTES.find(item => item.id === pacoteId) || PACOTES[0],
@@ -129,7 +170,9 @@ export default function ImpulsionarScreen() {
 
   const destaqueAte = useMemo(() => {
     const data = estab?.destaqueExpira?.toDate?.();
+
     if (!data) return null;
+
     return data.toLocaleString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
@@ -146,11 +189,16 @@ export default function ImpulsionarScreen() {
 
     try {
       setGerando(true);
+      setQr(null);
+      setPagamento(null);
+      setPagamentoId(null);
+      setAlertaPago(false);
 
       const functionsInstance = getFunctions(
         getApp(),
         'southamerica-east1'
       );
+
       const fn = httpsCallable(
         functionsInstance,
         'criarPagamentoPixImpulsionamento'
@@ -161,10 +209,23 @@ export default function ImpulsionarScreen() {
         pacoteId,
       });
 
+      if (!res?.data?.qr_code) {
+        throw new Error('PIX inválido.');
+      }
+
+      if (!res?.data?.pagamentoId) {
+        throw new Error('Pagamento não foi criado corretamente.');
+      }
+
       setQr(res.data);
-      setPagamentoId(res.data?.pagamentoId || null);
+      setPagamentoId(res.data.pagamentoId);
     } catch (e: any) {
-      Alert.alert('Erro', e?.message || 'Nao foi possivel gerar o PIX.');
+      console.log('Erro ao gerar PIX:', e);
+
+      Alert.alert(
+        'Erro',
+        e?.message || 'Não foi possível gerar o PIX.'
+      );
     } finally {
       setGerando(false);
     }
@@ -175,7 +236,17 @@ export default function ImpulsionarScreen() {
 
     Clipboard.setString(qr.qr_code);
     setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
+
+    setTimeout(() => {
+      setCopiado(false);
+    }, 2000);
+  };
+
+  const limparPix = () => {
+    setQr(null);
+    setPagamentoId(null);
+    setPagamento(null);
+    setAlertaPago(false);
   };
 
   if (loading) {
@@ -191,25 +262,32 @@ export default function ImpulsionarScreen() {
       <StatusBar barStyle="light-content" backgroundColor="#1A1A1A" />
 
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={s.backBtn}
+        >
           <Text style={s.backIcon}>{'<'}</Text>
         </TouchableOpacity>
 
         <View style={{ flex: 1 }}>
           <Text style={s.headerTitulo}>Impulsionar</Text>
-          <Text style={s.headerSub}>Coloque seu estabelecimento em destaque</Text>
+          <Text style={s.headerSub}>
+            Coloque seu estabelecimento em destaque
+          </Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={s.scroll}>
         <View style={s.hero}>
           <Text style={s.heroIcon}>*</Text>
+
           <View style={{ flex: 1 }}>
             <Text style={s.heroTitle}>
               {estab?.nome || 'Seu estabelecimento'}
             </Text>
+
             <Text style={s.heroSub}>
-              Aparece com prioridade nas areas de destaque do app.
+              Aparece com prioridade nas áreas de destaque do app.
             </Text>
           </View>
         </View>
@@ -217,11 +295,11 @@ export default function ImpulsionarScreen() {
         {estab?.destaqueAtivo && destaqueAte ? (
           <View style={s.ativoBox}>
             <Text style={s.ativoTitle}>Destaque ativo</Text>
-            <Text style={s.ativoSub}>Valido ate {destaqueAte}</Text>
+            <Text style={s.ativoSub}>Válido até {destaqueAte}</Text>
           </View>
         ) : null}
 
-        <Text style={s.sectionTitle}>Escolha o periodo</Text>
+        <Text style={s.sectionTitle}>Escolha o período</Text>
 
         {PACOTES.map(pacote => {
           const ativo = pacote.id === pacoteId;
@@ -230,10 +308,13 @@ export default function ImpulsionarScreen() {
             <TouchableOpacity
               key={pacote.id}
               activeOpacity={0.85}
-              style={[s.pacoteCard, ativo && s.pacoteAtivo]}
+              style={[
+                s.pacoteCard,
+                ativo && s.pacoteAtivo,
+              ]}
               onPress={() => {
                 setPacoteId(pacote.id);
-                setQr(null);
+                limparPix();
               }}
             >
               <View style={{ flex: 1 }}>
@@ -250,7 +331,10 @@ export default function ImpulsionarScreen() {
 
         {!qr && (
           <TouchableOpacity
-            style={[s.gerarBtn, gerando && { opacity: 0.7 }]}
+            style={[
+              s.gerarBtn,
+              gerando && { opacity: 0.7 },
+            ]}
             onPress={gerarPix}
             disabled={gerando}
           >
@@ -268,12 +352,15 @@ export default function ImpulsionarScreen() {
           <View style={s.pixCard}>
             {!!qr.qr_code_base64 && (
               <Image
-                source={{ uri: `data:image/png;base64,${qr.qr_code_base64}` }}
+                source={{
+                  uri: `data:image/png;base64,${qr.qr_code_base64}`,
+                }}
                 style={s.qrImage}
               />
             )}
 
             <Text style={s.pixLabel}>Copia e cola</Text>
+
             <View style={s.codigoBox}>
               <Text numberOfLines={3} style={s.codigo}>
                 {qr.qr_code}
@@ -282,19 +369,17 @@ export default function ImpulsionarScreen() {
 
             <TouchableOpacity style={s.copiarBtn} onPress={copiar}>
               <Text style={s.copiarText}>
-                {copiado ? 'Copiado' : 'Copiar codigo'}
+                {copiado ? 'Copiado' : 'Copiar código'}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={s.novoBtn}
-              onPress={() => {
-                setQr(null);
-                setPagamentoId(null);
-                setPagamento(null);
-              }}
+              onPress={limparPix}
             >
-              <Text style={s.novoBtnText}>Escolher outro pacote</Text>
+              <Text style={s.novoBtnText}>
+                Escolher outro pacote
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -305,11 +390,18 @@ export default function ImpulsionarScreen() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   header: {
     backgroundColor: '#1A1A1A',
     paddingHorizontal: 18,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 12 : 56,
+    paddingTop:
+      Platform.OS === 'android'
+        ? (StatusBar.currentHeight ?? 24) + 12
+        : 56,
     paddingBottom: 18,
     flexDirection: 'row',
     alignItems: 'center',
@@ -323,10 +415,25 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backIcon: { color: GOLD, fontSize: 22, fontWeight: '900' },
-  headerTitulo: { color: '#FFF', fontSize: 18, fontWeight: '900' },
-  headerSub: { color: GOLD, fontSize: 11, marginTop: 2 },
-  scroll: { padding: 18, paddingBottom: 44 },
+  backIcon: {
+    color: GOLD,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  headerTitulo: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  headerSub: {
+    color: GOLD,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  scroll: {
+    padding: 18,
+    paddingBottom: 44,
+  },
   hero: {
     backgroundColor: '#1A1A1A',
     borderRadius: 20,
@@ -347,16 +454,32 @@ const s = StyleSheet.create({
     fontSize: 28,
     fontWeight: '900',
   },
-  heroTitle: { color: '#FFF', fontSize: 17, fontWeight: '900' },
-  heroSub: { color: '#AAA', fontSize: 12, lineHeight: 18, marginTop: 3 },
+  heroTitle: {
+    color: '#FFF',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  heroSub: {
+    color: '#AAA',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3,
+  },
   ativoBox: {
     backgroundColor: '#E8F5E9',
     borderRadius: 14,
     padding: 14,
     marginBottom: 16,
   },
-  ativoTitle: { color: '#2E7D32', fontWeight: '900' },
-  ativoSub: { color: '#2E7D32', fontSize: 12, marginTop: 2 },
+  ativoTitle: {
+    color: '#2E7D32',
+    fontWeight: '900',
+  },
+  ativoSub: {
+    color: '#2E7D32',
+    fontSize: 12,
+    marginTop: 2,
+  },
   sectionTitle: {
     color: '#1A1A1A',
     fontSize: 15,
@@ -374,16 +497,31 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EEE',
   },
-  pacoteAtivo: { borderColor: GOLD, backgroundColor: '#FFFDF7' },
-  pacoteNome: { color: '#1A1A1A', fontSize: 14, fontWeight: '900' },
-  pacoteDesc: { color: '#777', fontSize: 12, marginTop: 3 },
+  pacoteAtivo: {
+    borderColor: GOLD,
+    backgroundColor: '#FFFDF7',
+  },
+  pacoteNome: {
+    color: '#1A1A1A',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  pacoteDesc: {
+    color: '#777',
+    fontSize: 12,
+    marginTop: 3,
+  },
   valorPill: {
     backgroundColor: '#1A1A1A',
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
-  valorText: { color: GOLD, fontWeight: '900', fontSize: 12 },
+  valorText: {
+    color: GOLD,
+    fontWeight: '900',
+    fontSize: 12,
+  },
   gerarBtn: {
     backgroundColor: GOLD,
     borderRadius: 16,
@@ -391,7 +529,11 @@ const s = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-  gerarBtnText: { color: '#000', fontSize: 15, fontWeight: '900' },
+  gerarBtnText: {
+    color: '#000',
+    fontSize: 15,
+    fontWeight: '900',
+  },
   pixCard: {
     backgroundColor: '#FFF',
     borderRadius: 18,
@@ -399,8 +541,17 @@ const s = StyleSheet.create({
     alignItems: 'center',
     marginTop: 10,
   },
-  qrImage: { width: 210, height: 210, marginBottom: 14 },
-  pixLabel: { color: '#777', fontSize: 12, fontWeight: '800', alignSelf: 'flex-start' },
+  qrImage: {
+    width: 210,
+    height: 210,
+    marginBottom: 14,
+  },
+  pixLabel: {
+    color: '#777',
+    fontSize: 12,
+    fontWeight: '800',
+    alignSelf: 'flex-start',
+  },
   codigoBox: {
     backgroundColor: '#F2F2F2',
     borderRadius: 12,
@@ -408,7 +559,10 @@ const s = StyleSheet.create({
     marginTop: 8,
     width: '100%',
   },
-  codigo: { color: '#333', fontSize: 11 },
+  codigo: {
+    color: '#333',
+    fontSize: 11,
+  },
   copiarBtn: {
     backgroundColor: '#1A1A1A',
     borderRadius: 14,
@@ -417,7 +571,15 @@ const s = StyleSheet.create({
     alignItems: 'center',
     marginTop: 12,
   },
-  copiarText: { color: GOLD, fontWeight: '900' },
-  novoBtn: { padding: 14 },
-  novoBtnText: { color: '#777', fontWeight: '700' },
+  copiarText: {
+    color: GOLD,
+    fontWeight: '900',
+  },
+  novoBtn: {
+    padding: 14,
+  },
+  novoBtnText: {
+    color: '#777',
+    fontWeight: '700',
+  },
 });

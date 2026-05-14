@@ -194,11 +194,16 @@ if (
         // PIX APROVADO
         // =================================================
 
-        if (
-          status === 'approved' &&
-          data.assinaturaAtiva &&
-          !alertaExibido
-        ) {
+        const pagamentoDestePlano =
+  data.plano === planoId ||
+  data.planoAprovado === planoId;
+
+if (
+  status === 'approved' &&
+  data.assinaturaAtiva === true &&
+  pagamentoDestePlano &&
+  !alertaExibido
+) {
 
           setAlertaExibido(true);
 

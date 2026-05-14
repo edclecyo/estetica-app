@@ -8,6 +8,7 @@ import {
   Platform,
   StatusBar,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 
 import firestore from '@react-native-firebase/firestore';
@@ -22,6 +23,8 @@ interface Notif {
 
   adminId?: string;
   agendamentoId?: string;
+  estabelecimentoId?: string;
+  solicitacaoId?: string;
 
   clienteNome?: string;
   servicoNome?: string;
@@ -49,6 +52,8 @@ export default function AdminNotifScreen() {
 
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selecionando, setSelecionando] = useState(false);
+  const [selecionadas, setSelecionadas] = useState<string[]>([]);
 
   useEffect(() => {
     if (!admin?.id) return;
@@ -107,6 +112,152 @@ const lista = snap.docs
     }
   }
 
+  function confirmarApagar(item: Notif) {
+    Alert.alert(
+      'Apagar notificação',
+      'Essa notificação será removida da sua lista.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: () => apagarNotificacao(item),
+        },
+      ]
+    );
+  }
+
+  function abrirSelecao() {
+    setSelecionando(true);
+    setSelecionadas([]);
+  }
+
+  function cancelarSelecao() {
+    setSelecionando(false);
+    setSelecionadas([]);
+  }
+
+  function alternarSelecao(id: string) {
+    setSelecionadas(prev =>
+      prev.includes(id)
+        ? prev.filter(itemId => itemId !== id)
+        : [...prev, id]
+    );
+  }
+
+  function alternarTodas() {
+    if (selecionadas.length === notifs.length) {
+      setSelecionadas([]);
+      return;
+    }
+
+    setSelecionadas(notifs.map(item => item.id));
+  }
+
+  function confirmarApagarSelecionadas() {
+    if (selecionadas.length === 0) {
+      Alert.alert(
+        'Nenhuma notificação selecionada',
+        'Selecione pelo menos uma notificação para apagar.'
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Apagar notificações',
+      `Você quer apagar ${selecionadas.length} notificação(ões)?`,
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: apagarSelecionadas,
+        },
+      ]
+    );
+  }
+
+  async function apagarNotificacao(item: Notif) {
+    if (!admin?.id || item.adminId !== admin.id) {
+      return;
+    }
+
+    try {
+      setNotifs(prev =>
+        prev.filter(n => n.id !== item.id)
+      );
+
+      await firestore()
+        .collection('notificacoes')
+        .doc(item.id)
+        .update({
+          apagada: true,
+        });
+
+    } catch (e) {
+      console.log('Erro apagar notificação:', e);
+
+      setNotifs(prev =>
+        prev.some(n => n.id === item.id)
+          ? prev
+          : [item, ...prev]
+      );
+    }
+  }
+
+  async function apagarSelecionadas() {
+    if (!admin?.id) return;
+
+    const idsSelecionados = new Set(selecionadas);
+    const itensParaApagar = notifs.filter(
+      item =>
+        idsSelecionados.has(item.id) &&
+        item.adminId === admin.id
+    );
+
+    if (itensParaApagar.length === 0) {
+      return;
+    }
+
+    try {
+      setNotifs(prev =>
+        prev.filter(item => !idsSelecionados.has(item.id))
+      );
+      cancelarSelecao();
+
+      const batch = firestore().batch();
+
+      itensParaApagar.forEach(item => {
+        const ref = firestore()
+          .collection('notificacoes')
+          .doc(item.id);
+
+        batch.update(ref, {
+          apagada: true,
+        });
+      });
+
+      await batch.commit();
+
+    } catch (e) {
+      console.log('Erro apagar notificações:', e);
+      setNotifs(prev => {
+        const idsAtuais = new Set(prev.map(item => item.id));
+        const restaurar = itensParaApagar.filter(
+          item => !idsAtuais.has(item.id)
+        );
+
+        return [...restaurar, ...prev];
+      });
+    }
+  }
+
     function getInfo(item: Notif) {
     const tipo = item.type;
 
@@ -120,6 +271,38 @@ case 'agendamento':
     cor: '#4CAF50',
     label: 'Agendamento',
     bg: '#E8F5E9',
+  };
+
+case 'SELO_APROVADO':
+  return {
+    emoji: 'OK',
+    cor: '#4CAF50',
+    label: 'Selo aprovado',
+    bg: '#E8F5E9',
+  };
+
+case 'SELO_REJEITADO':
+  return {
+    emoji: 'X',
+    cor: '#F44336',
+    label: 'Selo',
+    bg: '#FFEBEE',
+  };
+
+case 'SELO_LIBERADO':
+  return {
+    emoji: 'VIP',
+    cor: '#C9A96E',
+    label: 'Selo liberado',
+    bg: '#FFF8E1',
+  };
+
+case 'IMPULSIONAMENTO_ATIVO':
+  return {
+    emoji: '*',
+    cor: '#FF9800',
+    label: 'Destaque',
+    bg: '#FFF3E0',
   };
 
       default:
@@ -177,6 +360,58 @@ case 'agendamento':
             {notifs.filter(n => !n.lida).length} não lida(s)
           </Text>
         </View>
+
+        {notifs.length > 0 && (
+          selecionando ? (
+            <View style={s.headerAcoes}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={alternarTodas}
+                style={s.headerBtn}
+              >
+                <Text style={s.headerBtnText}>
+                  {selecionadas.length === notifs.length
+                    ? 'Limpar'
+                    : 'Todas'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={confirmarApagarSelecionadas}
+                style={[
+                  s.headerBtn,
+                  s.headerBtnDanger,
+                  selecionadas.length === 0 && s.headerBtnDisabled,
+                ]}
+              >
+                <Text style={s.headerBtnDangerText}>
+                  Apagar ({selecionadas.length})
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={cancelarSelecao}
+                style={s.headerBtn}
+              >
+                <Text style={s.headerBtnText}>
+                  Cancelar
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={abrirSelecao}
+              style={s.headerBtn}
+            >
+              <Text style={s.headerBtnText}>
+                Selecionar
+              </Text>
+            </TouchableOpacity>
+          )
+        )}
       </View>
 
       <FlatList
@@ -196,6 +431,8 @@ case 'agendamento':
         renderItem={({ item }) => {
 
           const info = getInfo(item);
+          const estaSelecionada =
+            selecionadas.includes(item.id);
 
           const dataFormatada =
             item.criadoEm?.toDate
@@ -215,6 +452,10 @@ case 'agendamento':
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={async () => {
+                if (selecionando) {
+                  alternarSelecao(item.id);
+                  return;
+                }
 
                 await marcarLida(item.id);
 
@@ -231,40 +472,106 @@ case 'agendamento':
                       id: item.agendamentoId,
                     }
                   );
+                  return;
+                }
+
+                if (item.type === 'SELO_APROVADO') {
+                  navigation.navigate('SeloPagamentoScreen', {
+                    solicitacaoId: item.solicitacaoId,
+                    estabelecimentoId: item.estabelecimentoId,
+                  });
+                  return;
+                }
+
+                if (
+                  item.type === 'SELO_REJEITADO' ||
+                  item.type === 'SELO_LIBERADO'
+                ) {
+                  navigation.navigate('SeloVerificacaoScreen');
+                  return;
+                }
+
+                if (item.type === 'IMPULSIONAMENTO_ATIVO') {
+                  navigation.navigate('ImpulsionarScreen', {
+                    estabelecimentoId: item.estabelecimentoId,
+                  });
                 }
               }}
               style={[
                 s.card,
                 !item.lida && s.naoLida,
+                estaSelecionada && s.cardSelecionado,
               ]}
             >
               <View style={s.topo}>
 
-                <View
-                  style={[
-                    s.badge,
-                    {
-                      backgroundColor: info.bg,
-                    },
-                  ]}
-                >
-                  <Text>{info.emoji}</Text>
+                <View style={s.topoEsquerda}>
+                  {selecionando && (
+                    <View
+                      style={[
+                        s.check,
+                        estaSelecionada && s.checkAtivo,
+                      ]}
+                    >
+                      {estaSelecionada && (
+                        <Text style={s.checkText}>
+                          ✓
+                        </Text>
+                      )}
+                    </View>
+                  )}
 
-                  <Text
+                  <View
                     style={[
-                      s.label,
+                      s.badge,
                       {
-                        color: info.cor,
+                        backgroundColor: info.bg,
                       },
                     ]}
                   >
-                    {info.label}
-                  </Text>
+                    <Text>{info.emoji}</Text>
+
+                    <Text
+                      style={[
+                        s.label,
+                        {
+                          color: info.cor,
+                        },
+                      ]}
+                    >
+                      {info.label}
+                    </Text>
+                  </View>
                 </View>
 
-                {!item.lida && (
-                  <View style={s.ponto} />
-                )}
+                <View style={s.acoesTopo}>
+                  {!item.lida && (
+                    <View style={s.ponto} />
+                  )}
+
+                  {!selecionando && (
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      hitSlop={{
+                        top: 8,
+                        right: 8,
+                        bottom: 8,
+                        left: 8,
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Apagar notificação"
+                      onPress={event => {
+                        event.stopPropagation();
+                        confirmarApagar(item);
+                      }}
+                      style={s.btnApagar}
+                    >
+                      <Text style={s.btnApagarText}>
+                        Apagar
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
 
               <Text style={s.titulo}>
@@ -297,6 +604,24 @@ case 'agendamento':
                 </Text>
               )}
 
+              {item.type === 'SELO_APROVADO' && !selecionando && (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  style={s.btnAcaoPrincipal}
+                  onPress={event => {
+                    event.stopPropagation();
+                    navigation.navigate('SeloPagamentoScreen', {
+                      solicitacaoId: item.solicitacaoId,
+                      estabelecimentoId: item.estabelecimentoId,
+                    });
+                  }}
+                >
+                  <Text style={s.btnAcaoPrincipalText}>
+                    Pagar taxa do selo
+                  </Text>
+                </TouchableOpacity>
+              )}
+
               <Text style={s.data}>
                 {dataFormatada}
               </Text>
@@ -316,6 +641,10 @@ const s = StyleSheet.create({
 
   header: {
     backgroundColor: '#1A1A1A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
     padding: 20,
     paddingTop:
       Platform.OS === 'android'
@@ -335,6 +664,42 @@ const s = StyleSheet.create({
     marginTop: 2,
   },
 
+  headerAcoes: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    maxWidth: 230,
+  },
+
+  headerBtn: {
+    backgroundColor: '#2A2A2A',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+
+  headerBtnText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  headerBtnDanger: {
+    backgroundColor: '#C62828',
+  },
+
+  headerBtnDangerText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  headerBtnDisabled: {
+    opacity: 0.5,
+  },
+
   lista: {
     padding: 16,
   },
@@ -346,6 +711,12 @@ const s = StyleSheet.create({
     marginBottom: 10,
   },
 
+  cardSelecionado: {
+    borderWidth: 1,
+    borderColor: '#C9A96E',
+    backgroundColor: '#FFFDF7',
+  },
+
   naoLida: {
     borderLeftWidth: 3,
     borderLeftColor: '#C9A96E',
@@ -354,7 +725,36 @@ const s = StyleSheet.create({
   topo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
+  },
+
+  topoEsquerda: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    gap: 8,
+  },
+
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#C9A96E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF',
+  },
+
+  checkAtivo: {
+    backgroundColor: '#C9A96E',
+  },
+
+  checkText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '900',
   },
 
   badge: {
@@ -378,6 +778,25 @@ const s = StyleSheet.create({
     backgroundColor: '#C9A96E',
   },
 
+  acoesTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  btnApagar: {
+    backgroundColor: '#FFF3F3',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+
+  btnApagarText: {
+    color: '#C62828',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
   titulo: {
     fontSize: 15,
     fontWeight: '700',
@@ -394,6 +813,20 @@ const s = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
     color: '#444',
+  },
+
+  btnAcaoPrincipal: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+
+  btnAcaoPrincipalText: {
+    color: '#C9A96E',
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   data: {

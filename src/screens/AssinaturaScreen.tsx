@@ -33,7 +33,21 @@ const PLANOS = [
     nome: 'ESSENCIAL',
     preco: '29,90',
     cor: '#C9A96E',
-    features: ['Até 2 profissionais', 'Gestão de Agendas', 'Relatórios Mensais']
+    storyLimite: 'Fotos liberadas',
+    videoLimite: 'Sem videos nos stories',
+    resumo: 'Para agenda, servicos, horarios e divulgacao com fotos.',
+    features: [
+      'Ate 2 estabelecimentos',
+      'Ate 20 servicos cadastrados',
+      'Agenda online com horarios flexiveis',
+      'Bloqueio de horarios e datas fechadas',
+      'Notificacoes para cliente e admin',
+      'Cadastro de servicos e precos',
+      'Resumo de faturamento no painel',
+      'Stories com foto por 24h, ate 10MB',
+      'Sem pagamento pelo app',
+      'Sem solicitacao de selo verificado',
+    ],
   },
   {
     id: 'pro',
@@ -41,14 +55,44 @@ const PLANOS = [
     preco: '49,90',
     cor: GOLD,
     popular: true,
-    features: ['Profissionais Ilimitados', 'Gestão de Comissões', 'Estatísticas VIP', 'Suporte Prioritário']
+    storyLimite: 'Fotos + videos ate 15s',
+    videoLimite: 'Videos ate 15 segundos',
+    resumo: 'Para vender pelo app, medir stories e solicitar selo.',
+    features: [
+      'Ate 5 estabelecimentos',
+      'Ate 80 servicos cadastrados',
+      'Tudo do plano Essencial',
+      'Pagamento pelo app via PIX cadastrado',
+      'Cadastro de PIX para recebimentos',
+      'Stories com foto e video por 24h',
+      'Videos de ate 15 segundos e ate 30MB',
+      'Metricas de stories: views, curtidas e compartilhamentos',
+      'Solicitacao de selo verificado mediante criterios',
+      'Taxa do selo cobrada somente apos aprovacao',
+      'Reputacao atualizada pelas avaliacoes',
+    ],
   },
   {
     id: 'elite',
     nome: 'ELITE VIP',
     preco: '89,99',
     cor: '#FFD700',
-    features: ['Destaque no Ranking', 'Selo de Verificado', 'Gerente Dedicado', 'Marketing Integrado']
+    storyLimite: 'Fotos + videos ate 30s',
+    videoLimite: 'Videos ate 30 segundos',
+    resumo: 'Para operar sem limite de locais e receber selo automatico.',
+    features: [
+      'Estabelecimentos ilimitados',
+      'Servicos ilimitados',
+      'Tudo do plano Professional',
+      'Selo verificado automatico enquanto o plano estiver ativo',
+      'Aparece na area de estabelecimentos verificados',
+      'Stories com foto e video por 24h',
+      'Videos de ate 30 segundos e ate 60MB',
+      'Metricas de stories: views, curtidas e compartilhamentos',
+      'Pagamento pelo app via PIX cadastrado',
+      'Resumo de faturamento no painel',
+      'Reputacao atualizada pelas avaliacoes',
+    ],
   },
 ];
 
@@ -173,8 +217,10 @@ const res = await fn({
           <TouchableOpacity onPress={handleTrialPress} style={styles.trialWrapper}>
             <LinearGradient colors={GOLD_GRADIENT} style={styles.trialCard}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.trialTitle}>7 DIAS GRÁTIS</Text>
-                <Text style={styles.trialSub}>Experimente o Premium</Text>
+                <Text style={styles.trialTitle}>7 DIAS GRATIS</Text>
+                <Text style={styles.trialSub}>
+                  Teste do Essencial: 2 locais, 20 servicos e stories apenas com foto
+                </Text>
               </View>
 
               {loadingAction === 'trial' ? (
@@ -204,10 +250,17 @@ const res = await fn({
                   {plano.nome}
                 </Text>
 
+                <Text style={styles.planResumo}>
+                  {plano.resumo}
+                </Text>
+
                 <View style={styles.priceRow}>
                   <Text style={styles.priceVal}>R$ {plano.preco}</Text>
                 </View>
-
+<View style={styles.limitBox}>
+  <Text style={styles.limitText}>📸 {plano.storyLimite}</Text>
+  <Text style={styles.limitText}>🎬 {plano.videoLimite}</Text>
+</View>
                 {plano.features.map((f, i) => (
                   <View key={i} style={styles.featureItem}>
                     <Icon name="check" color={plano.cor} size={18} />
@@ -239,6 +292,13 @@ const res = await fn({
               </LinearGradient>
             );
           })}
+
+          <View style={styles.noticeCard}>
+            <Icon name="information-outline" color={GOLD} size={20} />
+            <Text style={styles.noticeText}>
+              Impulsionamento para destaque e taxa do selo Pro sao cobrancas separadas. O selo Pro so e liberado apos aprovacao e pagamento da taxa.
+            </Text>
+          </View>
         </View>
 
       </ScrollView>
@@ -264,7 +324,22 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 32, fontWeight: '900', letterSpacing: 2 },
   headerSubtitle: { fontSize: 13, fontWeight: '700', marginTop: 3 },
   backBtn: { alignSelf: 'flex-start', marginLeft: -5 },
+  
+limitBox: {
+  backgroundColor: 'rgba(212,175,55,0.08)',
+  borderWidth: 1,
+  borderColor: 'rgba(212,175,55,0.18)',
+  borderRadius: 14,
+  padding: 12,
+  marginBottom: 18,
+},
 
+limitText: {
+  color: '#D4AF37',
+  fontSize: 12,
+  fontWeight: '700',
+  marginBottom: 4,
+},
   // Trial Card Reformado (ZONA DE CONVERSÃO)
   trialWrapper: { marginHorizontal: 20, marginBottom: 30 },
   trialCard: { 
@@ -312,7 +387,8 @@ const styles = StyleSheet.create({
   },
   popularBadgeText: { color: '#000', fontSize: 11, fontWeight: '900' },
 
-  planName: { fontSize: 14, fontWeight: '900', letterSpacing: 2, marginBottom: 15 },
+  planName: { fontSize: 14, fontWeight: '900', letterSpacing: 2, marginBottom: 8 },
+  planResumo: { color: '#AAA', fontSize: 13, lineHeight: 19, marginBottom: 14 },
   priceRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 20 },
   currency: { color: '#FFF', fontSize: 18, marginTop: 12, marginRight: 5 },
   priceVal: { color: '#FFF', fontSize: 55, fontWeight: 'bold' },
@@ -324,5 +400,23 @@ const styles = StyleSheet.create({
   featureText: { color: '#EEE', marginLeft: 15, fontSize: 15, fontWeight: '500' },
 
   mainBtn: { height: 58, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
-  mainBtnText: { color: '#000', fontWeight: 'bold', fontSize: 16, letterSpacing: 1 }
+  mainBtnText: { color: '#000', fontWeight: 'bold', fontSize: 16, letterSpacing: 1 },
+  noticeCard: {
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.22)',
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 20,
+  },
+  noticeText: {
+    color: '#C9A96E',
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+  }
 });

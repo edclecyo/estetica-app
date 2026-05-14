@@ -412,7 +412,276 @@ export const criarPagamentoPixAssinatura = onCall(
     }
   }
 );
+// =====================================================
+// 4. PIX IMPULSIONAMENTO / DESTAQUE
+// =====================================================
 
+export const criarPagamentoPixImpulsionamento = onCall(
+  {
+    region: REGION,
+    secrets: [MP_ACCESS_TOKEN],
+  },
+
+  async (req) => {
+    if (!req.auth) {
+      throw new HttpsError(
+        'unauthenticated',
+        'Acesso negado'
+      );
+    }
+
+    const {
+      estabelecimentoId,
+      pacoteId,
+    } = req.data || {};
+
+    if (!estabelecimentoId || !pacoteId) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Dados inválidos'
+      );
+    }
+
+    const PACOTES: Record<string, {
+      nome: string;
+      valor: number;
+      dias: number;
+    }> = {
+      destaque_1d: {
+        nome: 'Destaque 24 horas',
+        valor: 5,
+        dias: 1,
+      },
+      destaque_3d: {
+        nome: 'Destaque 3 dias',
+        valor: 12,
+        dias: 3,
+      },
+      destaque_7d: {
+        nome: 'Destaque 7 dias',
+        valor: 25,
+        dias: 7,
+      },
+    };
+
+    const pacote = PACOTES[pacoteId];
+
+    if (!pacote) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Pacote inválido'
+      );
+    }
+
+    const ref = db
+      .collection('estabelecimentos')
+      .doc(estabelecimentoId);
+
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      throw new HttpsError(
+        'not-found',
+        'Estabelecimento não encontrado'
+      );
+    }
+
+    const est = snap.data()!;
+
+    if (est.adminId !== req.auth.uid) {
+      throw new HttpsError(
+        'permission-denied',
+        'Sem permissão'
+      );
+    }
+
+    const lockRef = db
+      .collection('locks')
+      .doc(`pix_impulsionamento_${estabelecimentoId}`);
+
+    const lockSnap = await lockRef.get();
+
+    if (lockSnap.exists) {
+      const created =
+        lockSnap.data()?.createdAt?.toMillis?.() || 0;
+
+      if (Date.now() - created < 60000) {
+        throw new HttpsError(
+          'resource-exhausted',
+          'Em processamento'
+        );
+      }
+
+      await lockRef.delete();
+    }
+
+    await lockRef.set({
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    try {
+      const accessToken =
+        String(MP_ACCESS_TOKEN.value() || '').trim();
+
+      if (!accessToken) {
+        throw new HttpsError(
+          'internal',
+          'MP não configurado'
+        );
+      }
+
+      const userSnap = await db
+        .collection('users')
+        .doc(req.auth.uid)
+        .get();
+
+      const user = userSnap.data();
+
+      const response = await axiosInstance.post(
+        'https://api.mercadopago.com/v1/payments',
+        {
+          transaction_amount: pacote.valor,
+          payment_method_id: 'pix',
+          description: `Impulsionamento - ${pacote.nome}`,
+          external_reference: estabelecimentoId,
+          notification_url:
+            'https://webhookmercadopago-eoqa32y7ca-rj.a.run.app',
+
+          payer: {
+            email:
+              user?.email ||
+              req.auth.token.email ||
+              est.responsavelEmail ||
+              'cliente@app.com',
+
+            first_name:
+              user?.nome ||
+              est.responsavelNome ||
+              'Cliente',
+
+            identification: user?.cpf
+              ? {
+                  type: 'CPF',
+                  number: String(user.cpf).replace(/\D/g, ''),
+                }
+              : est.responsavelCpf
+              ? {
+                  type: 'CPF',
+                  number: String(est.responsavelCpf).replace(/\D/g, ''),
+                }
+              : undefined,
+
+            phone: user?.telefone
+              ? {
+                  number: String(user.telefone).replace(/\D/g, ''),
+                }
+              : est.responsavelTelefone
+              ? {
+                  number: String(est.responsavelTelefone).replace(/\D/g, ''),
+                }
+              : undefined,
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'X-Idempotency-Key':
+              `imp_${estabelecimentoId}_${pacoteId}_${Date.now()}`,
+          },
+        }
+      );
+
+      const data: any = response.data;
+
+      const qr =
+        data?.point_of_interaction
+          ?.transaction_data;
+
+      const qrBase64 =
+        qr?.qr_code_base64 || null;
+
+      const qrText =
+        qr?.qr_code || null;
+
+      if (!qrBase64 && !qrText) {
+        throw new HttpsError(
+          'internal',
+          'PIX inválido'
+        );
+      }
+
+      const expira = new Date();
+      expira.setMinutes(expira.getMinutes() + 30);
+
+      const pagamentoRef = await db
+        .collection('pagamentos')
+        .add({
+          tipo: 'impulsionamento',
+
+          estabelecimentoId,
+          pacoteId,
+          pacoteNome: pacote.nome,
+          dias: pacote.dias,
+
+          valor: pacote.valor,
+
+          clienteId: req.auth.uid,
+          clienteEmail: req.auth.token.email || null,
+          clienteNome:
+            user?.nome ||
+            est.responsavelNome ||
+            'Estabelecimento',
+
+          status: 'pending',
+          metodo: 'pix',
+          mercadoPagoId: String(data.id),
+
+          qrCode: qrText,
+          qrCodeBase64: qrBase64,
+
+          criadoEm: FieldValue.serverTimestamp(),
+          expiraEm: Timestamp.fromDate(expira),
+        });
+
+      await ref.update({
+        impulsionamentoPendente: {
+          pagamentoDocId: pagamentoRef.id,
+          mercadoPagoId: String(data.id),
+          pacoteId,
+          pacoteNome: pacote.nome,
+          dias: pacote.dias,
+          valor: pacote.valor,
+          status: 'pending',
+          criadoEm: FieldValue.serverTimestamp(),
+          expiraEm: Timestamp.fromDate(expira),
+        },
+
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+
+      await lockRef.delete();
+
+      return {
+        qr_code: qrText,
+        qr_code_base64: qrBase64,
+        pagamentoId: pagamentoRef.id,
+        mercadoPagoId: String(data.id),
+      };
+    } catch (error: any) {
+      console.error(
+        'ERRO PIX IMPULSIONAMENTO:',
+        error?.response?.data || error
+      );
+
+      await lockRef.delete();
+
+      throw new HttpsError(
+        'internal',
+        'Erro ao criar PIX de impulsionamento'
+      );
+    }
+  }
+);
 // =====================================================
 // 3. CARTÃO ASSINATURA
 // =====================================================

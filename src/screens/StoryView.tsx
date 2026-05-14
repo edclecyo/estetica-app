@@ -33,6 +33,7 @@ import firestore, {
 import auth from "@react-native-firebase/auth";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Share from "react-native-share";
 import Video from "react-native-video";
 
@@ -41,8 +42,14 @@ import Feather from "react-native-vector-icons/Feather";
 
 const { width, height } = Dimensions.get("window");
 
-const FOOTER_BOTTOM = Platform.OS === "ios" ? 48 : 36;
-const STORY_BOTTOM_SAFE = Platform.OS === "ios" ? 125 : 110;
+const getStoryViews = (data: any) =>
+  Number(
+    data?.visualizacoes ??
+    data?.views ??
+    data?.viewsCount ??
+    0
+  );
+
 
 export default function StoryView() {
   const route: any = useRoute();
@@ -71,6 +78,15 @@ export default function StoryView() {
   const statsAnim = useRef(new Animated.Value(height)).current;
   const isPaused = useRef(false);
   const pausedValue = useRef(0);
+
+const insets = useSafeAreaInsets();
+
+const bottomSafe =
+  Math.max(insets.bottom, Platform.OS === "android" ? 24 : 16);
+
+const footerBottom = bottomSafe + 28;
+const actionBottom = bottomSafe + 24;
+const captionBottom = bottomSafe + 115;
 
 const panResponder = useRef(
   PanResponder.create({
@@ -285,16 +301,24 @@ function abrirAgendamento() {
 
       const storyData = storySnap.data();
 
-      setTotalViews(
-        storyData?.visualizacoes ||
-          storyData?.views ||
-          0
+      const viewsSnap = await getDocs(
+        query(
+          collection(firestore(), "storyViews"),
+          where("storyId", "==", story.id)
+        )
       );
 
       const likesSnap = await getDocs(
         query(
           collection(firestore(), "storyLikes"),
           where("storyId", "==", story.id)
+        )
+      );
+
+      setTotalViews(
+        Math.max(
+          getStoryViews(storyData),
+          viewsSnap.size
         )
       );
 
@@ -440,14 +464,24 @@ function abrirAgendamento() {
       </View>
 
       {story.caption ? (
-        <View style={s.captionOverlay}>
+       <View
+  style={[
+    s.captionOverlay,
+    { bottom: captionBottom }
+  ]}
+>
           <Text style={s.captionOverlayText}>
             {story.caption}
           </Text>
         </View>
       ) : null}
 
-      <View style={s.footer}>
+      <View
+  style={[
+    s.footer,
+    { bottom: footerBottom }
+  ]}
+>
         <TouchableOpacity
           onPress={curtir}
           style={s.likeBtn}
@@ -489,8 +523,12 @@ function abrirAgendamento() {
         </TouchableOpacity>
       </View>
 
-     <View
-  style={s.bottomActionArea}
+    
+  <View
+  style={[
+    s.bottomActionArea,
+    { bottom: actionBottom }
+  ]}
   {...panResponder.panHandlers}
 >
   {isAdmin ? (
@@ -705,7 +743,6 @@ agendarStoryText: {
 
   captionOverlay: {
   position: "absolute",
-  bottom: STORY_BOTTOM_SAFE,
   left: 20,
   right: 20,
   backgroundColor: "rgba(0,0,0,0.45)",
@@ -716,7 +753,6 @@ agendarStoryText: {
 
 bottomActionArea: {
   position: "absolute",
-  bottom: FOOTER_BOTTOM,
   left: 18,
   right: 95,
   zIndex: 60,
@@ -733,7 +769,6 @@ bottomActionArea: {
   footer: {
   position: "absolute",
   right: 18,
-  bottom: FOOTER_BOTTOM,
   alignItems: "center",
   justifyContent: "center",
   zIndex: 80,
@@ -744,10 +779,6 @@ likeBtn: {
   alignItems: "center",
   justifyContent: "center",
 },
-  likeBtn: {
-    zIndex: 50,
-    elevation: 50,
-  },
 
   swipeUpIndicator: {
     position: "absolute",

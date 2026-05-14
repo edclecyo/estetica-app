@@ -14,3 +14,10 @@ FAZER O PULL-(passar para o pc)
 
 git pull origin 
 git reset --hard
+
+limpar o pc 
+windows+R
+temp apaga tudo
+%temp% apaga tudo
+prefetch e apaga tudo
+

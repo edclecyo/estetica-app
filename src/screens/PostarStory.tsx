@@ -7,6 +7,12 @@ import {
 } from "react-native";
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 import storage from "@react-native-firebase/storage";
+import {
+  getFunctions,
+  httpsCallable,
+} from '@react-native-firebase/functions';
+
+import { getApp } from '@react-native-firebase/app';
 import firestore from "@react-native-firebase/firestore";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useAuth } from "../contexts/AuthContext";
@@ -123,6 +129,37 @@ export default function PostarStory() {
       for (let i = 0; i < midias.length; i++) {
         const m = midias[i];
         setUploadProgress(Math.round(((i + 0.5) / midias.length) * 95));
+// 🔒 VALIDA PLANO
+const functionsInstance = getFunctions(
+  getApp(),
+  'southamerica-east1'
+);
+
+const validarStory = httpsCallable(
+  functionsInstance,
+  'validarPostagemStory'
+);
+
+const response = await fetch(m.uri);
+const blob = await response.blob();
+
+const sizeMB =
+  Number(blob.size) / 1024 / 1024;
+
+const duration =
+  m.type === 'video'
+    ? 15
+    : 0;
+
+await validarStory({
+  estabelecimentoId: estId,
+
+  type: m.type,
+
+  duration,
+
+  sizeMB,
+});
 
         const ext = m.type === 'video' ? 'mp4' : 'jpg';
         const filename = `stories/${adminId}_${Date.now()}_${i}.${ext}`;
@@ -183,7 +220,11 @@ export default function PostarStory() {
       navigation.goBack();
     } catch (e) {
       console.error(e);
-      Alert.alert("Erro", "Não foi possível publicar.");
+      Alert.alert(
+  "Não foi possível publicar",
+  (e as any)?.message ||
+  "Verifique seu plano."
+);
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -232,6 +273,17 @@ export default function PostarStory() {
               </View>
               <Text style={s.bannerTitulo}>Stories que vendem</Text>
               <Text style={s.bannerDesc}>
+			  <Text style={s.planoInfo}>
+  {admin?.plano === 'essencial'
+    ? '📸 Seu plano permite apenas fotos'
+    : admin?.plano === 'trial'
+    ? 'ðŸ“¸ Teste Essencial: apenas fotos'
+    : admin?.plano === 'pro'
+    ? '🎥 Vídeos até 15 segundos'
+    : admin?.plano === 'elite'
+    ? '🚀 Vídeos até 30 segundos'
+    : '🔒 Ative um plano para publicar'}
+</Text>
                 Publique fotos e vídeos visíveis para todos os clientes por 24 horas.
                 Use para mostrar promoções, resultados e novidades do seu espaço.
               </Text>
@@ -411,6 +463,13 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1A1A1A',
   },
+  planoInfo: {
+  color: GOLD,
+  fontSize: 13,
+  fontWeight: '700',
+  textAlign: 'center',
+  marginTop: 10,
+},
   backBtn: {
     width: 44,
     height: 44,

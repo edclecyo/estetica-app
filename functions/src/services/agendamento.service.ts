@@ -18,6 +18,36 @@ const toHHMM = (min: number) => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
+const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+const normalizarHorario = (valor: string) => {
+  const [hh, mm] = String(valor || '').split(':').map(Number);
+
+  if (
+    Number.isNaN(hh) ||
+    Number.isNaN(mm) ||
+    hh < 0 ||
+    hh > 23 ||
+    mm < 0 ||
+    mm > 59
+  ) {
+    return '';
+  }
+
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
+const getDiaSemanaBR = (dataBr: string) => {
+  const [dia, mes, ano] = String(dataBr).split('/').map(Number);
+  const data = new Date(ano, mes - 1, dia);
+
+  if (Number.isNaN(data.getTime())) {
+    return '';
+  }
+
+  return DIAS_SEMANA[data.getDay()];
+};
+
 export const criarAgendamento = onCall(
   {
     region: REGION,
@@ -62,9 +92,17 @@ export const criarAgendamento = onCall(
       .doc(clienteUid);
 
     const key = dataKey(dataBr);
+    const horarioNormalizado = normalizarHorario(horario);
 
     let agendamentoId = '';
     let slotsOcupados: string[] = [];
+
+    if (!horarioNormalizado) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Horário inválido'
+      );
+    }
 
     await db.runTransaction(async (t) => {
       const [rateSnap, estSnap] = await Promise.all([
@@ -92,6 +130,62 @@ export const criarAgendamento = onCall(
         throw new HttpsError(
           'failed-precondition',
           'Plano inativo'
+        );
+      }
+
+      const diasFuncionamento = Array.isArray(est.diasFuncionamento)
+        ? est.diasFuncionamento
+        : null;
+
+      const diaSemana = getDiaSemanaBR(dataBr);
+
+      if (
+        diasFuncionamento &&
+        !diasFuncionamento.includes(diaSemana)
+      ) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Estabelecimento fechado nesta data'
+        );
+      }
+
+      const diasFechados = Array.isArray(est.diasFechados)
+        ? est.diasFechados
+        : [];
+
+      if (diasFechados.includes(dataBr)) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Estabelecimento fechado nesta data'
+        );
+      }
+
+      const horariosPermitidos = Array.isArray(est.horarios)
+        ? est.horarios.map((h: string) => normalizarHorario(h))
+        : [];
+
+      if (
+        horariosPermitidos.length > 0 &&
+        !horariosPermitidos.includes(horarioNormalizado)
+      ) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Horário indisponível'
+        );
+      }
+
+      const horariosBloqueados =
+        est.horariosBloqueados &&
+        Array.isArray(est.horariosBloqueados[dataBr])
+          ? est.horariosBloqueados[dataBr].map((h: string) =>
+              normalizarHorario(h)
+            )
+          : [];
+
+      if (horariosBloqueados.includes(horarioNormalizado)) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Horário bloqueado pelo estabelecimento'
         );
       }
 
@@ -136,14 +230,14 @@ export const criarAgendamento = onCall(
 
       const dataHoraAgendamento = parseDataHoraBR(
         dataBr,
-        horario
+        horarioNormalizado
       );
 
       const notificarEm = new Date(
         dataHoraAgendamento.getTime() - 60 * 60 * 1000
       );
 
-      const inicioMin = toMinutes(horario);
+      const inicioMin = toMinutes(horarioNormalizado);
       const fimMin = inicioMin + duracao;
       const step = Number(est?.intervaloMin || 30);
 
@@ -208,7 +302,7 @@ export const criarAgendamento = onCall(
 
         data: dataBr,
         dataKey: key,
-        horario,
+        horario: horarioNormalizado,
 
         status: 'confirmado',
 
@@ -248,12 +342,21 @@ export const criarAgendamento = onCall(
         );
       }
 
-      t.set(db.collection('notificacoes').doc(), {
+      const notifClienteRef = db
+        .collection('notificacoes')
+        .doc(`agendamento_${agendamentoId}_cliente_confirmado`);
+
+      const notifAdminRef = db
+        .collection('notificacoes')
+        .doc(`agendamento_${agendamentoId}_admin_novo`);
+
+      t.set(notifClienteRef, {
         clienteId: clienteUid,
         userId: clienteUid,
 
         tipo: 'cliente',
         type: 'agendamento',
+        dedupeKey: `agendamento:${agendamentoId}:cliente:confirmado`,
 
         agendamentoId,
         estabelecimentoId,
@@ -261,11 +364,13 @@ export const criarAgendamento = onCall(
 
         clienteNome,
         servicoNome,
+        data: dataBr,
+        horario: horarioNormalizado,
 
         formaPagamento: formaPagamento || 'local',
 
         titulo: 'Agendamento confirmado',
-        mensagem: `Seu horário de ${servicoNome} foi confirmado para ${dataBr} às ${horario}.`,
+        mensagem: `Seu horário de ${servicoNome} foi confirmado para ${dataBr} às ${horarioNormalizado}.`,
 
         lida: false,
         apagada: false,
@@ -273,11 +378,12 @@ export const criarAgendamento = onCall(
         criadoEm: FieldValue.serverTimestamp(),
       });
 
-      t.set(db.collection('notificacoes').doc(), {
+      t.set(notifAdminRef, {
         adminId,
 
         tipo: 'admin',
         type: 'agendamento',
+        dedupeKey: `agendamento:${agendamentoId}:admin:novo`,
 
         agendamentoId,
         estabelecimentoId,
@@ -286,11 +392,13 @@ export const criarAgendamento = onCall(
         clienteUid,
         clienteNome,
         servicoNome,
+        data: dataBr,
+        horario: horarioNormalizado,
 
         formaPagamento: formaPagamento || 'local',
 
         titulo: 'Novo agendamento',
-        mensagem: `${clienteNome} marcou ${servicoNome} para ${dataBr} às ${horario}.`,
+        mensagem: `${clienteNome} marcou ${servicoNome} para ${dataBr} às ${horarioNormalizado}.`,
 
         lida: false,
         apagada: false,

@@ -14,20 +14,67 @@ import Icon from 'react-native-vector-icons/FontAwesome';
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-const getDatas = () => {
+const DIAS_PADRAO_FUNCIONAMENTO = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+const normalizarHorario = (valor: string) => {
+  const [hh, mm] = String(valor || '').split(':').map(Number);
+
+  if (
+    Number.isNaN(hh) ||
+    Number.isNaN(mm) ||
+    hh < 0 ||
+    hh > 23 ||
+    mm < 0 ||
+    mm > 59
+  ) {
+    return '';
+  }
+
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
+const minutosHorario = (valor: string) => {
+  const horario = normalizarHorario(valor);
+  if (!horario) return 0;
+
+  const [hh, mm] = horario.split(':').map(Number);
+  return hh * 60 + mm;
+};
+
+const getDatas = (
+  diasFuncionamento?: string[],
+  diasFechados?: string[]
+) => {
   const lista = [];
   let d = new Date();
+
+  const diasAbertos =
+    Array.isArray(diasFuncionamento)
+      ? diasFuncionamento
+      : DIAS_PADRAO_FUNCIONAMENTO;
+
   while (lista.length < 7) {
-    if (d.getDay() !== 0) {
+    const diaSemana = DIAS[d.getDay()];
+
+    const full = d.toLocaleDateString('pt-BR');
+
+    if (
+      diasAbertos.includes(diaSemana) &&
+      !diasFechados?.includes(full)
+    ) {
       lista.push({
         dia: DIAS[d.getDay()],
         numero: d.getDate(),
         mes: d.toLocaleString('pt-BR', { month: 'short' }),
-        full: d.toLocaleDateString('pt-BR'),
+        full,
         dateObj: new Date(d)
       });
     }
     d.setDate(d.getDate() + 1);
+
+    if (lista.length === 0 && d.getTime() - Date.now() > 1000 * 60 * 60 * 24 * 30) {
+      break;
+    }
   }
   return lista;
 };
@@ -79,7 +126,10 @@ export default function DetalheScreen() {
   const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
 
   const podePagarNoApp = estab?.plano === 'pro' || estab?.plano === 'elite';
-  const datas = getDatas();
+  const datas = getDatas(
+    estab?.diasFuncionamento,
+    estab?.diasFechados
+  );
 
 
   useEffect(() => {
@@ -246,39 +296,15 @@ const servicoObj = estab?.servicos?.find(
   
 function gerarSlotsTela(
   horariosBase: string[],
-  intervalo = 30
+  _intervalo = 30
 ) {
-  const slots: string[] = [];
-
-  const horariosMin = horariosBase
-    .map(h => {
-      const [hh, mm] = h.split(':').map(Number);
-      return hh * 60 + mm;
-    })
-    .sort((a, b) => a - b);
-
-  for (let i = 0; i < horariosMin.length; i++) {
-
-    const atual = horariosMin[i];
-
-    const proximo =
-      horariosMin[i + 1] || atual + 60;
-
-    for (
-      let m = atual;
-      m < proximo;
-      m += intervalo
-    ) {
-
-      const hh = String(Math.floor(m / 60)).padStart(2, '0');
-
-      const mm = String(m % 60).padStart(2, '0');
-
-      slots.push(`${hh}:${mm}`);
-    }
-  }
-
-  return [...new Set(slots)];
+  return Array.from(
+    new Set(
+      horariosBase
+        .map(normalizarHorario)
+        .filter(Boolean)
+    )
+  ).sort((a, b) => minutosHorario(a) - minutosHorario(b));
 }
 
 const todosHorarios = gerarSlotsTela(
@@ -286,7 +312,14 @@ const todosHorarios = gerarSlotsTela(
     ? estab.horarios
     : [],
   Number(estab?.intervaloMin || 30)
-);
+).filter(h => {
+  const bloqueados =
+    dataSel?.full && estab?.horariosBloqueados?.[dataSel.full]
+      ? estab.horariosBloqueados[dataSel.full]
+      : [];
+
+  return !bloqueados.includes(h);
+});
 
 const semHorarios = todosHorarios.every(h => {
 
@@ -388,15 +421,27 @@ const semHorarios = todosHorarios.every(h => {
           {step >= 2 && (
             <View style={s.secao}>
               <Text style={s.secaoTitulo}>Data</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {datas.map((d, i) => (
-                  <TouchableOpacity key={i} onPress={() => { setDataSel(d); setHorarioSel(''); setStep(Math.max(step, 3)); }} style={[s.dataCard, dataSel?.full === d.full && s.dataCardAtivo]}>
-                    <Text style={[s.dataDia, dataSel?.full === d.full && { color: '#C9A96E' }]}>{d.dia}</Text>
-                    <Text style={[s.dataNum, dataSel?.full === d.full && { color: '#fff' }]}>{d.numero}</Text>
-                    <Text style={[s.dataMes, dataSel?.full === d.full && { color: '#aaa' }]}>{d.mes}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              {datas.length === 0 ? (
+                <View style={s.semHorarioCard}>
+                  <Text style={s.semHorarioTitulo}>
+                    Agenda fechada
+                  </Text>
+
+                  <Text style={s.semHorarioDesc}>
+                    Este estabelecimento ainda não liberou dias para agendamento.
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {datas.map((d, i) => (
+                    <TouchableOpacity key={i} onPress={() => { setDataSel(d); setHorarioSel(''); setStep(Math.max(step, 3)); }} style={[s.dataCard, dataSel?.full === d.full && s.dataCardAtivo]}>
+                      <Text style={[s.dataDia, dataSel?.full === d.full && { color: '#C9A96E' }]}>{d.dia}</Text>
+                      <Text style={[s.dataNum, dataSel?.full === d.full && { color: '#fff' }]}>{d.numero}</Text>
+                      <Text style={[s.dataMes, dataSel?.full === d.full && { color: '#aaa' }]}>{d.mes}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
             </View>
           )}
 

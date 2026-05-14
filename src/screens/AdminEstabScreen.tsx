@@ -19,6 +19,70 @@ import LinearGradient from 'react-native-linear-gradient';
 
 const { width } = Dimensions.get('window');
 
+const DIAS_FUNCIONAMENTO = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const DIAS_PADRAO = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+const normalizarHorario = (valor: string) => {
+  const partes = String(valor || '').trim().split(':');
+  if (partes.length !== 2) return '';
+
+  const hora = Number(partes[0]);
+  const minuto = Number(partes[1]);
+
+  if (
+    Number.isNaN(hora) ||
+    Number.isNaN(minuto) ||
+    hora < 0 ||
+    hora > 23 ||
+    minuto < 0 ||
+    minuto > 59
+  ) {
+    return '';
+  }
+
+  return `${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
+};
+
+const horarioParaMinutos = (valor: string) => {
+  const normalizado = normalizarHorario(valor);
+  if (!normalizado) return null;
+
+  const [hora, minuto] = normalizado.split(':').map(Number);
+  return hora * 60 + minuto;
+};
+
+const minutosParaHorario = (minutos: number) => {
+  const hora = Math.floor(minutos / 60);
+  const minuto = minutos % 60;
+
+  return `${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
+};
+
+const ordenarHorarios = (lista: string[]) =>
+  Array.from(new Set(lista.map(normalizarHorario).filter(Boolean)))
+    .sort((a, b) => (horarioParaMinutos(a) || 0) - (horarioParaMinutos(b) || 0));
+
+const normalizarDataBR = (valor: string) => {
+  const partes = String(valor || '').trim().split('/');
+  if (partes.length !== 3) return '';
+
+  const dia = Number(partes[0]);
+  const mes = Number(partes[1]);
+  const ano = Number(partes[2]);
+  const data = new Date(ano, mes - 1, dia);
+
+  if (
+    Number.isNaN(data.getTime()) ||
+    data.getDate() !== dia ||
+    data.getMonth() !== mes - 1 ||
+    data.getFullYear() !== ano
+  ) {
+    return '';
+  }
+
+  return `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`;
+};
+
 const EMOJIS = [
   '✂️', '💇', '💇‍♂️', '💇‍♀️', '💈', '🪮', '🧔🏻‍♂️', '🧴', '🚿',
   '💅', '💅🏾', '💅🏼', '🎨', '🖌️', '🧤',
@@ -97,7 +161,18 @@ export default function AdminEstabScreen() {
 
   const [gInicio, setGInicio] = useState('08:00');
   const [gFim, setGFim] = useState('18:00');
-  const [gIntervalo, setGIntervalo] = useState('60');
+  const [gIntervalo, setGIntervalo] = useState('30');
+  const [pausaAtiva, setPausaAtiva] = useState(true);
+  const [pausaInicio, setPausaInicio] = useState('12:00');
+  const [pausaFim, setPausaFim] = useState('14:00');
+  const [horarioManual, setHorarioManual] = useState('');
+  const [diasFuncionamento, setDiasFuncionamento] =
+    useState<string[]>(DIAS_PADRAO);
+  const [dataBloqueio, setDataBloqueio] = useState('');
+  const [horarioBloqueio, setHorarioBloqueio] = useState('');
+  const [diasFechados, setDiasFechados] = useState<string[]>([]);
+  const [horariosBloqueados, setHorariosBloqueados] =
+    useState<Record<string, string[]>>({});
 
   const [nsNome, setNsNome] = useState('');
   const [nsPreco, setNsPreco] = useState('');
@@ -254,16 +329,178 @@ Geolocation.requestAuthorization?.();
   };
 
   const gerarGradeHorarios = () => {
-    const lista: string[] = [];
-    let atual = new Date(`2026-01-01T${gInicio}:00`);
-    const fim = new Date(`2026-01-01T${gFim}:00`);
-    if (isNaN(atual.getTime()) || isNaN(fim.getTime())) { Alert.alert('Erro', 'Use HH:MM'); return; }
-    while (atual <= fim) {
-      lista.push(`${atual.getHours().toString().padStart(2,'0')}:${atual.getMinutes().toString().padStart(2,'0')}`);
-      atual.setMinutes(atual.getMinutes() + Number(gIntervalo));
+    const inicio = horarioParaMinutos(gInicio);
+    const fim = horarioParaMinutos(gFim);
+    const intervalo = Number(gIntervalo);
+    const pausaIni = horarioParaMinutos(pausaInicio);
+    const pausaFinal = horarioParaMinutos(pausaFim);
+
+    if (
+      inicio === null ||
+      fim === null ||
+      !intervalo ||
+      intervalo < 5 ||
+      intervalo > 240
+    ) {
+      Alert.alert('Erro', 'Use horários no formato HH:MM e intervalo válido.');
+      return;
     }
-    setHorarios(Array.from(new Set([...horarios, ...lista])).sort());
+
+    if (inicio >= fim) {
+      Alert.alert('Erro', 'O horário final precisa ser maior que o inicial.');
+      return;
+    }
+
+    if (pausaAtiva && (pausaIni === null || pausaFinal === null || pausaIni >= pausaFinal)) {
+      Alert.alert('Erro', 'Confira o início e fim da pausa.');
+      return;
+    }
+
+    const lista: string[] = [];
+
+    for (let atual = inicio; atual < fim; atual += intervalo) {
+      const dentroDaPausa =
+        pausaAtiva &&
+        pausaIni !== null &&
+        pausaFinal !== null &&
+        atual >= pausaIni &&
+        atual < pausaFinal;
+
+      if (!dentroDaPausa) {
+        lista.push(minutosParaHorario(atual));
+      }
+    }
+
+    setHorarioFunc(`${normalizarHorario(gInicio)} - ${normalizarHorario(gFim)}`);
+    setHorarios(ordenarHorarios([...horarios, ...lista]));
     Alert.alert('Sucesso ✅', `${lista.length} horários adicionados!`);
+  };
+
+  const adicionarHorarioManual = () => {
+    const horario = normalizarHorario(horarioManual);
+
+    if (!horario) {
+      Alert.alert('Erro', 'Use um horário válido no formato HH:MM.');
+      return;
+    }
+
+    setHorarios(ordenarHorarios([...horarios, horario]));
+    setHorarioManual('');
+  };
+
+  const alternarDiaFuncionamento = (dia: string) => {
+    setDiasFuncionamento(prev =>
+      prev.includes(dia)
+        ? prev.filter(item => item !== dia)
+        : [...prev, dia]
+    );
+  };
+
+  const removerHorario = (horario: string, ocupado: boolean) => {
+    if (ocupado) {
+      Alert.alert(
+        'Horário com agenda',
+        'Existe agendamento confirmado nesse horário. Cancele ou conclua antes de remover.'
+      );
+      return;
+    }
+
+    setHorarios(prev => prev.filter(item => item !== horario));
+  };
+
+  const limparHorariosLivres = () => {
+    const ocupados = new Set(
+      agends
+        .filter(a => a.status === 'confirmado')
+        .map(a => a.horario)
+    );
+
+    Alert.alert(
+      'Limpar horários livres',
+      'Isso remove todos os horários sem agenda confirmada.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Limpar',
+          style: 'destructive',
+          onPress: () =>
+            setHorarios(prev =>
+              prev.filter(h => ocupados.has(h))
+            ),
+        },
+      ]
+    );
+  };
+
+  const existeAgendaConfirmada = (data: string, horario?: string) =>
+    agends.some(a =>
+      a.status === 'confirmado' &&
+      a.data === data &&
+      (!horario || a.horario === horario)
+    );
+
+  const fecharDataPontual = () => {
+    const data = normalizarDataBR(dataBloqueio);
+
+    if (!data) {
+      Alert.alert('Erro', 'Informe uma data no formato DD/MM/AAAA.');
+      return;
+    }
+
+    if (existeAgendaConfirmada(data)) {
+      Alert.alert(
+        'Data com agenda',
+        'Existe agendamento confirmado nessa data. Cancele ou conclua antes de fechar o dia.'
+      );
+      return;
+    }
+
+    setDiasFechados(prev => Array.from(new Set([...prev, data])).sort());
+    setDataBloqueio(data);
+  };
+
+  const bloquearHorarioPontual = () => {
+    const data = normalizarDataBR(dataBloqueio);
+    const horario = normalizarHorario(horarioBloqueio);
+
+    if (!data || !horario) {
+      Alert.alert('Erro', 'Informe data DD/MM/AAAA e horário HH:MM.');
+      return;
+    }
+
+    if (existeAgendaConfirmada(data, horario)) {
+      Alert.alert(
+        'Horário com agenda',
+        'Existe agendamento confirmado nesse horário. Cancele ou conclua antes de bloquear.'
+      );
+      return;
+    }
+
+    setHorariosBloqueados(prev => ({
+      ...prev,
+      [data]: ordenarHorarios([...(prev[data] || []), horario]),
+    }));
+    setDataBloqueio(data);
+    setHorarioBloqueio('');
+  };
+
+  const removerDataFechada = (data: string) => {
+    setDiasFechados(prev => prev.filter(item => item !== data));
+  };
+
+  const removerBloqueioPontual = (data: string, horario: string) => {
+    setHorariosBloqueados(prev => {
+      const proximos = {
+        ...prev,
+        [data]: (prev[data] || []).filter(item => item !== horario),
+      };
+
+      if (proximos[data].length === 0) {
+        delete proximos[data];
+      }
+
+      return proximos;
+    });
   };
 
   useEffect(() => {
@@ -275,7 +512,26 @@ Geolocation.requestAuthorization?.();
           setCep(d.cep || ''); setBairro(d.bairro || ''); setNumero(d.numero || '');
           setCidade(d.cidade); setTelefone(d.telefone); setDescricao(d.descricao);
           setHorarioFunc(d.horarioFuncionamento); setImg(d.img); setCor(d.cor);
-          setServicos(d.servicos || []); setHorarios(d.horarios || []);
+          setServicos(d.servicos || []); setHorarios(ordenarHorarios(d.horarios || []));
+          setDiasFuncionamento(
+            Array.isArray(d.diasFuncionamento)
+              ? d.diasFuncionamento
+              : DIAS_PADRAO
+          );
+          setGIntervalo(String(d.intervaloMin || 30));
+          if (d.horarioPausa) {
+            setPausaAtiva(Boolean(d.horarioPausa.ativo));
+            setPausaInicio(d.horarioPausa.inicio || '12:00');
+            setPausaFim(d.horarioPausa.fim || '14:00');
+          }
+          setDiasFechados(
+            Array.isArray(d.diasFechados)
+              ? d.diasFechados
+              : []
+          );
+          setHorariosBloqueados(
+            d.horariosBloqueados || {}
+          );
           setFotoPerfil(d.fotoPerfil || ''); setFotoCapa(d.fotoCapa || '');
           if (d.lat && d.lng) {
             setCoords({ lat: d.lat, lng: d.lng });
@@ -349,7 +605,16 @@ Geolocation.requestAuthorization?.();
       img,
       cor,
       servicos,
-      horarios,
+      horarios: ordenarHorarios(horarios),
+      diasFuncionamento,
+      intervaloMin: Number(gIntervalo || 30),
+      horarioPausa: {
+        ativo: pausaAtiva,
+        inicio: normalizarHorario(pausaInicio) || '12:00',
+        fim: normalizarHorario(pausaFim) || '14:00',
+      },
+      diasFechados,
+      horariosBloqueados,
       fotoPerfil,
       avaliacao: 5.0,
       ativo: true,
@@ -960,8 +1225,51 @@ await reference.putFile(uri);
         {/* ─── ABA HORÁRIOS ─── */}
         {aba === 'horarios' && (
           <View>
-            <Text style={s.sectionTitle}>Grade Automática</Text>
+            <Text style={s.sectionTitle}>Dias de funcionamento</Text>
             <View style={s.card}>
+              <Text style={s.helperText}>
+                Escolha em quais dias os clientes podem agendar.
+              </Text>
+
+              <View style={s.daysGrid}>
+                {DIAS_FUNCIONAMENTO.map(dia => {
+                  const ativo = diasFuncionamento.includes(dia);
+
+                  return (
+                    <TouchableOpacity
+                      key={dia}
+                      onPress={() => alternarDiaFuncionamento(dia)}
+                      style={[
+                        s.dayChip,
+                        ativo && {
+                          borderColor: cor,
+                          backgroundColor: cor + '22',
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.dayChipText,
+                          ativo && {
+                            color: cor,
+                            fontWeight: '900',
+                          },
+                        ]}
+                      >
+                        {dia}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <Text style={s.sectionTitle}>Grade flexível</Text>
+            <View style={s.card}>
+              <Text style={s.helperText}>
+                Gere horários por intervalo e remova pausas, como almoço ou bloqueios do dia.
+              </Text>
+
               <View style={s.row}>
                 <View style={{ flex: 1, marginRight: 8 }}>
                   <Text style={s.miniLabel}>INÍCIO</Text>
@@ -976,6 +1284,44 @@ await reference.putFile(uri);
                   <TextInput style={s.input} value={gIntervalo} onChangeText={setGIntervalo} keyboardType="numeric" placeholderTextColor="#444" />
                 </View>
               </View>
+
+              <View style={[s.pauseBox, { borderColor: pausaAtiva ? cor + '66' : '#222' }]}>
+                <View style={s.rowBetween}>
+                  <Text style={s.pauseTitle}>Pausa / almoço</Text>
+
+                  <Switch
+                    value={pausaAtiva}
+                    onValueChange={setPausaAtiva}
+                    trackColor={{ false: '#333', true: cor + '66' }}
+                    thumbColor={pausaAtiva ? cor : '#666'}
+                  />
+                </View>
+
+                {pausaAtiva && (
+                  <View style={s.row}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={s.miniLabel}>PAUSA INÍCIO</Text>
+                      <TextInput
+                        style={s.input}
+                        value={pausaInicio}
+                        onChangeText={setPausaInicio}
+                        placeholderTextColor="#444"
+                      />
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.miniLabel}>PAUSA FIM</Text>
+                      <TextInput
+                        style={s.input}
+                        value={pausaFim}
+                        onChangeText={setPausaFim}
+                        placeholderTextColor="#444"
+                      />
+                    </View>
+                  </View>
+                )}
+              </View>
+
               <TouchableOpacity 
   onPress={gerarGradeHorarios} 
   style={[s.btnAdd, { backgroundColor: cor, marginTop: 15 }]}
@@ -983,14 +1329,43 @@ await reference.putFile(uri);
   <Icon name="clock-time-four-outline" size={18} color={getContraste(cor)} style={{ marginRight: 8 }} />
   <Text style={[s.btnAddText, { color: getContraste(cor) }]}>Gerar Horários</Text>
 </TouchableOpacity>
+
+              <View style={[s.manualRow, { marginTop: 15 }]}>
+                <TextInput
+                  style={[s.input, { flex: 1, marginRight: 8 }]}
+                  value={horarioManual}
+                  onChangeText={setHorarioManual}
+                  placeholder="Ex: 15:30"
+                  placeholderTextColor="#444"
+                />
+
+                <TouchableOpacity
+                  onPress={adicionarHorarioManual}
+                  style={[s.manualBtn, { borderColor: cor }]}
+                >
+                  <Icon name="plus" size={20} color={cor} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={s.rowBetween}>
+              <Text style={s.sectionTitle}>Horários disponíveis</Text>
+
+              {horarios.length > 0 && (
+                <TouchableOpacity onPress={limparHorariosLivres}>
+                  <Text style={[s.linkDanger, { color: '#FF6666' }]}>
+                    Limpar livres
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={s.horariosGrid}>
-              {horarios.map(h => {
+              {ordenarHorarios(horarios).map(h => {
                 const ocupado = agends.some(a => a.horario === h && a.status === 'confirmado');
                 return (
                   <TouchableOpacity key={h}
-                    onPress={() => ocupado ? Alert.alert("Ocupado") : setHorarios(horarios.filter(x => x !== h))}
+                    onPress={() => removerHorario(h, ocupado)}
                     style={[s.timeChip, { borderColor: ocupado ? '#FF4444' : cor + '44', backgroundColor: ocupado ? '#FF444422' : 'transparent' }]}>
                     <Text style={[s.timeText, ocupado && { color: '#FF4444' }]}>{h}</Text>
                     {!ocupado && <Icon name="close" size={12} color="#666" style={{ marginLeft: 6 }} />}
@@ -998,6 +1373,107 @@ await reference.putFile(uri);
                   </TouchableOpacity>
                 );
               })}
+            </View>
+
+            <Text style={s.sectionTitle}>Bloqueios pontuais</Text>
+            <View style={s.card}>
+              <Text style={s.helperText}>
+                Use para fechar uma data específica ou bloquear só um horário por imprevisto.
+              </Text>
+
+              <View style={s.row}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={s.miniLabel}>DATA</Text>
+                  <TextInput
+                    style={s.input}
+                    value={dataBloqueio}
+                    onChangeText={setDataBloqueio}
+                    placeholder="DD/MM/AAAA"
+                    placeholderTextColor="#444"
+                  />
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={s.miniLabel}>HORÁRIO</Text>
+                  <TextInput
+                    style={s.input}
+                    value={horarioBloqueio}
+                    onChangeText={setHorarioBloqueio}
+                    placeholder="HH:MM"
+                    placeholderTextColor="#444"
+                  />
+                </View>
+              </View>
+
+              <View style={[s.row, { gap: 10, marginTop: 12 }]}>
+                <TouchableOpacity
+                  onPress={fecharDataPontual}
+                  style={[s.actionBtn, { borderColor: '#FF6666' }]}
+                >
+                  <Icon name="calendar-remove" size={18} color="#FF6666" style={{ marginRight: 6 }} />
+                  <Text style={[s.btnAddText, { color: '#FF6666' }]}>
+                    Fechar data
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={bloquearHorarioPontual}
+                  style={[s.actionBtn, { borderColor: cor }]}
+                >
+                  <Icon name="clock-remove-outline" size={18} color={cor} style={{ marginRight: 6 }} />
+                  <Text style={[s.btnAddText, { color: cor }]}>
+                    Bloquear horário
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {diasFechados.length > 0 && (
+                <>
+                  <Text style={[s.miniLabel, { marginTop: 18 }]}>
+                    DATAS FECHADAS
+                  </Text>
+
+                  <View style={s.horariosGrid}>
+                    {diasFechados.map(data => (
+                      <TouchableOpacity
+                        key={data}
+                        onPress={() => removerDataFechada(data)}
+                        style={[s.timeChip, { borderColor: '#FF6666' }]}
+                      >
+                        <Text style={s.timeText}>{data}</Text>
+                        <Icon name="close" size={12} color="#666" style={{ marginLeft: 6 }} />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
+
+              {Object.keys(horariosBloqueados).length > 0 && (
+                <>
+                  <Text style={[s.miniLabel, { marginTop: 18 }]}>
+                    HORÁRIOS BLOQUEADOS
+                  </Text>
+
+                  {Object.entries(horariosBloqueados).map(([data, lista]) => (
+                    <View key={data} style={s.bloqueioGrupo}>
+                      <Text style={s.bloqueioData}>{data}</Text>
+
+                      <View style={s.horariosGrid}>
+                        {lista.map(horario => (
+                          <TouchableOpacity
+                            key={`${data}-${horario}`}
+                            onPress={() => removerBloqueioPontual(data, horario)}
+                            style={[s.timeChip, { borderColor: cor + '66' }]}
+                          >
+                            <Text style={s.timeText}>{horario}</Text>
+                            <Icon name="close" size={12} color="#666" style={{ marginLeft: 6 }} />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+                </>
+              )}
             </View>
           </View>
         )}
@@ -1137,6 +1613,17 @@ const s = StyleSheet.create({
   itemRemove: { padding: 8, marginLeft: 10 },
   
   horariosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 20 },
+  helperText: { color: '#777', fontSize: 12, lineHeight: 18, marginBottom: 15 },
+  daysGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  dayChip: { minWidth: 46, height: 36, borderRadius: 12, borderWidth: 1, borderColor: '#222', justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' },
+  dayChipText: { color: '#777', fontSize: 12, fontWeight: '700' },
+  pauseBox: { borderWidth: 1, borderRadius: 14, padding: 12, marginTop: 15, backgroundColor: '#0D0D0D' },
+  pauseTitle: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  manualRow: { flexDirection: 'row', alignItems: 'center' },
+  manualBtn: { width: 48, height: 48, borderRadius: 12, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  linkDanger: { fontSize: 12, fontWeight: '800' },
+  bloqueioGrupo: { marginTop: 10, borderTopWidth: 1, borderTopColor: '#222', paddingTop: 10 },
+  bloqueioData: { color: '#FFF', fontSize: 13, fontWeight: '800' },
   timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, height: 36, borderRadius: 10, borderWidth: 1 },
   timeText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
   

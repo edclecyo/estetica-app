@@ -15,6 +15,7 @@ export default function SeloVerificacaoScreen() {
   const navigation = useNavigation<any>();
   const { admin } = useAuth();
   const [estab, setEstab] = useState<any>(null);
+  const [solicitacao, setSolicitacao] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [solicitando, setSolicitando] = useState(false);
 
@@ -31,11 +32,43 @@ export default function SeloVerificacaoScreen() {
     return unsub;
   }, [admin?.id]);
 
+  useEffect(() => {
+    if (!admin?.id) return;
+
+    const unsub = firestore()
+      .collection('solicitacoesVerificacao')
+      .where('adminId', '==', admin.id)
+      .orderBy('criadoEm', 'desc')
+      .limit(1)
+      .onSnapshot(snap => {
+        if (snap.empty) {
+          setSolicitacao(null);
+          return;
+        }
+
+        setSolicitacao({
+          id: snap.docs[0].id,
+          ...snap.docs[0].data(),
+        });
+      });
+
+    return unsub;
+  }, [admin?.id]);
+
   const totalAtendimentos = estab?.quantidadeAvaliacoes || 0;
   const negativas = estab?.avaliacoesNegativas || 0;
   const plano = estab?.plano || 'free';
   const verificado = estab?.verificado || false;
-  const statusSolicitacao = estab?.solicitacaoSeloStatus;
+  const statusSolicitacao =
+    solicitacao?.status ||
+    estab?.solicitacaoSeloStatus;
+  const pagamentoStatus =
+    solicitacao?.pagamentoStatus ||
+    estab?.seloPagamentoStatus;
+  const podePagarTaxa =
+    statusSolicitacao === 'aprovado' &&
+    solicitacao?.pago !== true &&
+    !verificado;
 
   const criterios = [
     {
@@ -67,7 +100,7 @@ export default function SeloVerificacaoScreen() {
 
     Alert.alert(
       'Solicitar Selo Verificado',
-      `Uma taxa de R$ 14,90 será cobrada para análise.\n\nDeseja continuar?`,
+      'Sua solicitacao sera enviada para analise. Se for aprovada, voce paga a taxa de R$ 14,90 para liberar o selo.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -148,6 +181,32 @@ await fn({
               Sua solicitação foi enviada e está sendo analisada pela equipe BeautyHub.
             </Text>
           </View>
+        ) : podePagarTaxa || pagamentoStatus === 'pending' ? (
+          <View style={[s.seloAtivoCard, { borderColor: GOLD }]}>
+            <Text style={s.seloAtivoEmoji}>*</Text>
+            <Text style={s.seloAtivoTitulo}>Selo aprovado</Text>
+            <Text style={s.seloAtivoSub}>
+              Agora falta pagar a taxa unica para liberar o selo no estabelecimento.
+            </Text>
+
+            <TouchableOpacity
+              style={s.pagamentoBtn}
+              onPress={() => navigation.navigate('SeloPagamentoScreen', {
+                solicitacaoId: solicitacao?.id || estab?.solicitacaoSeloId,
+                estabelecimentoId: estab?.id,
+              })}
+            >
+              <Text style={s.pagamentoBtnText}>Pagar taxa do selo</Text>
+            </TouchableOpacity>
+          </View>
+        ) : statusSolicitacao === 'pago' ? (
+          <View style={[s.seloAtivoCard, { borderColor: '#4CAF50' }]}>
+            <Text style={s.seloAtivoEmoji}>OK</Text>
+            <Text style={s.seloAtivoTitulo}>Pagamento confirmado</Text>
+            <Text style={s.seloAtivoSub}>
+              O selo esta sendo liberado automaticamente no estabelecimento.
+            </Text>
+          </View>
         ) : statusSolicitacao === 'rejeitado' ? (
           <View style={[s.seloAtivoCard, { borderColor: '#F44336' }]}>
             <Text style={s.seloAtivoEmoji}>❌</Text>
@@ -192,7 +251,11 @@ await fn({
         </View>
 
         {/* COMO OBTER */}
-        {!verificado && plano !== 'elite' && (
+        {!verificado &&
+          plano !== 'elite' &&
+          statusSolicitacao !== 'pendente' &&
+          statusSolicitacao !== 'aprovado' &&
+          statusSolicitacao !== 'pago' && (
           <View style={s.section}>
             <Text style={s.sectionTitulo}>COMO OBTER</Text>
 
@@ -224,14 +287,14 @@ await fn({
                   <Text style={s.opcaoEmoji}>⭐</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={s.opcaoTitulo}>Solicitar como Pro</Text>
-                    <Text style={s.opcaoSub}>Taxa única de análise</Text>
+                    <Text style={s.opcaoSub}>Taxa unica apos aprovacao</Text>
                   </View>
                   <View style={[s.opcaoGratisBadge, { backgroundColor: 'rgba(201,169,110,0.15)' }]}>
                     <Text style={[s.opcaoGratisText, { color: GOLD }]}>R$ 14,90</Text>
                   </View>
                 </View>
                 <Text style={s.opcaoDesc}>
-                  Se você atende todos os critérios com o plano Pro, pode solicitar o selo pagando uma taxa de análise de R$ 14,90.
+                  Se voce atende todos os criterios com o plano Pro, pode solicitar analise. A taxa de R$ 14,90 so aparece depois da aprovacao.
                 </Text>
 
                 <TouchableOpacity
@@ -293,6 +356,8 @@ const s = StyleSheet.create({
   seloAtivoEmoji: { fontSize: 48, marginBottom: 12 },
   seloAtivoTitulo: { fontSize: 18, fontWeight: '800', color: '#1A1A1A', marginBottom: 6, textAlign: 'center' },
   seloAtivoSub: { fontSize: 13, color: '#888', textAlign: 'center', lineHeight: 20 },
+  pagamentoBtn: { backgroundColor: '#1A1A1A', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 18, marginTop: 18 },
+  pagamentoBtnText: { color: GOLD, fontSize: 13, fontWeight: '800' },
 
   section: { marginBottom: 20 },
   sectionTitulo: { color: GOLD, fontSize: 10, fontWeight: '800', letterSpacing: 1.5, marginBottom: 14 },

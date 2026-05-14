@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   SafeAreaView,
   StatusBar,
+  Alert,
 } from 'react-native';
 
 import firestore from '@react-native-firebase/firestore';
@@ -21,6 +22,8 @@ export default function NotificacoesClienteScreen() {
 
   const [notificacoes, setNotificacoes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selecionando, setSelecionando] = useState(false);
+  const [selecionadas, setSelecionadas] = useState<string[]>([]);
 
   useEffect(() => {
 
@@ -83,6 +86,158 @@ export default function NotificacoesClienteScreen() {
     }
   }
 
+  function abrirSelecao() {
+    setSelecionando(true);
+    setSelecionadas([]);
+  }
+
+  function cancelarSelecao() {
+    setSelecionando(false);
+    setSelecionadas([]);
+  }
+
+  function alternarSelecao(id: string) {
+    setSelecionadas(prev =>
+      prev.includes(id)
+        ? prev.filter(itemId => itemId !== id)
+        : [...prev, id]
+    );
+  }
+
+  function alternarTodas() {
+    if (selecionadas.length === notificacoes.length) {
+      setSelecionadas([]);
+      return;
+    }
+
+    setSelecionadas(
+      notificacoes.map(item => item.id)
+    );
+  }
+
+  function confirmarApagar(item: any) {
+    Alert.alert(
+      'Apagar notificação',
+      'Essa notificação será removida da sua lista.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: () => apagarNotificacao(item),
+        },
+      ]
+    );
+  }
+
+  function confirmarApagarSelecionadas() {
+    if (selecionadas.length === 0) {
+      Alert.alert(
+        'Nenhuma notificação selecionada',
+        'Selecione pelo menos uma notificação para apagar.'
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Apagar notificações',
+      `Você quer apagar ${selecionadas.length} notificação(ões)?`,
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: apagarSelecionadas,
+        },
+      ]
+    );
+  }
+
+  async function apagarNotificacao(item: any) {
+    if (!user?.uid || item.clienteId !== user.uid) {
+      return;
+    }
+
+    try {
+      setNotificacoes(prev =>
+        prev.filter(notif => notif.id !== item.id)
+      );
+
+      await firestore()
+        .collection('notificacoes')
+        .doc(item.id)
+        .update({
+          apagada: true,
+        });
+
+    } catch (e) {
+      console.log('Erro apagar notificação:', e);
+
+      setNotificacoes(prev =>
+        prev.some(notif => notif.id === item.id)
+          ? prev
+          : [item, ...prev]
+      );
+    }
+  }
+
+  async function apagarSelecionadas() {
+    if (!user?.uid) return;
+
+    const idsSelecionados = new Set(selecionadas);
+    const itensParaApagar = notificacoes.filter(
+      item =>
+        idsSelecionados.has(item.id) &&
+        item.clienteId === user.uid
+    );
+
+    if (itensParaApagar.length === 0) {
+      return;
+    }
+
+    try {
+      setNotificacoes(prev =>
+        prev.filter(item => !idsSelecionados.has(item.id))
+      );
+      cancelarSelecao();
+
+      const batch = firestore().batch();
+
+      itensParaApagar.forEach(item => {
+        const ref = firestore()
+          .collection('notificacoes')
+          .doc(item.id);
+
+        batch.update(ref, {
+          apagada: true,
+        });
+      });
+
+      await batch.commit();
+
+    } catch (e) {
+      console.log('Erro apagar notificações:', e);
+
+      setNotificacoes(prev => {
+        const idsAtuais = new Set(
+          prev.map(item => item.id)
+        );
+
+        const restaurar = itensParaApagar.filter(
+          item => !idsAtuais.has(item.id)
+        );
+
+        return [...restaurar, ...prev];
+      });
+    }
+  }
+
   const renderItem = ({ item }: { item: any }) => {
 
     const getIcon = () => {
@@ -121,18 +276,42 @@ export default function NotificacoesClienteScreen() {
       item.titulo ||
       'Notificação';
 
+    const estaSelecionada =
+      selecionadas.includes(item.id);
+
     return (
       <TouchableOpacity
         activeOpacity={0.9}
-        onPress={() =>
-          marcarComoLida(item.id, item.lida)
-        }
+        onPress={() => {
+          if (selecionando) {
+            alternarSelecao(item.id);
+            return;
+          }
+
+          marcarComoLida(item.id, item.lida);
+        }}
         style={[
           styles.card,
           !item.lida && styles.nLida,
+          estaSelecionada && styles.cardSelecionado,
         ]}
       >
         <View style={styles.cardHeader}>
+
+          {selecionando && (
+            <View
+              style={[
+                styles.check,
+                estaSelecionada && styles.checkAtivo,
+              ]}
+            >
+              {estaSelecionada && (
+                <Text style={styles.checkText}>
+                  ✓
+                </Text>
+              )}
+            </View>
+          )}
 
           <View style={styles.iconArea}>
             <Text style={styles.iconText}>
@@ -155,13 +334,38 @@ export default function NotificacoesClienteScreen() {
             </Text>
           </View>
 
-          {!item.lida && (
-            <View style={styles.badgeNovo}>
-              <Text style={styles.badgeTexto}>
-                NOVO
-              </Text>
-            </View>
-          )}
+          <View style={styles.cardAcoes}>
+            {!item.lida && (
+              <View style={styles.badgeNovo}>
+                <Text style={styles.badgeTexto}>
+                  NOVO
+                </Text>
+              </View>
+            )}
+
+            {!selecionando && (
+              <TouchableOpacity
+                activeOpacity={0.75}
+                hitSlop={{
+                  top: 8,
+                  right: 8,
+                  bottom: 8,
+                  left: 8,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Apagar notificação"
+                onPress={event => {
+                  event.stopPropagation();
+                  confirmarApagar(item);
+                }}
+                style={styles.btnApagar}
+              >
+                <Text style={styles.btnApagarText}>
+                  Apagar
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {!!mensagemFinal && (
@@ -170,64 +374,66 @@ export default function NotificacoesClienteScreen() {
           </Text>
         )}
 
-        <View style={styles.footerAcao}>
+        {!selecionando && (
+          <View style={styles.footerAcao}>
 
-          {isConcluido && (
-            <TouchableOpacity
-              style={styles.btnAvaliar}
-              onPress={async () => {
+            {isConcluido && (
+              <TouchableOpacity
+                style={styles.btnAvaliar}
+                onPress={async () => {
 
-                await marcarComoLida(
-                  item.id,
-                  item.lida
-                );
+                  await marcarComoLida(
+                    item.id,
+                    item.lida
+                  );
 
-                navigation.navigate(
-                  'Avaliar',
-                  {
-                    agendamentoId:
-                      item.agendamentoId,
+                  navigation.navigate(
+                    'Avaliar',
+                    {
+                      agendamentoId:
+                        item.agendamentoId,
 
-                    estabelecimentoNome:
-                      item.estabelecimentoNome,
+                      estabelecimentoNome:
+                        item.estabelecimentoNome,
 
-                    estabelecimentoId:
-                      item.estabelecimentoId,
-                  }
-                );
-              }}
-            >
-              <Text style={styles.btnAvaliarText}>
-                Avaliar Agora ⭐
-              </Text>
-            </TouchableOpacity>
-          )}
+                      estabelecimentoId:
+                        item.estabelecimentoId,
+                    }
+                  );
+                }}
+              >
+                <Text style={styles.btnAvaliarText}>
+                  Avaliar Agora ⭐
+                </Text>
+              </TouchableOpacity>
+            )}
 
-          {isVaga && (
-            <TouchableOpacity
-              style={styles.btnAgendar}
-              onPress={async () => {
+            {isVaga && (
+              <TouchableOpacity
+                style={styles.btnAgendar}
+                onPress={async () => {
 
-                await marcarComoLida(
-                  item.id,
-                  item.lida
-                );
+                  await marcarComoLida(
+                    item.id,
+                    item.lida
+                  );
 
-                navigation.navigate(
-                  'HomeTabs',
-                  {
-                    screen: 'Home',
-                  }
-                );
-              }}
-            >
-              <Text style={styles.btnAgendarText}>
-                Ver Horários Disponíveis 📅
-              </Text>
-            </TouchableOpacity>
-          )}
+                  navigation.navigate(
+                    'HomeTabs',
+                    {
+                      screen: 'Home',
+                    }
+                  );
+                }}
+              >
+                <Text style={styles.btnAgendarText}>
+                  Ver Horários Disponíveis 📅
+                </Text>
+              </TouchableOpacity>
+            )}
 
-        </View>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
@@ -249,11 +455,67 @@ export default function NotificacoesClienteScreen() {
       <StatusBar barStyle="dark-content" />
 
       <View style={styles.header}>
-        <Text style={styles.titulo}>
-          Notificações
-        </Text>
+        <View>
+          <Text style={styles.titulo}>
+            Notificações
+          </Text>
 
-        <View style={styles.linhaDourada} />
+          <View style={styles.linhaDourada} />
+        </View>
+
+        {notificacoes.length > 0 && (
+          selecionando ? (
+            <View style={styles.headerAcoes}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={alternarTodas}
+                style={styles.headerBtn}
+              >
+                <Text style={styles.headerBtnText}>
+                  {selecionadas.length === notificacoes.length
+                    ? 'Limpar'
+                    : 'Todas'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                disabled={selecionadas.length === 0}
+                onPress={confirmarApagarSelecionadas}
+                style={[
+                  styles.headerBtn,
+                  styles.headerBtnDanger,
+                  selecionadas.length === 0 &&
+                    styles.headerBtnDisabled,
+                ]}
+              >
+                <Text style={styles.headerBtnDangerText}>
+                  Apagar ({selecionadas.length})
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={cancelarSelecao}
+                style={styles.headerBtn}
+              >
+                <Text style={styles.headerBtnText}>
+                  Cancelar
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={abrirSelecao}
+              style={styles.headerBtn}
+            >
+              <Text style={styles.headerBtnText}>
+                Selecionar
+              </Text>
+            </TouchableOpacity>
+          )
+        )}
       </View>
 
       <FlatList
@@ -277,9 +539,53 @@ export default function NotificacoesClienteScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FBFBFC' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { paddingHorizontal: 25, marginTop: 20, marginBottom: 10 },
+  header: {
+    paddingHorizontal: 25,
+    marginTop: 20,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   titulo: { fontSize: 28, fontWeight: '900', color: '#1A1A1A' },
   linhaDourada: { width: 40, height: 4, backgroundColor: '#D4AF37', marginTop: 5, borderRadius: 2 },
+
+  headerAcoes: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 8,
+    maxWidth: 230,
+  },
+
+  headerBtn: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+
+  headerBtnText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  headerBtnDanger: {
+    backgroundColor: '#C62828',
+  },
+
+  headerBtnDangerText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  headerBtnDisabled: {
+    opacity: 0.5,
+  },
   
   card: { 
     backgroundColor: '#FFF', 
@@ -294,11 +600,40 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 10,
   },
+
+  cardSelecionado: {
+    borderColor: '#D4AF37',
+    backgroundColor: '#FFFDF7',
+  },
+
   nLida: { 
     borderColor: 'rgba(212, 175, 55, 0.3)',
     backgroundColor: '#FFFDF9',
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  cardAcoes: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  check: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D4AF37',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF',
+    marginRight: 10,
+  },
+  checkAtivo: {
+    backgroundColor: '#D4AF37',
+  },
+  checkText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
   iconArea: { 
     width: 45, 
     height: 45, 
@@ -313,6 +648,19 @@ const styles = StyleSheet.create({
   notifData: { fontSize: 11, color: '#AAA', marginTop: 2 },
   badgeNovo: { backgroundColor: '#D4AF37', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   badgeTexto: { color: '#FFF', fontSize: 9, fontWeight: '900' },
+
+  btnApagar: {
+    backgroundColor: '#FFF3F3',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+
+  btnApagarText: {
+    color: '#C62828',
+    fontSize: 11,
+    fontWeight: '800',
+  },
   
   notifMsg: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 15 },
   

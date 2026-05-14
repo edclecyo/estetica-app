@@ -55,41 +55,21 @@ export async function enviarPush(
   body: string,
   data?: Record<string, any>,
   badgeCount?: number
-) {
-
+): Promise<boolean> {
   try {
+    if (!tokens?.length) return false;
 
-    // 🔥 evita envio inútil
-    if (!tokens?.length) {
-      return;
-    }
-
-    // 🔥 remove duplicados
-    const uniqueTokens =
-      [...new Set(tokens)];
-
-    // 🔥 firebase suporta até 500
+    const uniqueTokens = [...new Set(tokens)];
     const chunks: string[][] = [];
 
-    for (
-      let i = 0;
-      i < uniqueTokens.length;
-      i += 500
-    ) {
-
-      chunks.push(
-        uniqueTokens.slice(i, i + 500)
-      );
+    for (let i = 0; i < uniqueTokens.length; i += 500) {
+      chunks.push(uniqueTokens.slice(i, i + 500));
     }
 
-    // ─────────────────────────
-    // 🚀 ENVIA EM LOTES
-    // ─────────────────────────
+    let totalSuccess = 0;
+
     for (const chunk of chunks) {
-
-      const message:
-        admin.messaging.MulticastMessage = {
-
+      const message: admin.messaging.MulticastMessage = {
         tokens: chunk,
 
         notification: {
@@ -99,18 +79,12 @@ export async function enviarPush(
 
         data: data
           ? Object.fromEntries(
-              Object.entries(data)
-                .map(([k, v]) => [
-                  k,
-                  String(v)
-                ])
+              Object.entries(data).map(([k, v]) => [k, String(v)])
             )
           : {},
 
         android: {
-
           priority: 'high',
-
           notification: {
             sound: 'default',
             channelId: 'default_channel',
@@ -119,11 +93,9 @@ export async function enviarPush(
         },
 
         apns: {
-
           headers: {
             'apns-priority': '10',
           },
-
           payload: {
             aps: {
               sound: 'default',
@@ -134,65 +106,18 @@ export async function enviarPush(
         },
       };
 
-      // 🔥 RESULTADO
-      const response =
-        await admin.messaging()
-          .sendEachForMulticast(message);
+      const response = await admin.messaging().sendEachForMulticast(message);
 
-      // ───────────────────────
-      // 🧹 LIMPA TOKENS INVÁLIDOS
-      // ───────────────────────
-      const invalidTokens: string[] = [];
-
-      response.responses.forEach(
-        (r, index) => {
-
-          if (!r.success) {
-
-            const code =
-              r.error?.code || '';
-
-            // token morto
-            if (
-              code ===
-                'messaging/registration-token-not-registered'
-              ||
-              code ===
-                'messaging/invalid-registration-token'
-            ) {
-
-              invalidTokens.push(
-                chunk[index]
-              );
-            }
-          }
-        }
-      );
-
-      // ───────────────────────
-      // 🧹 REMOVE TOKEN INVÁLIDO
-      // ───────────────────────
-      if (invalidTokens.length > 0) {
-
-        console.log(
-          '🧹 Tokens inválidos:',
-          invalidTokens.length
-        );
-
-        // 🔥 remove depois
-        // no login novo ele salva novamente
-      }
+      totalSuccess += response.successCount;
 
       console.log(
         `✅ Push enviado: ${response.successCount} sucesso / ${response.failureCount} falhas`
       );
     }
 
+    return totalSuccess > 0;
   } catch (err) {
-
-    console.error(
-      '🔥 Erro push:',
-      err
-    );
+    console.error('🔥 Erro push:', err);
+    return false;
   }
 }

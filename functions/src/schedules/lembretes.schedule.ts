@@ -38,8 +38,7 @@ export const lembreteAgendamento = onSchedule(
     const expiraData = new Date();
     expiraData.setDate(expiraData.getDate() + 30);
 
-    const expiraNotificacao =
-      Timestamp.fromDate(expiraData);
+    const expiraNotificacao = Timestamp.fromDate(expiraData);
 
     for (const doc of snap.docs) {
       const ag = doc.data();
@@ -49,53 +48,66 @@ export const lembreteAgendamento = onSchedule(
           notificado: true,
           notificadoEm: FieldValue.serverTimestamp(),
         });
-
         continue;
       }
 
-      const notifRef = db
-        .collection('notificacoes')
-        .doc();
-
-      batch.set(notifRef, {
+      // 🔔 CLIENTE
+      batch.set(db.collection('notificacoes').doc(), {
         tipo: 'cliente',
 
         clienteId: ag.clienteUid,
         userId: ag.clienteUid,
-
-        adminId: ag.adminId || null,
+        adminId: null,
 
         titulo: '⏰ Horário chegando!',
         mensagem: `Lembrete: ${ag.servicoNome || 'serviço'} às ${ag.horario || ''} em ${ag.estabelecimentoNome || 'seu estabelecimento'}.`,
 
         agendamentoId: doc.id,
+        estabelecimentoId: ag.estabelecimentoId || '',
+        estabelecimentoNome: ag.estabelecimentoNome || '',
 
-        estabelecimentoId:
-          ag.estabelecimentoId || '',
+        clienteNome: ag.clienteNome || '',
+        servicoNome: ag.servicoNome || '',
+        formaPagamento: ag.formaPagamento || '',
 
-        estabelecimentoNome:
-          ag.estabelecimentoNome || '',
-
-        clienteNome:
-          ag.clienteNome || '',
-
-        servicoNome:
-          ag.servicoNome || '',
-
-        formaPagamento:
-          ag.formaPagamento || '',
-
-        type: 'REMINDER',
+        type: 'REMINDER_CLIENT',
 
         lida: false,
         apagada: false,
 
-        criadoEm:
-          FieldValue.serverTimestamp(),
-
-        expiraEm:
-          expiraNotificacao,
+        criadoEm: FieldValue.serverTimestamp(),
+        expiraEm: expiraNotificacao,
       });
+
+      // 🔔 ADMIN
+      if (ag.adminId) {
+        batch.set(db.collection('notificacoes').doc(), {
+          tipo: 'admin',
+
+          adminId: ag.adminId,
+          userId: ag.adminId,
+          clienteId: null,
+
+          titulo: '📅 Atendimento próximo',
+          mensagem: `${ag.clienteNome || 'Cliente'} tem ${ag.servicoNome || 'serviço'} às ${ag.horario || ''}.`,
+
+          agendamentoId: doc.id,
+          estabelecimentoId: ag.estabelecimentoId || '',
+          estabelecimentoNome: ag.estabelecimentoNome || '',
+
+          clienteNome: ag.clienteNome || '',
+          servicoNome: ag.servicoNome || '',
+          formaPagamento: ag.formaPagamento || '',
+
+          type: 'REMINDER_ADMIN',
+
+          lida: false,
+          apagada: false,
+
+          criadoEm: FieldValue.serverTimestamp(),
+          expiraEm: expiraNotificacao,
+        });
+      }
 
       batch.update(doc.ref, {
         notificado: true,
@@ -105,9 +117,7 @@ export const lembreteAgendamento = onSchedule(
 
     await batch.commit();
 
-    console.log(
-      `✅ ${snap.size} lembretes criados`
-    );
+    console.log(`✅ ${snap.size} lembretes criados`);
   }
 );
 
@@ -133,13 +143,10 @@ export const expirarAgendamentos = onSchedule(
       | undefined;
 
     while (true) {
-      let query = db
-        .collection('agendamentos')
-        .where('status', 'in', [
-          'confirmado',
-          'pendente',
-        ])
-        .limit(pageSize);
+     let query = db
+  .collection('agendamentos')
+  .where('status', '==', 'pendente')
+  .limit(pageSize);
 
       if (lastDoc) {
         query = query.startAfter(lastDoc);

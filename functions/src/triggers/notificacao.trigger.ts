@@ -1,138 +1,186 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 
 import { REGION } from '../config/region';
+import { db } from '../config/firebase';
 
 import {
   getTokenUsuario,
-  enviarPush
+  enviarPush,
 } from '../services/notificacao.service';
 
-// ─────────────────────────────
-// 🚀 AO CRIAR NOTIFICAÇÃO
-// ─────────────────────────────
-export const aoCriarNotificacao =
-  onDocumentCreated(
-    {
-      document: 'notificacoes/{docId}',
-      region: REGION,
-      maxInstances: 20,
-    },
+function getDedupeKey(data: any): string {
+  if (data.dedupeKey) {
+    return String(data.dedupeKey);
+  }
 
-    async (event) => {
+  if (
+    data.agendamentoId &&
+    data.tipo === 'admin' &&
+    (
+      data.type === 'agendamento' ||
+      data.type === 'NEW_BOOKING'
+    )
+  ) {
+    return `agendamento:${data.agendamentoId}:admin:novo`;
+  }
 
-      const snapshot = event.data;
+  if (
+    data.agendamentoId &&
+    data.tipo === 'cliente' &&
+    data.type === 'agendamento'
+  ) {
+    return `agendamento:${data.agendamentoId}:cliente:confirmado`;
+  }
 
-      if (!snapshot) {
+  return '';
+}
+
+async function claimDedupe(
+  dedupeKey: string,
+  docId: string
+): Promise<boolean> {
+  if (!dedupeKey) {
+    return true;
+  }
+
+  try {
+    await db
+      .collection('notificacaoLocks')
+      .doc(dedupeKey)
+      .create({
+        docId,
+        criadoEm: FieldValue.serverTimestamp(),
+      });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const aoCriarNotificacao = onDocumentCreated(
+  {
+    document: 'notificacoes/{docId}',
+    region: REGION,
+    maxInstances: 20,
+  },
+
+  async (event) => {
+    const snapshot = event.data;
+
+    if (!snapshot) {
+      return;
+    }
+
+    const data = snapshot.data() as any;
+    const docId = event.params?.docId || '';
+
+    if (data.pushEnviado === true) {
+      return;
+    }
+
+    try {
+      const dedupeKey = getDedupeKey(data);
+      const canSendPush = await claimDedupe(
+        dedupeKey,
+        docId
+      );
+
+      if (!canSendPush) {
+        await snapshot.ref.update({
+          apagada: true,
+          pushEnviado: false,
+          pushDuplicada: true,
+          pushErro: 'Notificação duplicada',
+          pushTentadoEm: FieldValue.serverTimestamp(),
+        });
+
         return;
       }
 
-      const data = snapshot.data() as any;
+      const pushData = {
+        type: String(data.type || 'notification'),
+        docId: String(docId),
+        agendamentoId: String(data.agendamentoId || ''),
+        clienteNome: String(data.clienteNome || ''),
+        servicoNome: String(data.servicoNome || ''),
+        formaPagamento: String(data.formaPagamento || ''),
+      };
 
-      const docId =
-        event.params?.docId || '';
-
-      try {
-
-        // ─────────────────────────
-        // 🔥 PAYLOAD
-        // ─────────────────────────
-        const pushData = {
-
-          type:
-            String(
-              data.type || 'notification'
-            ),
-
-          docId:
-            String(docId),
-
-          agendamentoId:
-            String(
-              data.agendamentoId || ''
-            ),
-
-          clienteNome:
-            String(
-              data.clienteNome || ''
-            ),
-
-          servicoNome:
-            String(
-              data.servicoNome || ''
-            ),
-
-          formaPagamento:
-            String(
-              data.formaPagamento || ''
-            ),
-        };
-
-        // ─────────────────────────
-        // 👤 CLIENTE
-        // ─────────────────────────
-        if (
-          data.tipo === 'cliente' &&
-          data.clienteId
-        ) {
-
-          const tokens =
-            await getTokenUsuario(
-              data.clienteId,
-              'cliente'
-            );
-
-          if (!tokens?.length) {
-            return;
-          }
-
-          await enviarPush(
-            tokens,
-            data.titulo || 'Atualização',
-            data.mensagem || '',
-            pushData
-          );
-
-          console.log(
-            `✅ Push cliente enviado: ${data.clienteId}`
-          );
-        }
-
-        // ─────────────────────────
-        // 🧑‍💼 ADMIN
-        // ─────────────────────────
-        if (
-          data.tipo === 'admin' &&
-          data.adminId
-        ) {
-
-          const tokens =
-            await getTokenUsuario(
-              data.adminId,
-              'admin'
-            );
-
-          if (!tokens?.length) {
-            return;
-          }
-
-          await enviarPush(
-            tokens,
-            data.titulo || 'Nova atualização',
-            data.mensagem || '',
-            pushData
-          );
-
-          console.log(
-            `✅ Push admin enviado: ${data.adminId}`
-          );
-        }
-
-      } catch (err: any) {
-
-        console.error(
-          '❌ Erro ao enviar push:',
-          err?.message || err
+      if (data.tipo === 'cliente' && data.clienteId) {
+        const tokens = await getTokenUsuario(
+          data.clienteId,
+          'cliente'
         );
+
+        if (!tokens?.length) {
+          await snapshot.ref.update({
+            pushEnviado: false,
+            pushErro: 'Sem token',
+            pushTentadoEm: FieldValue.serverTimestamp(),
+          });
+
+          return;
+        }
+
+        await enviarPush(
+          tokens,
+          data.titulo || 'Atualização',
+          data.mensagem || '',
+          pushData
+        );
+
+        await snapshot.ref.update({
+          pushEnviado: true,
+          pushEnviadoEm: FieldValue.serverTimestamp(),
+        });
+
+        console.log(`✅ Push cliente enviado: ${data.clienteId}`);
+        return;
       }
+
+      if (data.tipo === 'admin' && data.adminId) {
+        const tokens = await getTokenUsuario(
+          data.adminId,
+          'admin'
+        );
+
+        if (!tokens?.length) {
+          await snapshot.ref.update({
+            pushEnviado: false,
+            pushErro: 'Sem token',
+            pushTentadoEm: FieldValue.serverTimestamp(),
+          });
+
+          return;
+        }
+
+        await enviarPush(
+          tokens,
+          data.titulo || 'Nova atualização',
+          data.mensagem || '',
+          pushData
+        );
+
+        await snapshot.ref.update({
+          pushEnviado: true,
+          pushEnviadoEm: FieldValue.serverTimestamp(),
+        });
+
+        console.log(`✅ Push admin enviado: ${data.adminId}`);
+      }
+    } catch (err: any) {
+      await snapshot.ref.update({
+        pushEnviado: false,
+        pushErro: String(err?.message || err),
+        pushTentadoEm: FieldValue.serverTimestamp(),
+      });
+
+      console.error(
+        '❌ Erro ao enviar push:',
+        err?.message || err
+      );
     }
-  );
+  }
+);

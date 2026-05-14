@@ -159,41 +159,138 @@ export const iniciarTrial = onCall({ region: REGION }, async (req) => {
     await unlock(estabelecimentoId);
   }
 });
+function limiteEstabelecimentosPorPlano(plano: string) {
+  switch (plano) {
+    case 'trial':
+    case 'essencial':
+      return 2;
 
+    case 'pro':
+      return 5;
+
+    case 'elite':
+      return Infinity;
+
+    default:
+      return 1;
+  }
+}
+
+function limiteServicosPorPlano(plano: string) {
+  switch (plano) {
+    case 'trial':
+    case 'essencial':
+      return 20;
+
+    case 'pro':
+      return 80;
+
+    case 'elite':
+      return Infinity;
+
+    default:
+      return 5;
+  }
+}
 // ─────────────────────────────
 // 🏢 SALVAR ESTABELECIMENTO (REDUZIDO)
 // ─────────────────────────────
-export const salvarEstabelecimento = onCall({ region: REGION }, async (req) => {
-  if (!req.auth) throw new HttpsError('unauthenticated', 'Acesso negado');
+export const salvarEstabelecimento = onCall(
+  { region: REGION },
 
-  const uid = req.auth.uid;
-  const { estabelecimentoId, ...data } = req.data || {};
+  async (req) => {
+    if (!req.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
 
-  const ref = estabelecimentoId
-    ? db.collection('estabelecimentos').doc(estabelecimentoId)
-    : db.collection('estabelecimentos').doc();
+    const uid = req.auth.uid;
+    const { estabelecimentoId, ...data } = req.data || {};
 
-  const snap = await db.collection('estabelecimentos')
-    .where('adminId', '==', uid)
-    .get();
+    const snap = await db
+      .collection('estabelecimentos')
+      .where('adminId', '==', uid)
+      .get();
 
-  const limite = snap.size >= 5;
+    let planoBase = 'free';
 
-  if (!estabelecimentoId && limite) {
-    throw new HttpsError('failed-precondition', 'Limite atingido');
+    if (estabelecimentoId) {
+      const atualSnap = await db
+        .collection('estabelecimentos')
+        .doc(estabelecimentoId)
+        .get();
+
+      const atual = atualSnap.data();
+
+      if (!atualSnap.exists) {
+        throw new HttpsError('not-found', 'Estabelecimento não encontrado');
+      }
+
+      if (atual?.adminId !== uid) {
+        throw new HttpsError('permission-denied', 'Sem permissão');
+      }
+
+      planoBase = atual?.plano || 'free';
+    } else if (!snap.empty) {
+      const principal =
+        snap.docs.find(d => d.data()?.principal) ||
+        snap.docs[0];
+
+      planoBase = principal.data()?.plano || 'free';
+    }
+
+    const limiteEstabs =
+      limiteEstabelecimentosPorPlano(planoBase);
+
+    if (!estabelecimentoId && snap.size >= limiteEstabs) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Seu plano permite até ${limiteEstabs} estabelecimento(s).`
+      );
+    }
+
+    const servicos = Array.isArray(data.servicos)
+      ? data.servicos
+      : [];
+
+    const limiteServicos =
+      limiteServicosPorPlano(planoBase);
+
+    if (servicos.length > limiteServicos) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Seu plano permite até ${limiteServicos} serviço(s).`
+      );
+    }
+
+    const ref = estabelecimentoId
+      ? db.collection('estabelecimentos').doc(estabelecimentoId)
+      : db.collection('estabelecimentos').doc();
+
+    const clean = {
+      ...data,
+      adminId: uid,
+      atualizadoEm: FieldValue.serverTimestamp(),
+    };
+
+    if (!estabelecimentoId) {
+      clean.criadoEm = FieldValue.serverTimestamp();
+      clean.plano = planoBase;
+      clean.assinaturaAtiva = planoBase !== 'free';
+    }
+
+    await ref.set(clean, { merge: true });
+
+    return {
+      ok: true,
+      id: ref.id,
+      plano: planoBase,
+      limites: {
+        estabelecimentos: limiteEstabs,
+        servicos: limiteServicos,
+      },
+    };
   }
-
-  const clean = {
-    ...data,
-    adminId: uid,
-    atualizadoEm: FieldValue.serverTimestamp(),
-  };
-
-  await ref.set(clean, { merge: true });
-
-  return { ok: true, id: ref.id };
-});
-
+);
 // ─────────────────────────────
 // ✔ CONCLUIR AGENDAMENTO
 // ─────────────────────────────
@@ -227,29 +324,6 @@ export const concluirAgendamento = onCall({ region: REGION }, async (req) => {
         status: 'concluido',
         concluidoEm: FieldValue.serverTimestamp(),
       });
-
-     t.set(db.collection('notificacoes').doc(), {
-  clienteId: ag.clienteUid,
-  userId: ag.clienteUid,
-
-  tipo: 'cliente',
-  type: 'APPOINTMENT_DONE',
-
-  titulo: 'Atendimento concluído',
-  mensagem: 'Seu agendamento foi finalizado. Avalie sua experiência.',
-
-  agendamentoId,
-  estabelecimentoId: ag.estabelecimentoId,
-  estabelecimentoNome: ag.estabelecimentoNome || est?.nome || '',
-
-  clienteNome: ag.clienteNome || '',
-  servicoNome: ag.servicoNome || '',
-
-  lida: false,
-  apagada: false,
-
-  criadoEm: FieldValue.serverTimestamp(),
-});
 
       return { ok: true };
     });

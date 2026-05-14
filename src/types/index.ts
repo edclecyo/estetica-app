@@ -34,6 +34,14 @@ export interface Estabelecimento {
   descricao: string;
   horarioFuncionamento: string;
   diasFuncionamento?: string[];
+  intervaloMin?: number;
+  horarioPausa?: {
+    ativo: boolean;
+    inicio: string;
+    fim: string;
+  };
+  diasFechados?: string[];
+  horariosBloqueados?: Record<string, string[]>;
   servicos: Servico[];
   horarios: string[];
   adminId: string;

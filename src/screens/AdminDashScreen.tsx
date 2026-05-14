@@ -20,6 +20,14 @@ import SeloVerificado from '../assets/selo_verificado.png';
 const { width } = Dimensions.get('window');
 const GOLD = '#C9A96E';
 
+const getStoryViews = (story: any) =>
+  Number(
+    story?.visualizacoes ??
+    story?.views ??
+    story?.viewsCount ??
+    0
+  );
+
 // ===== COMPONENT =====
 const EstabImage = ({ item }: { item: Estabelecimento }) => {
   const [imgErro, setImgErro] = useState(false);
@@ -413,6 +421,17 @@ Gerado pelo BeautyHub`;
 
     console.log('Resposta função:', res.data);
 
+    setAgends(prev =>
+      prev.map(ag =>
+        ag.id === id
+          ? {
+              ...ag,
+              status: novoStatus,
+            }
+          : ag
+      )
+    );
+
     Alert.alert(
       'Sucesso ✅',
       novoStatus === 'cancelado'
@@ -509,6 +528,11 @@ const [saindo, setSaindo] = useState(false);
     agends.filter(a => a.status === 'confirmado' || a.status === 'concluido')
       .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
   , [agends]);
+
+  const agendsGerenciaveis = useMemo(
+    () => agends.filter(a => a.status === 'confirmado'),
+    [agends]
+  );
 
   // ✅ chartData usa formatDate que agora está declarado antes
  const chartData = useMemo(() => {
@@ -617,6 +641,8 @@ const [saindo, setSaindo] = useState(false);
   const seloInfo = () => {
     if (verificado) return { titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado', cor: '#4CAF50', emoji: '✅' };
     if (solicitacaoStatus === 'pendente') return { titulo: 'Solicitação em Análise', sub: 'Aguardando aprovação do BeautyHub', cor: '#FF9800', emoji: '⏳' };
+    if (solicitacaoStatus === 'aprovado') return { titulo: 'Selo aprovado', sub: 'Pague a taxa para liberar o selo', cor: GOLD, emoji: '*' };
+    if (solicitacaoStatus === 'pago') return { titulo: 'Selo em liberacao', sub: 'Pagamento confirmado', cor: '#4CAF50', emoji: 'OK' };
     if (solicitacaoStatus === 'rejeitado') return { titulo: 'Solicitação Rejeitada', sub: 'Verifique os critérios e tente novamente', cor: '#F44336', emoji: '❌' };
     if (planoAtual === 'elite') return { titulo: 'Selo Elite Automático', sub: 'Incluído no seu plano Elite', cor: '#9C27B0', emoji: '👑' };
     return { titulo: 'Obter Selo Verificado', sub: 'Plano Pro — solicite o selo por R$ 14,90', cor: GOLD, emoji: '⭐' };
@@ -793,6 +819,34 @@ const [saindo, setSaindo] = useState(false);
     <Text style={s.seloVerificacaoArrow}>→</Text>
   </TouchableOpacity>
 )}
+
+{temEstabelecimento && (
+  <TouchableOpacity
+    style={s.seloVerificacaoBtn}
+    activeOpacity={0.85}
+    onPress={() => navigation.navigate('ImpulsionarScreen', {
+      estabelecimentoId: principal?.id,
+    })}
+  >
+    <View style={s.seloVerificacaoIcon}>
+      <Text style={{ color: GOLD, fontSize: 28, fontWeight: '900' }}>
+        *
+      </Text>
+    </View>
+
+    <View style={{ flex: 1 }}>
+      <Text style={s.seloVerificacaoTitulo}>
+        Impulsionar estabelecimento
+      </Text>
+
+      <Text style={s.seloVerificacaoSub}>
+        Fique em destaque a partir de R$ 5,00
+      </Text>
+    </View>
+
+    <Text style={s.seloVerificacaoArrow}>{'>'}</Text>
+  </TouchableOpacity>
+)}
  
           {/* FATURAMENTO */}
           <View style={s.financeiroCardDash}>
@@ -869,8 +923,18 @@ const [saindo, setSaindo] = useState(false);
             <View style={s.storyTextContent}>
               <Text style={s.storyTitlePremium}>Postar novo Story</Text>
               <Text style={s.storySubPremium}>
-                {isBloqueado ? 'Ative seu plano para liberar' : 'Divulgue novidades para os clientes'}
-              </Text>
+  {isBloqueado
+    ? 'Ative seu plano para liberar'
+    : planoAtual === 'essencial'
+    ? 'Seu plano permite stories com foto'
+    : planoAtual === 'pro'
+    ? 'Foto e vídeo até 15 segundos'
+    : planoAtual === 'elite'
+    ? 'Foto e vídeo até 30 segundos'
+    : planoAtual === 'trial'
+    ? 'Teste Essencial: stories com foto'
+    : 'Divulgue novidades para os clientes'}
+</Text>
             </View>
             {!isBloqueado && (
               <View style={s.storyBadgeNovo}><Text style={s.storyBadgeNovoText}>NOVO</Text></View>
@@ -968,21 +1032,39 @@ const [saindo, setSaindo] = useState(false);
           keyExtractor={item => item.id}
           contentContainerStyle={s.lista}
           ListHeaderComponent={<Text style={s.secTitulo}>Gerenciar Postagens</Text>}
-          renderItem={({ item }) => (
-            <View style={s.storyManageCard}>
-              <Image source={{ uri: item.url }} style={s.storyMiniatura} />
+          renderItem={({ item, index }) => (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={s.storyManageCard}
+              onPress={() => {
+                navigation.navigate('StoryView', {
+                  stories: meusStories,
+                  startIndex: index,
+                });
+              }}
+            >
+              <Image
+                source={{ uri: item.url || item.imagem }}
+                style={s.storyMiniatura}
+              />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={s.storyInfoText}>
   {item?.timestamp?.seconds
     ? new Date(item.timestamp.seconds * 1000).toLocaleDateString('pt-BR')
     : 'Sem data'}
 </Text>
-                <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas  •  👁️ {item.views || 0} views</Text>
+                <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas  •  👁️ {getStoryViews(item)} views</Text>
               </View>
-              <TouchableOpacity style={s.btnLixo} onPress={() => deletarStory(item.id)}>
+              <TouchableOpacity
+                style={s.btnLixo}
+                onPress={event => {
+                  event.stopPropagation();
+                  deletarStory(item.id);
+                }}
+              >
                 <Text style={{ fontSize: 18 }}>🗑️</Text>
               </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           )}
           ListEmptyComponent={<Text style={s.emptyText}>Você ainda não postou stories.</Text>}
         />
@@ -991,7 +1073,7 @@ const [saindo, setSaindo] = useState(false);
       {/* ─── ABA AGENDAMENTOS ─── */}
       {aba === 'agends' && (
         <FlatList
-          data={agends}
+          data={agendsGerenciaveis}
           keyExtractor={a => a.id}
           contentContainerStyle={s.lista}
           ListHeaderComponent={
@@ -1001,6 +1083,11 @@ const [saindo, setSaindo] = useState(false);
                 <Text style={s.btnPdfText}>📄 PDF</Text>
               </TouchableOpacity>
             </View>
+          }
+          ListEmptyComponent={
+            <Text style={s.emptyText}>
+              Nenhum agendamento confirmado para gerenciar.
+            </Text>
           }
           renderItem={({ item }) => (
             <View style={s.agendCard}>
@@ -1081,12 +1168,12 @@ const [saindo, setSaindo] = useState(false);
   }
 
   const limitePorPlano: Record<string, number> = {
-    free: 1,
-    trial: 1,
-    essencial: 2,
-    pro: 5,
-    elite: Infinity,
-  };
+  free: 1,
+  trial: 2,
+  essencial: 2,
+  pro: 5,
+  elite: Infinity,
+};
 
   const limite = limitePorPlano[planoAtual || 'free'] ?? 0;
 

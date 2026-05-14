@@ -4,7 +4,8 @@ import {
   ActivityIndicator, Alert, TextInput, StatusBar, Platform, Switch,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
-import functions from '@react-native-firebase/functions';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
 const GOLD = '#C9A96E';
@@ -35,7 +36,7 @@ export default function SuperAdminEstabsScreen() {
   // ✅ Listener de solicitações de selo pendentes
   useEffect(() => {
     const unsub = firestore()
-      .collection('solicitacoesSelo')
+      .collection('solicitacoesVerificacao')
       .where('status', '==', 'pendente')
       .onSnapshot(
         snap => setSolicitacoes(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
@@ -115,7 +116,17 @@ export default function SuperAdminEstabsScreen() {
           style: aprovado ? 'default' : 'destructive',
           onPress: async () => {
             try {
-              await functions().httpsCallable('responderSolicitacaoSelo')({
+              const functionsInstance = getFunctions(
+                getApp(),
+                'southamerica-east1'
+              );
+
+              const fn = httpsCallable(
+                functionsInstance,
+                'responderSolicitacaoSelo'
+              );
+
+              await fn({
                 solicitacaoId,
                 aprovado,
                 motivo: aprovado ? 'Aprovado pelo Super Admin' : 'Não atende os critérios necessários',

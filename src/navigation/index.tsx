@@ -27,6 +27,8 @@ import CheckoutPagamentoScreen from '../screens/CheckoutPagamentoScreen';
 import CartaoScreen from '../screens/CartaoScreen';
 import ContaBancariaScreen from '../screens/ContaBancariaScreen';
 import SeloVerificacaoScreen from '../screens/SeloVerificacaoScreen';
+import SeloPagamentoScreen from '../screens/SeloPagamentoScreen';
+import ImpulsionarScreen from '../screens/ImpulsionarScreen';
 
 // Telas Super Admin
 import SuperAdminDashScreen from '../screens/SuperAdminDashScreen';
@@ -100,6 +102,12 @@ export default function Navigation() {
         case 'assinatura':
           if (isAdmin) navigationRef.current.navigate('Assinatura');
           break;
+        case 'selo':
+          if (isAdmin) navigationRef.current.navigate('SeloVerificacaoScreen');
+          break;
+        case 'impulsionar':
+          if (isAdmin) navigationRef.current.navigate('ImpulsionarScreen');
+          break;
         default:
           break;
       }
@@ -143,6 +151,8 @@ export default function Navigation() {
 			   <Stack.Screen name="CartaoScreen" component={CartaoScreen} />
 			   <Stack.Screen name="ContaBancariaScreen" component={ContaBancariaScreen} />
 			   <Stack.Screen name="SeloVerificacaoScreen" component={SeloVerificacaoScreen}/>
+			   <Stack.Screen name="SeloPagamentoScreen" component={SeloPagamentoScreen}/>
+			   <Stack.Screen name="ImpulsionarScreen" component={ImpulsionarScreen}/>
           </Stack.Group>
 
         // ─── CLIENTE ───

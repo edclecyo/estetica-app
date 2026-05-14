@@ -180,8 +180,9 @@ export const webhookMercadoPago = onRequest(
 
         if (isApproved) {
           await ref.update({
-            plano: data?.planoPendente ?? data?.plano,
-            planoPendente: admin.firestore.FieldValue.delete(),
+  plano: data?.planoPendente ?? data?.plano,
+  planoAprovado: data?.planoPendente ?? data?.plano,
+  planoPendente: admin.firestore.FieldValue.delete(),
 
             assinaturaAtiva: true,
             statusPlano: 'ativo',
@@ -193,6 +194,7 @@ export const webhookMercadoPago = onRequest(
             pixPagamentoId: paymentId,
             pixProcessado: paymentId,
             webhookProcessedPix: paymentId,
+			pagamentoAprovadoId: paymentId,
 
             expiraEm: admin.firestore.Timestamp.fromDate(
               new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
@@ -283,25 +285,27 @@ export const webhookMercadoPago = onRequest(
 
         if (isApproved) {
           await ref.update({
-            plano: data?.planoPendente ?? data?.plano,
-            planoPendente: admin.firestore.FieldValue.delete(),
+  plano: data?.planoPendente ?? data?.plano,
+  planoAprovado: data?.planoPendente ?? data?.plano,
+  planoPendente: admin.firestore.FieldValue.delete(),
 
-            assinaturaAtiva: true,
-            statusPlano: 'ativo',
+  assinaturaAtiva: true,
+  statusPlano: 'ativo',
 
-            paymentStatus: 'approved',
-            paymentType: 'credit_card',
+  paymentStatus: 'approved',
+  paymentType: 'credit_card',
 
-            pagamentoId: paymentId,
+  pagamentoId: paymentId,
+  pagamentoAprovadoId: paymentId,
 
-            statusDetail: mpData.status_detail || null,
+  statusDetail: mpData.status_detail || null,
 
-            expiraEm: admin.firestore.Timestamp.fromDate(
-              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-            ),
+  expiraEm: admin.firestore.Timestamp.fromDate(
+    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  ),
 
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-          });
+  atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+});
 
           console.log('✅ CARTÃO APROVADO:', paymentId);
         } else {

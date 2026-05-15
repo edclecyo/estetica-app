@@ -246,7 +246,16 @@ export const criarAgendamento = onCall(
       for (let m = inicioMin; m < fimMin; m += step) {
         slotsOcupados.push(toHHMM(m));
       }
+const conflitoComBloqueio = slotsOcupados.some(slot =>
+  horariosBloqueados.includes(slot)
+);
 
+if (conflitoComBloqueio) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Horário bloqueado pelo estabelecimento'
+  );
+}
       const conflitoSnaps = await Promise.all(
         slotsOcupados.map((slot) =>
           t.get(

@@ -10,6 +10,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import StoriesHeader from '../components/StoriesHeader';
 import type { Estabelecimento } from '../types';
+import Geolocation from '@react-native-community/geolocation';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { escutarNotificacoes } from '../services/notificacao.service';
@@ -412,42 +413,58 @@ export default function HomeScreen() {
   }, [user?.uid]);
 
   useEffect(() => {
-    const obterPosicao = async () => {
+
+  const obterPosicao = async () => {
+
+    try {
+
       if (Platform.OS === 'android') {
+
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
         );
 
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
-      }
-
-      try {
-        // @ts-ignore
-        if (navigator && navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (pos: any) => {
-              setLocalizacao({
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude,
-              });
-            },
-            (err: any) => {
-              console.log('Erro GPS:', err);
-            },
-            {
-              enableHighAccuracy: true,
-              timeout: 15000,
-              maximumAge: 10000,
-            }
-          );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          console.log('Permissão negada');
+          return;
         }
-      } catch (error) {
-        console.log('Erro ao obter localização:', error);
       }
-    };
 
-    obterPosicao();
-  }, []);
+      Geolocation.getCurrentPosition(
+
+        pos => {
+
+          console.log(
+            'LOCALIZAÇÃO CLIENTE:',
+            pos.coords.latitude,
+            pos.coords.longitude
+          );
+
+          setLocalizacao({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+        },
+
+        err => {
+          console.log('Erro GPS:', err);
+        },
+
+        {
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 10000,
+        }
+      );
+
+    } catch (error) {
+      console.log('Erro localização:', error);
+    }
+  };
+
+  obterPosicao();
+
+}, []);
 
   useEffect(() => {
     const unsub = auth().onAuthStateChanged(u => setUser(u));
@@ -591,20 +608,39 @@ export default function HomeScreen() {
           }}
         >
           <View style={[s.card, { marginBottom: 0, borderWidth: 0 }]}>
-            {dist !== null && (
-              <View style={s.distRow}>
-                <Icon
-                  name="map-marker-outline"
-                  size={13}
-                  color={GOLD}
-                  style={{ marginRight: 4 }}
-                />
+           {dist !== null && (
+  <View style={sv.distFloating}>
+    <LinearGradient
+      colors={[
+        'rgba(0,0,0,0.92)',
+        'rgba(25,25,25,0.96)',
+      ]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={sv.distFloatingGradient}
+    >
 
-                <Text style={s.distBadgeText}>
-                  {formatarDistancia(dist)}
-                </Text>
-              </View>
-            )}
+      <View style={sv.distIconWrap}>
+        <Icon
+          name="map-marker"
+          size={12}
+          color="#000"
+        />
+      </View>
+
+      <View>
+        <Text style={sv.distFloatingMini}>
+          DISTÂNCIA
+        </Text>
+
+        <Text style={sv.distFloatingText}>
+          {formatarDistancia(dist)} de você
+        </Text>
+      </View>
+
+    </LinearGradient>
+  </View>
+)}
 
             <View style={s.cardHeaderCircular}>
               <View
@@ -930,11 +966,51 @@ const sv = StyleSheet.create({
   statusTxt: { fontSize: 10, fontWeight: '700' },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   ratingStar: { color: GOLD, fontSize: 12 },
+  
   ratingVal: { color: GOLD, fontSize: 11, fontWeight: '700' },
   eliteBadge: { backgroundColor: 'rgba(156,39,176,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, marginTop: 4 },
   eliteText: { color: '#9C27B0', fontSize: 9, fontWeight: '800' },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 5, marginTop: 10 },
   dot: { width: 6, height: 6, borderRadius: 3 },
+  distFloating: {
+  position: 'absolute',
+  top: 14,
+  right: 14,
+  zIndex: 20,
+},
+
+distFloatingGradient: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  borderRadius: 18,
+  paddingVertical: 7,
+  paddingHorizontal: 10,
+  borderWidth: 1,
+  borderColor: 'rgba(201,169,110,0.35)',
+},
+
+distIconWrap: {
+  width: 24,
+  height: 24,
+  borderRadius: 12,
+  backgroundColor: GOLD,
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 8,
+},
+
+distFloatingMini: {
+  color: '#777',
+  fontSize: 8,
+  fontWeight: '800',
+  letterSpacing: 1,
+},
+
+distFloatingText: {
+  color: '#FFF',
+  fontSize: 11,
+  fontWeight: '800',
+},
 });
 
 const s = StyleSheet.create({
@@ -979,20 +1055,7 @@ const s = StyleSheet.create({
   chipText: { color: '#888' },
   lista: { paddingHorizontal: 16, paddingBottom: 32 },
   card: { backgroundColor: '#111', borderRadius: 28, marginBottom: 24, borderWidth: 1, borderColor: '#222', paddingBottom: 8 },
-  distRow: {
-    alignSelf: 'flex-end',
-    marginTop: 12,
-    marginRight: 14,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(201,169,110,0.4)',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  distBadgeText: { color: GOLD, fontSize: 11, fontWeight: '800' },
+  
   cardHeaderCircular: { alignItems: 'center', paddingTop: 12, paddingBottom: 8 },
   imageContainer: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', borderWidth: 2, overflow: 'hidden' },
   circleImage: { width: '100%', height: '100%' },

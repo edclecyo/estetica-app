@@ -1,47 +1,58 @@
-import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-
-import { db } from '../config/firebase';
-import { REGION } from '../config/region';
-import { dataKey, gerarSlots } from '../utils/helpers';
-
-// ─────────────────────────────────────────────
-// 📌 LEMBRETE DE AGENDAMENTO
-// Cria notificação no Firestore.
-// O push será enviado pelo trigger aoCriarNotificacao.
-// ─────────────────────────────────────────────
 export const lembreteAgendamento = onSchedule(
   {
     region: REGION,
-    schedule: 'every 30 minutes',
+    schedule: 'every 5 minutes',
+    timeZone: 'America/Fortaleza',
     memory: '256MiB',
     timeoutSeconds: 120,
   },
 
   async () => {
-    const agora = Timestamp.now();
+    const agora = new Date();
+
+    const janelaInicio = new Date(agora.getTime() - 5 * 60 * 1000);
+    const janelaFim = new Date(agora.getTime() + 60 * 60 * 1000);
 
     const snap = await db
       .collection('agendamentos')
       .where('notificado', '==', false)
-      .where('notificarEm', '<=', agora)
       .where('status', '==', 'confirmado')
-      .limit(150)
+      .limit(300)
       .get();
 
-    if (snap.empty) {
-      return;
-    }
+    if (snap.empty) return;
 
     const batch = db.batch();
 
     const expiraData = new Date();
     expiraData.setDate(expiraData.getDate() + 30);
-
     const expiraNotificacao = Timestamp.fromDate(expiraData);
+
+    let total = 0;
 
     for (const doc of snap.docs) {
       const ag = doc.data();
+
+      if (!ag.data || !ag.horario) continue;
+
+      const [dia, mes, ano] = String(ag.data).split('/');
+      const [hora, minuto] = String(ag.horario).split(':');
+
+      const inicioAgendamento = new Date(
+        Number(ano),
+        Number(mes) - 1,
+        Number(dia),
+        Number(hora),
+        Number(minuto || 0)
+      );
+
+      if (isNaN(inicioAgendamento.getTime())) continue;
+
+      const dentroDaJanela =
+        inicioAgendamento >= janelaInicio &&
+        inicioAgendamento <= janelaFim;
+
+      if (!dentroDaJanela) continue;
 
       if (!ag.clienteUid) {
         batch.update(doc.ref, {
@@ -51,10 +62,8 @@ export const lembreteAgendamento = onSchedule(
         continue;
       }
 
-      // 🔔 CLIENTE
       batch.set(db.collection('notificacoes').doc(), {
         tipo: 'cliente',
-
         clienteId: ag.clienteUid,
         userId: ag.clienteUid,
         adminId: null,
@@ -79,11 +88,9 @@ export const lembreteAgendamento = onSchedule(
         expiraEm: expiraNotificacao,
       });
 
-      // 🔔 ADMIN
       if (ag.adminId) {
         batch.set(db.collection('notificacoes').doc(), {
           tipo: 'admin',
-
           adminId: ag.adminId,
           userId: ag.adminId,
           clienteId: null,
@@ -113,146 +120,14 @@ export const lembreteAgendamento = onSchedule(
         notificado: true,
         notificadoEm: FieldValue.serverTimestamp(),
       });
+
+      total++;
     }
 
-    await batch.commit();
-
-    console.log(`✅ ${snap.size} lembretes criados`);
-  }
-);
-
-// ─────────────────────────────────────────────
-// ⛔ EXPIRAR AGENDAMENTOS
-// Libera horários ocupados de agendamentos vencidos.
-// ─────────────────────────────────────────────
-export const expirarAgendamentos = onSchedule(
-  {
-    region: REGION,
-    schedule: 'every 5 minutes',
-    memory: '256MiB',
-    timeoutSeconds: 120,
-  },
-
-  async () => {
-    const agora = Date.now();
-
-    const pageSize = 500;
-
-    let lastDoc:
-      | FirebaseFirestore.QueryDocumentSnapshot
-      | undefined;
-
-    while (true) {
-     let query = db
-  .collection('agendamentos')
-  .where('status', '==', 'pendente')
-  .limit(pageSize);
-
-      if (lastDoc) {
-        query = query.startAfter(lastDoc);
-      }
-
-      const snap = await query.get();
-
-      if (snap.empty) {
-        break;
-      }
-
-      let batch = db.batch();
-      let ops = 0;
-
-      for (const doc of snap.docs) {
-        const ag = doc.data();
-
-        if (!ag.data || !ag.horario) {
-          continue;
-        }
-
-        const [dia, mes, ano] =
-          String(ag.data).split('/');
-
-        const [hora, minuto] =
-          String(ag.horario).split(':');
-
-        const inicio = new Date(
-          Number(ano),
-          Number(mes) - 1,
-          Number(dia),
-          Number(hora),
-          Number(minuto || 0)
-        );
-
-        if (isNaN(inicio.getTime())) {
-          continue;
-        }
-
-        const duracao =
-          Number(ag.servicoDuracaoMin || 30);
-
-        const fim = new Date(
-          inicio.getTime() + duracao * 60000
-        );
-
-        if (fim.getTime() <= agora) {
-          batch.update(doc.ref, {
-            status: 'expirado',
-            expiradoEm:
-              FieldValue.serverTimestamp(),
-            atualizadoEm:
-              FieldValue.serverTimestamp(),
-          });
-
-          ops++;
-
-          const key = dataKey(ag.data);
-          const slots = gerarSlots(
-            ag.horario,
-            duracao
-          );
-
-          for (const horaSlot of slots) {
-            batch.delete(
-              db
-                .collection('horariosOcupados')
-                .doc(
-                  `${ag.estabelecimentoId}_${key}_${horaSlot}`
-                )
-            );
-
-            ops++;
-          }
-
-          if (
-            ag.clienteUid &&
-            ag.data &&
-            ag.horario
-          ) {
-            batch.delete(
-              db
-                .collection('agendamentoLocks')
-                .doc(
-                  `${ag.clienteUid}_${ag.data}_${ag.horario}`
-                )
-            );
-
-            ops++;
-          }
-        }
-
-        if (ops >= 450) {
-          await batch.commit();
-          batch = db.batch();
-          ops = 0;
-        }
-      }
-
-      if (ops > 0) {
-        await batch.commit();
-      }
-
-      lastDoc = snap.docs[snap.docs.length - 1];
+    if (total > 0) {
+      await batch.commit();
     }
 
-    console.log('✅ Expiração de agendamentos concluída');
+    console.log(`✅ ${total} lembretes criados`);
   }
 );

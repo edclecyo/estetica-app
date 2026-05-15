@@ -20,14 +20,6 @@ import SeloVerificado from '../assets/selo_verificado.png';
 const { width } = Dimensions.get('window');
 const GOLD = '#C9A96E';
 
-const getStoryViews = (story: any) =>
-  Number(
-    story?.visualizacoes ??
-    story?.views ??
-    story?.viewsCount ??
-    0
-  );
-
 // ===== COMPONENT =====
 const EstabImage = ({ item }: { item: Estabelecimento }) => {
   const [imgErro, setImgErro] = useState(false);
@@ -305,25 +297,19 @@ const checarBloqueio = () => {
   console.log('🔔 ESCUTANDO NOTIFICAÇÕES ADMIN:', admin.id);
 
   const unsubNotif = firestore()
-    .collection('notificacoes')
-    .where('adminId', '==', admin.id)
-    .where('tipo', '==', 'admin')
-    .where('lida', '==', false)
-    .onSnapshot(
-      snap => {
-
-        console.log('🔔 TOTAL NÃO LIDAS:', snap.size);
-
-        snap.docs.forEach(doc => {
-          console.log('NOTIF:', doc.id, doc.data());
-        });
-
-        setNotifNaoLidas(snap.size);
-      },
-      err => {
-        console.log('ERRO NOTIF:', err);
-      }
-    );
+  .collection('notificacoes')
+  .where('adminId', '==', admin.id)
+  .where('tipo', '==', 'admin')
+  .where('lida', '==', false)
+  .where('apagada', '==', false)
+  .onSnapshot(
+    snap => {
+      setNotifNaoLidas(snap?.size || 0);
+    },
+    err => {
+      console.log('ERRO NOTIF:', err);
+    }
+  );
 
   return () => unsubNotif();
 
@@ -421,17 +407,6 @@ Gerado pelo BeautyHub`;
 
     console.log('Resposta função:', res.data);
 
-    setAgends(prev =>
-      prev.map(ag =>
-        ag.id === id
-          ? {
-              ...ag,
-              status: novoStatus,
-            }
-          : ag
-      )
-    );
-
     Alert.alert(
       'Sucesso ✅',
       novoStatus === 'cancelado'
@@ -528,11 +503,6 @@ const [saindo, setSaindo] = useState(false);
     agends.filter(a => a.status === 'confirmado' || a.status === 'concluido')
       .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
   , [agends]);
-
-  const agendsGerenciaveis = useMemo(
-    () => agends.filter(a => a.status === 'confirmado'),
-    [agends]
-  );
 
   // ✅ chartData usa formatDate que agora está declarado antes
  const chartData = useMemo(() => {
@@ -641,8 +611,6 @@ const [saindo, setSaindo] = useState(false);
   const seloInfo = () => {
     if (verificado) return { titulo: 'Selo Verificado Ativo', sub: 'Seu estabelecimento é verificado', cor: '#4CAF50', emoji: '✅' };
     if (solicitacaoStatus === 'pendente') return { titulo: 'Solicitação em Análise', sub: 'Aguardando aprovação do BeautyHub', cor: '#FF9800', emoji: '⏳' };
-    if (solicitacaoStatus === 'aprovado') return { titulo: 'Selo aprovado', sub: 'Pague a taxa para liberar o selo', cor: GOLD, emoji: '*' };
-    if (solicitacaoStatus === 'pago') return { titulo: 'Selo em liberacao', sub: 'Pagamento confirmado', cor: '#4CAF50', emoji: 'OK' };
     if (solicitacaoStatus === 'rejeitado') return { titulo: 'Solicitação Rejeitada', sub: 'Verifique os critérios e tente novamente', cor: '#F44336', emoji: '❌' };
     if (planoAtual === 'elite') return { titulo: 'Selo Elite Automático', sub: 'Incluído no seu plano Elite', cor: '#9C27B0', emoji: '👑' };
     return { titulo: 'Obter Selo Verificado', sub: 'Plano Pro — solicite o selo por R$ 14,90', cor: GOLD, emoji: '⭐' };
@@ -819,35 +787,34 @@ const [saindo, setSaindo] = useState(false);
     <Text style={s.seloVerificacaoArrow}>→</Text>
   </TouchableOpacity>
 )}
-
+ {/* BOTÃO IMPULSIONAR */}
 {temEstabelecimento && (
   <TouchableOpacity
-    style={s.seloVerificacaoBtn}
+    style={s.impulsionarBtn}
     activeOpacity={0.85}
-    onPress={() => navigation.navigate('ImpulsionarScreen', {
-      estabelecimentoId: principal?.id,
-    })}
+    onPress={() =>
+      navigation.navigate('ImpulsionarScreen', {
+        estabelecimentoId: principal?.id,
+      })
+    }
   >
-    <View style={s.seloVerificacaoIcon}>
-      <Text style={{ color: GOLD, fontSize: 28, fontWeight: '900' }}>
-        *
-      </Text>
+    <View style={s.impulsionarIcon}>
+      <Text style={{ fontSize: 26 }}>🚀</Text>
     </View>
 
     <View style={{ flex: 1 }}>
-      <Text style={s.seloVerificacaoTitulo}>
+      <Text style={s.impulsionarTitulo}>
         Impulsionar estabelecimento
       </Text>
 
-      <Text style={s.seloVerificacaoSub}>
-        Fique em destaque a partir de R$ 5,00
+      <Text style={s.impulsionarSub}>
+        Coloque seu espaço em destaque para mais clientes
       </Text>
     </View>
 
-    <Text style={s.seloVerificacaoArrow}>{'>'}</Text>
+    <Text style={s.impulsionarArrow}>→</Text>
   </TouchableOpacity>
 )}
- 
           {/* FATURAMENTO */}
           <View style={s.financeiroCardDash}>
             <Text style={s.financeiroTitulo}>RESUMO DE FATURAMENTO</Text>
@@ -932,7 +899,7 @@ const [saindo, setSaindo] = useState(false);
     : planoAtual === 'elite'
     ? 'Foto e vídeo até 30 segundos'
     : planoAtual === 'trial'
-    ? 'Teste Essencial: stories com foto'
+    ? 'Teste liberado: foto e vídeo até 15s'
     : 'Divulgue novidades para os clientes'}
 </Text>
             </View>
@@ -1032,39 +999,21 @@ const [saindo, setSaindo] = useState(false);
           keyExtractor={item => item.id}
           contentContainerStyle={s.lista}
           ListHeaderComponent={<Text style={s.secTitulo}>Gerenciar Postagens</Text>}
-          renderItem={({ item, index }) => (
-            <TouchableOpacity
-              activeOpacity={0.9}
-              style={s.storyManageCard}
-              onPress={() => {
-                navigation.navigate('StoryView', {
-                  stories: meusStories,
-                  startIndex: index,
-                });
-              }}
-            >
-              <Image
-                source={{ uri: item.url || item.imagem }}
-                style={s.storyMiniatura}
-              />
+          renderItem={({ item }) => (
+            <View style={s.storyManageCard}>
+              <Image source={{ uri: item.url }} style={s.storyMiniatura} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={s.storyInfoText}>
   {item?.timestamp?.seconds
     ? new Date(item.timestamp.seconds * 1000).toLocaleDateString('pt-BR')
     : 'Sem data'}
 </Text>
-                <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas  •  👁️ {getStoryViews(item)} views</Text>
+                <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas  •  👁️ {item.views || 0} views</Text>
               </View>
-              <TouchableOpacity
-                style={s.btnLixo}
-                onPress={event => {
-                  event.stopPropagation();
-                  deletarStory(item.id);
-                }}
-              >
+              <TouchableOpacity style={s.btnLixo} onPress={() => deletarStory(item.id)}>
                 <Text style={{ fontSize: 18 }}>🗑️</Text>
               </TouchableOpacity>
-            </TouchableOpacity>
+            </View>
           )}
           ListEmptyComponent={<Text style={s.emptyText}>Você ainda não postou stories.</Text>}
         />
@@ -1073,7 +1022,7 @@ const [saindo, setSaindo] = useState(false);
       {/* ─── ABA AGENDAMENTOS ─── */}
       {aba === 'agends' && (
         <FlatList
-          data={agendsGerenciaveis}
+          data={agends}
           keyExtractor={a => a.id}
           contentContainerStyle={s.lista}
           ListHeaderComponent={
@@ -1083,11 +1032,6 @@ const [saindo, setSaindo] = useState(false);
                 <Text style={s.btnPdfText}>📄 PDF</Text>
               </TouchableOpacity>
             </View>
-          }
-          ListEmptyComponent={
-            <Text style={s.emptyText}>
-              Nenhum agendamento confirmado para gerenciar.
-            </Text>
           }
           renderItem={({ item }) => (
             <View style={s.agendCard}>
@@ -1271,7 +1215,45 @@ const s = StyleSheet.create({
   borderWidth: 1,
   borderColor: 'rgba(201,169,110,0.25)',
 },
+impulsionarBtn: {
+  backgroundColor: '#1A1A1A',
+  borderRadius: 22,
+  padding: 18,
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 20,
+  borderWidth: 1,
+  borderColor: 'rgba(201,169,110,0.25)',
+},
 
+impulsionarIcon: {
+  width: 58,
+  height: 58,
+  borderRadius: 18,
+  backgroundColor: 'rgba(201,169,110,0.12)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 16,
+},
+
+impulsionarTitulo: {
+  color: '#FFF',
+  fontSize: 15,
+  fontWeight: '800',
+},
+
+impulsionarSub: {
+  color: '#AAA',
+  fontSize: 12,
+  marginTop: 4,
+  lineHeight: 18,
+},
+
+impulsionarArrow: {
+  color: GOLD,
+  fontSize: 22,
+  fontWeight: '800',
+},
 seloVerificacaoIcon: {
   width: 58,
   height: 58,

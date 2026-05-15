@@ -197,8 +197,10 @@ const lista = snap.docs
         .collection('notificacoes')
         .doc(item.id)
         .update({
-          apagada: true,
-        });
+  apagada: true,
+  lida: true,
+  apagadaEm: firestore.FieldValue.serverTimestamp(),
+});
 
     } catch (e) {
       console.log('Erro apagar notificação:', e);
@@ -238,9 +240,11 @@ const lista = snap.docs
           .collection('notificacoes')
           .doc(item.id);
 
-        batch.update(ref, {
-          apagada: true,
-        });
+       batch.update(ref, {
+  apagada: true,
+  lida: true,
+  apagadaEm: firestore.FieldValue.serverTimestamp(),
+});
       });
 
       await batch.commit();

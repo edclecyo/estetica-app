@@ -24,49 +24,59 @@ export default function AgendamentosScreen() {
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(auth().currentUser);
   const [filtro, setFiltro] = useState('todos');
 
-  // 🔐 AUTH
   useEffect(() => {
-  const unsubscribeAuth = auth().onAuthStateChanged(u => {
-    setUser(u);
-  });
+    const unsubscribeAuth = auth().onAuthStateChanged(u => {
+      setUser(u);
+    });
 
-  return unsubscribeAuth;
-}, []);
+    return unsubscribeAuth;
+  }, []);
 
-  // 📦 FIRESTORE
- useEffect(() => {
-  if (!user?.uid) return;
-
-  setLoading(true);
-
-  const ref = firestore()
-    .collection('agendamentos')
-    .where('clienteUid', '==', user.uid)
-    .orderBy('criadoEm', 'desc');
-
-  const unsubscribe = ref.onSnapshot(
-    snap => {
-      const dados = snap.docs
-        .map(d => ({
-          id: d.id,
-          ...d.data(),
-        }))
-        // 🔥 filtro LOCAL evita erro de índice
-        .filter((a: any) => a.deletado !== true);
-
-      setAgendamentos(dados as Agendamento[]);
+  useEffect(() => {
+    if (!user?.uid) {
+      setAgendamentos([]);
       setLoading(false);
-    },
-    error => {
-      console.log('Firestore error:', error);
-      setLoading(false);
+      return;
     }
-  );
 
-  return unsubscribe;
-}, [user?.uid]);
+    setLoading(true);
 
-  // 🚪 LOGOUT
+    const ref = firestore()
+      .collection('agendamentos')
+      .where('clienteUid', '==', user.uid);
+
+    const unsubscribe = ref.onSnapshot(
+      snap => {
+        if (!snap) {
+          setAgendamentos([]);
+          setLoading(false);
+          return;
+        }
+
+        const dados = snap.docs
+          .map(d => ({
+            id: d.id,
+            ...d.data(),
+          }))
+          .filter((a: any) => a.deletado !== true)
+          .sort((a: any, b: any) => {
+            const aTime = a.criadoEm?.toMillis?.() || 0;
+            const bTime = b.criadoEm?.toMillis?.() || 0;
+            return bTime - aTime;
+          });
+
+        setAgendamentos(dados as Agendamento[]);
+        setLoading(false);
+      },
+      error => {
+        console.log('Firestore error:', error);
+        setLoading(false);
+      }
+    );
+
+    return unsubscribe;
+  }, [user?.uid]);
+
   const handleLogout = () => {
     Alert.alert('Sair', 'Deseja sair da sua conta?', [
       { text: 'Cancelar', style: 'cancel' },
@@ -76,8 +86,14 @@ export default function AgendamentosScreen() {
         onPress: async () => {
           try {
             await auth().signOut();
-            try { await GoogleSignin.signOut(); } catch {}
-            navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] });
+            try {
+              await GoogleSignin.signOut();
+            } catch {}
+
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'HomeTabs' }],
+            });
           } catch (e) {
             console.log('Erro logout:', e);
           }
@@ -86,7 +102,6 @@ export default function AgendamentosScreen() {
     ]);
   };
 
-  // 🎨 STATUS
   const statusConfig = (status: string) => {
     switch (status) {
       case 'confirmado':
@@ -99,35 +114,20 @@ export default function AgendamentosScreen() {
         return { cor: '#FF9800', bg: '#FFF3E0', label: '⏳ Pendente' };
     }
   };
-const removerAgendamentoLocal = async (id: string) => {
-  try {
-    await firestore()
-      .collection('agendamentos')
-      .doc(id)
-      .update({
-        deletado: true,
-        atualizadoEm: firestore.FieldValue.serverTimestamp(),
-      });
 
-    // remove da tela instantaneamente
-   
-  } catch (e) {
-    console.log('Erro ao deletar:', e);
-  }
-};
   const formatarDataConclusao = (timestamp: any) => {
     if (!timestamp) return '';
+
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+
     return date.toLocaleDateString('pt-BR');
   };
 
-  // 🔍 FILTRO LIMPO
   const filtrados = agendamentos.filter(a => {
     if (filtro === 'todos') return true;
     return a.status === filtro;
   });
 
-  // ⏳ LOADING
   if (loading) {
     return (
       <View style={s.center}>
@@ -136,12 +136,12 @@ const removerAgendamentoLocal = async (id: string) => {
     );
   }
 
-  // 🔒 SEM LOGIN
   if (!user) {
     return (
       <View style={s.center}>
         <Text style={s.emptyEmoji}>🔒</Text>
         <Text style={s.emptyTitulo}>Faça login para ver seus horários</Text>
+
         <TouchableOpacity
           style={s.btnPrimario}
           onPress={() => navigation.navigate('ClienteLogin')}
@@ -154,8 +154,6 @@ const removerAgendamentoLocal = async (id: string) => {
 
   return (
     <View style={s.container}>
-
-      {/* HEADER */}
       <View style={s.header}>
         <View>
           <Text style={s.headerSub}>SEUS HORÁRIOS</Text>
@@ -169,16 +167,27 @@ const removerAgendamentoLocal = async (id: string) => {
         </TouchableOpacity>
       </View>
 
-      {/* FILTROS */}
       <View style={s.filtroWrap}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtroScroll}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.filtroScroll}
+        >
           {FILTROS.map(f => (
             <TouchableOpacity
               key={f.value}
               onPress={() => setFiltro(f.value)}
-              style={[s.chip, filtro === f.value && s.chipAtivo]}
+              style={[
+                s.chip,
+                filtro === f.value && s.chipAtivo,
+              ]}
             >
-              <Text style={[s.chipText, filtro === f.value && s.chipTextAtivo]}>
+              <Text
+                style={[
+                  s.chipText,
+                  filtro === f.value && s.chipTextAtivo,
+                ]}
+              >
                 {f.label}
               </Text>
             </TouchableOpacity>
@@ -186,7 +195,6 @@ const removerAgendamentoLocal = async (id: string) => {
         </ScrollView>
       </View>
 
-      {/* LISTA */}
       <FlatList
         data={filtrados}
         keyExtractor={item => item.id}
@@ -199,41 +207,52 @@ const removerAgendamentoLocal = async (id: string) => {
         }
         renderItem={({ item }) => {
           const st = statusConfig(item.status);
-          const podeAvaliar = item.status === 'concluido' && !item.avaliacao;
+
+          const jaAvaliado =
+            (item as any).avaliacao ||
+            (item as any).avaliacaoCliente ||
+            (item as any).avaliadoPeloCliente === true;
+
+          const podeAvaliar =
+            item.status === 'concluido' &&
+            !jaAvaliado;
 
           return (
             <View style={[s.card, { borderLeftColor: st.cor }]}>
-
               <View style={s.cardConteudo}>
-
-                {/* FOTO */}
                 <View style={s.cardImagemLateral}>
-                  {item.estabelecimentoFoto ? (
-                    <Image source={{ uri: item.estabelecimentoFoto }} style={s.fotoReal} />
+                  {(item as any).estabelecimentoFoto ? (
+                    <Image
+                      source={{ uri: (item as any).estabelecimentoFoto }}
+                      style={s.fotoReal}
+                    />
                   ) : (
                     <Text style={s.emojiLateral}>🏢</Text>
                   )}
                 </View>
 
-                {/* INFO */}
                 <View style={s.cardCorpo}>
-                  <Text style={s.cardEstab}>{item.estabelecimentoNome}</Text>
-                  <Text style={s.cardServico}>{item.servicoNome}</Text>
+                  <Text style={s.cardEstab}>
+                    {item.estabelecimentoNome}
+                  </Text>
+
+                  <Text style={s.cardServico}>
+                    {item.servicoNome}
+                  </Text>
 
                   <View style={s.cardInfo}>
                     <Text style={s.cardInfoTxt}>📅 {item.data}</Text>
                     <Text style={s.cardInfoTxt}>⏰ {item.horario}</Text>
                   </View>
 
-                  {/* 💳 PAGAMENTO */}
                   {item.formaPagamento === 'app' && (
-                    <Text style={{ fontSize: 11, color: '#C9A96E', marginTop: 4 }}>
+                    <Text style={s.pagoApp}>
                       💳 Pago pelo app
                     </Text>
                   )}
 
                   {item.formaPagamento === 'local' && (
-                    <Text style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                    <Text style={s.pagoLocal}>
                       🏢 Pagamento no local
                     </Text>
                   )}
@@ -245,14 +264,11 @@ const removerAgendamentoLocal = async (id: string) => {
                   )}
                 </View>
 
-                {/* PREÇO */}
                 <View style={s.cardDireita}>
                   <Text style={s.cardPreco}>R${item.servicoPreco}</Text>
                 </View>
-
               </View>
 
-              {/* RODAPÉ */}
               <View style={s.cardRodape}>
                 <View style={[s.statusBadge, { backgroundColor: st.bg }]}>
                   <Text style={[s.statusText, { color: st.cor }]}>
@@ -261,21 +277,20 @@ const removerAgendamentoLocal = async (id: string) => {
                 </View>
 
                 {podeAvaliar && (
-  <TouchableOpacity
-    style={s.avaliarBtn}
-    onPress={() => {
-      navigation.navigate('Avaliar', {
-        agendamentoId: item.id,
-        estabelecimentoId: item.estabelecimentoId,
-        estabelecimentoNome: item.estabelecimentoNome,
-      });
-    }}
-  >
-    <Text style={s.avaliarBtnText}>⭐ Avaliar</Text>
-  </TouchableOpacity>
-)}
+                  <TouchableOpacity
+                    style={s.avaliarBtn}
+                    onPress={() => {
+                      navigation.navigate('Avaliar', {
+                        agendamentoId: item.id,
+                        estabelecimentoId: item.estabelecimentoId,
+                        estabelecimentoNome: item.estabelecimentoNome,
+                      });
+                    }}
+                  >
+                    <Text style={s.avaliarBtnText}>⭐ Avaliar</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-
             </View>
           );
         }}
@@ -309,6 +324,8 @@ const s = StyleSheet.create({
   cardServico: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginVertical: 2 },
   cardInfo: { flexDirection: 'row', gap: 10 },
   cardInfoTxt: { fontSize: 12, color: '#666' },
+  pagoApp: { fontSize: 11, color: '#C9A96E', marginTop: 4 },
+  pagoLocal: { fontSize: 11, color: '#999', marginTop: 4 },
   concluidoData: { fontSize: 10, color: '#2196F3', marginTop: 4, fontWeight: '600' },
   cardDireita: { alignItems: 'flex-end' },
   cardPreco: { fontSize: 14, fontWeight: 'bold', color: '#1A1A1A' },
@@ -321,5 +338,5 @@ const s = StyleSheet.create({
   emptyEmoji: { fontSize: 40 },
   emptyTitulo: { color: '#999', marginTop: 10 },
   btnPrimario: { backgroundColor: '#1A1A1A', padding: 15, borderRadius: 12, marginTop: 20 },
-  btnPrimarioText: { color: '#fff', fontWeight: 'bold' }
+  btnPrimarioText: { color: '#fff', fontWeight: 'bold' },
 });

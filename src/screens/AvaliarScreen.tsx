@@ -131,7 +131,16 @@ export default function AvaliarScreen() {
         [
           {
             text: 'OK',
-            onPress: () => navigation.goBack(),
+           onPress: () =>
+  navigation.reset({
+    index: 0,
+    routes: [
+      {
+        name: 'HomeTabs',
+        params: { screen: 'Agendamentos' },
+      },
+    ],
+  })
           },
         ]
       );

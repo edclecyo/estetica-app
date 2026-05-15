@@ -5,9 +5,9 @@ import {
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import Slider from '@react-native-community/slider';
-import { firebase } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
-import functions from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import type { Servico, Agendamento } from '../types';
@@ -18,6 +18,35 @@ import Geolocation from '@react-native-community/geolocation';
 import LinearGradient from 'react-native-linear-gradient';
 
 const { width } = Dimensions.get('window');
+
+const EMOJIS = [
+  '✂️', '💇', '💇‍♂️', '💇‍♀️', '💈', '🪮', '🧔🏻‍♂️', '🧴', '🚿',
+  '💅', '💅🏾', '💅🏼', '🎨', '🖌️', '🧤',
+  '💄', '💋', '👄', '👁️', '✨', '🎭', '💉', '📏',
+  '🌿', '🧘', '💆', '💆‍♂️', '💆‍♀️', '🛁', '🧖‍♀️', '🧖‍♂️', '🌸', '🕯️', '🍵', '🎋', '🐚',
+  '👙', '🪒', '🍯', '🦵', '🌡️', '⭐', '💎', '👑', '📸', '📍', '🔥', '🖋️', '🐉', '🩸'
+];
+
+const TIPOS = [
+  'Salão de Beleza', 'Barbearia Premium', 'Espaço de Unhas', 'Manicure & Pedicure',
+  'Clínica de Estética', 'Estética Avançada', 'Spa & Relaxamento', 'Especialista em Cabelos',
+  'Terapia Capilar', 'Estúdio de Maquiagem', 'Design de Sobrancelhas', 'Extensão de Cílios',
+  'Micropigmentação', 'Depilação a Laser', 'Depilação com Cera', 'Estúdio de Tatuagem',
+  'Body Piercing', 'Massoterapia', 'Bronzeamento Artificial', 'Podologia'
+];
+
+const PRESETS_CORES = [
+  '#C9A96E', // Ouro Clássico
+  '#AF935B', // Ouro Envelhecido (Premium)
+  '#D4A5A5', // Rose Gold
+  '#533483', // Deep Purple
+  '#004D40', // Deep Emerald
+  '#1C1C1E', // Jet Black
+  '#2C2C2E', // Graphite
+  '#8B0000', // Blood Red (Vinho)
+  '#0F3460', // Midnight Blue
+  '#B8860B', // Dark Goldenrod
+];
 
 const DIAS_FUNCIONAMENTO = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const DIAS_PADRAO = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -59,8 +88,9 @@ const minutosParaHorario = (minutos: number) => {
 };
 
 const ordenarHorarios = (lista: string[]) =>
-  Array.from(new Set(lista.map(normalizarHorario).filter(Boolean)))
-    .sort((a, b) => (horarioParaMinutos(a) || 0) - (horarioParaMinutos(b) || 0));
+  Array.from(new Set(lista.map(normalizarHorario).filter(Boolean))).sort(
+    (a, b) => (horarioParaMinutos(a) || 0) - (horarioParaMinutos(b) || 0)
+  );
 
 const normalizarDataBR = (valor: string) => {
   const partes = String(valor || '').trim().split('/');
@@ -83,34 +113,6 @@ const normalizarDataBR = (valor: string) => {
   return `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`;
 };
 
-const EMOJIS = [
-  '✂️', '💇', '💇‍♂️', '💇‍♀️', '💈', '🪮', '🧔🏻‍♂️', '🧴', '🚿',
-  '💅', '💅🏾', '💅🏼', '🎨', '🖌️', '🧤',
-  '💄', '💋', '👄', '👁️', '✨', '🎭', '💉', '📏',
-  '🌿', '🧘', '💆', '💆‍♂️', '💆‍♀️', '🛁', '🧖‍♀️', '🧖‍♂️', '🌸', '🕯️', '🍵', '🎋', '🐚',
-  '👙', '🪒', '🍯', '🦵', '🌡️', '⭐', '💎', '👑', '📸', '📍', '🔥', '🖋️', '🐉', '🩸'
-];
-
-const TIPOS = [
-  'Salão de Beleza', 'Barbearia Premium', 'Espaço de Unhas', 'Manicure & Pedicure',
-  'Clínica de Estética', 'Estética Avançada', 'Spa & Relaxamento', 'Especialista em Cabelos',
-  'Terapia Capilar', 'Estúdio de Maquiagem', 'Design de Sobrancelhas', 'Extensão de Cílios',
-  'Micropigmentação', 'Depilação a Laser', 'Depilação com Cera', 'Estúdio de Tatuagem',
-  'Body Piercing', 'Massoterapia', 'Bronzeamento Artificial', 'Podologia'
-];
-
-const PRESETS_CORES = [
-  '#C9A96E', // Ouro Clássico
-  '#AF935B', // Ouro Envelhecido (Premium)
-  '#D4A5A5', // Rose Gold
-  '#533483', // Deep Purple
-  '#004D40', // Deep Emerald
-  '#1C1C1E', // Jet Black
-  '#2C2C2E', // Graphite
-  '#8B0000', // Blood Red (Vinho)
-  '#0F3460', // Midnight Blue
-  '#B8860B', // Dark Goldenrod
-];
 
 Geolocation.setRNConfiguration({
   skipPermissionRequests: false,
@@ -123,7 +125,10 @@ export default function AdminEstabScreen() {
   const { estabelecimentoId } = route.params;
   const isNovo = estabelecimentoId === 'novo';
 
- const fn = useMemo(() => firebase.app().functions('southamerica-east1'), []);
+ const functionsInstance = useMemo(
+  () => getFunctions(getApp(), 'southamerica-east1'),
+  []
+);
   const mapRef = useRef<MapView>(null);
 
   const [aba, setAba] = useState<'info' | 'servicos' | 'horarios' | 'agenda'>('info');
@@ -166,13 +171,11 @@ export default function AdminEstabScreen() {
   const [pausaInicio, setPausaInicio] = useState('12:00');
   const [pausaFim, setPausaFim] = useState('14:00');
   const [horarioManual, setHorarioManual] = useState('');
-  const [diasFuncionamento, setDiasFuncionamento] =
-    useState<string[]>(DIAS_PADRAO);
+  const [diasFuncionamento, setDiasFuncionamento] = useState<string[]>(DIAS_PADRAO);
   const [dataBloqueio, setDataBloqueio] = useState('');
   const [horarioBloqueio, setHorarioBloqueio] = useState('');
   const [diasFechados, setDiasFechados] = useState<string[]>([]);
-  const [horariosBloqueados, setHorariosBloqueados] =
-    useState<Record<string, string[]>>({});
+  const [horariosBloqueados, setHorariosBloqueados] = useState<Record<string, string[]>>({});
 
   const [nsNome, setNsNome] = useState('');
   const [nsPreco, setNsPreco] = useState('');
@@ -342,7 +345,7 @@ Geolocation.requestAuthorization?.();
       intervalo < 5 ||
       intervalo > 240
     ) {
-      Alert.alert('Erro', 'Use horários no formato HH:MM e intervalo válido.');
+      Alert.alert('Erro', 'Use horários no formato HH:MM e intervalo entre 5 e 240 minutos.');
       return;
     }
 
@@ -372,8 +375,9 @@ Geolocation.requestAuthorization?.();
     }
 
     setHorarioFunc(`${normalizarHorario(gInicio)} - ${normalizarHorario(gFim)}`);
-    setHorarios(ordenarHorarios([...horarios, ...lista]));
-    Alert.alert('Sucesso ✅', `${lista.length} horários adicionados!`);
+    setHorarios(ordenarHorarios(lista));
+
+    Alert.alert('Grade atualizada ✅', `${lista.length} horários disponíveis foram gerados.`);
   };
 
   const adicionarHorarioManual = () => {
@@ -384,7 +388,7 @@ Geolocation.requestAuthorization?.();
       return;
     }
 
-    setHorarios(ordenarHorarios([...horarios, horario]));
+    setHorarios(prev => ordenarHorarios([...prev, horario]));
     setHorarioManual('');
   };
 
@@ -395,6 +399,13 @@ Geolocation.requestAuthorization?.();
         : [...prev, dia]
     );
   };
+
+  const existeAgendaConfirmada = (data: string, horario?: string) =>
+    agends.some(a =>
+      a.status === 'confirmado' &&
+      a.data === data &&
+      (!horario || a.horario === horario)
+    );
 
   const removerHorario = (horario: string, ocupado: boolean) => {
     if (ocupado) {
@@ -432,13 +443,6 @@ Geolocation.requestAuthorization?.();
     );
   };
 
-  const existeAgendaConfirmada = (data: string, horario?: string) =>
-    agends.some(a =>
-      a.status === 'confirmado' &&
-      a.data === data &&
-      (!horario || a.horario === horario)
-    );
-
   const fecharDataPontual = () => {
     const data = normalizarDataBR(dataBloqueio);
 
@@ -456,7 +460,7 @@ Geolocation.requestAuthorization?.();
     }
 
     setDiasFechados(prev => Array.from(new Set([...prev, data])).sort());
-    setDataBloqueio(data);
+    setDataBloqueio('');
   };
 
   const bloquearHorarioPontual = () => {
@@ -480,7 +484,8 @@ Geolocation.requestAuthorization?.();
       ...prev,
       [data]: ordenarHorarios([...(prev[data] || []), horario]),
     }));
-    setDataBloqueio(data);
+
+    setDataBloqueio('');
     setHorarioBloqueio('');
   };
 
@@ -504,61 +509,94 @@ Geolocation.requestAuthorization?.();
   };
 
   useEffect(() => {
-    if (!isNovo) {
-      firestore().collection('estabelecimentos').doc(estabelecimentoId).get().then(snap => {
-        if (snap.exists) {
-          const d = snap.data() as any;
-          setNome(d.nome); setTipo(d.tipo); setEndereco(d.endereco);
-          setCep(d.cep || ''); setBairro(d.bairro || ''); setNumero(d.numero || '');
-          setCidade(d.cidade); setTelefone(d.telefone); setDescricao(d.descricao);
-          setHorarioFunc(d.horarioFuncionamento); setImg(d.img); setCor(d.cor);
-          setServicos(d.servicos || []); setHorarios(ordenarHorarios(d.horarios || []));
-          setDiasFuncionamento(
-            Array.isArray(d.diasFuncionamento)
-              ? d.diasFuncionamento
-              : DIAS_PADRAO
-          );
-          setGIntervalo(String(d.intervaloMin || 30));
-          if (d.horarioPausa) {
-            setPausaAtiva(Boolean(d.horarioPausa.ativo));
-            setPausaInicio(d.horarioPausa.inicio || '12:00');
-            setPausaFim(d.horarioPausa.fim || '14:00');
-          }
-          setDiasFechados(
-            Array.isArray(d.diasFechados)
-              ? d.diasFechados
-              : []
-          );
-          setHorariosBloqueados(
-            d.horariosBloqueados || {}
-          );
-          setFotoPerfil(d.fotoPerfil || ''); setFotoCapa(d.fotoCapa || '');
-          if (d.lat && d.lng) {
-            setCoords({ lat: d.lat, lng: d.lng });
-            setCoordsOk(true);
-          }
-          if (d.cor?.startsWith('#')) {
-            setR(parseInt(d.cor.slice(1, 3), 16));
-            setG(parseInt(d.cor.slice(3, 5), 16));
-            setB(parseInt(d.cor.slice(5, 7), 16));
-          }
-        }
-        setLoading(false);
-      }).catch(() => setLoading(false));
-
-      const unsub = firestore().collection('agendamentos')
-        .where('estabelecimentoId', '==', estabelecimentoId)
-        .onSnapshot(
-          snap => setAgends(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Agendamento[]),
-         err => {
-  console.log('Agendamentos error:', err);
-  Alert.alert('Erro', 'Falha ao carregar agenda.');
-}
+if (!isNovo) {
+  firestore()
+    .collection('estabelecimentos')
+    .doc(estabelecimentoId)
+    .get()
+    .then(snap => {
+      if (snap.exists) {
+        const d = snap.data() as any;
+        setNome(d.nome);
+        setTipo(d.tipo);
+        setEndereco(d.endereco);
+        setCep(d.cep || '');
+        setBairro(d.bairro || '');
+        setNumero(d.numero || '');
+        setCidade(d.cidade);
+        setTelefone(d.telefone);
+        setDescricao(d.descricao);
+        setHorarioFunc(d.horarioFuncionamento);
+        setImg(d.img);
+        setCor(d.cor);
+        setServicos(d.servicos || []);
+        setHorarios(ordenarHorarios(d.horarios || []));
+        setDiasFuncionamento(
+          Array.isArray(d.diasFuncionamento) && d.diasFuncionamento.length
+            ? d.diasFuncionamento
+            : DIAS_PADRAO
         );
-      return unsub;
-    } else {
+        setDiasFechados(Array.isArray(d.diasFechados) ? d.diasFechados : []);
+        setHorariosBloqueados(d.horariosBloqueados || {});
+        setGIntervalo(String(d.intervaloMin || 30));
+
+        if (d.horarioPausa) {
+          setPausaAtiva(Boolean(d.horarioPausa.ativo));
+          setPausaInicio(d.horarioPausa.inicio || '12:00');
+          setPausaFim(d.horarioPausa.fim || '14:00');
+        }
+
+        setFotoPerfil(d.fotoPerfil || '');
+        setFotoCapa(d.fotoCapa || '');
+
+        if (d.lat && d.lng) {
+          setCoords({ lat: d.lat, lng: d.lng });
+          setCoordsOk(true);
+        }
+
+        if (d.cor?.startsWith('#')) {
+          setR(parseInt(d.cor.slice(1, 3), 16));
+          setG(parseInt(d.cor.slice(3, 5), 16));
+          setB(parseInt(d.cor.slice(5, 7), 16));
+        }
+      }
+
       setLoading(false);
-    }
+    })
+    .catch(() => setLoading(false));
+
+  if (!admin?.id) {
+    setAgends([]);
+    return;
+  }
+
+  const unsub = firestore()
+    .collection('agendamentos')
+    .where('adminId', '==', admin.id)
+    .onSnapshot(
+      snap => {
+        if (!snap) {
+          setAgends([]);
+          return;
+        }
+
+        const lista = snap.docs
+          .map(d => ({
+            id: d.id,
+            ...d.data(),
+          }))
+          .filter((a: any) => a.estabelecimentoId === estabelecimentoId);
+
+        setAgends(lista as Agendamento[]);
+      },
+      err => {
+        console.log('Agendamentos error:', err);
+        setAgends([]);
+      }
+    );
+
+  return unsub;
+}
   }, []);
 
   useEffect(() => {
@@ -590,7 +628,10 @@ Geolocation.requestAuthorization?.();
   try {
     setSalvando(true);
 
-    const res = await fn.httpsCallable('salvarEstabelecimento')({
+    const res: any = await httpsCallable(
+  functionsInstance,
+  'salvarEstabelecimento'
+)({
       estabelecimentoId: isNovo ? undefined : estabelecimentoId,
       nome,
       tipo,
@@ -607,14 +648,14 @@ Geolocation.requestAuthorization?.();
       servicos,
       horarios: ordenarHorarios(horarios),
       diasFuncionamento,
+      diasFechados,
+      horariosBloqueados,
       intervaloMin: Number(gIntervalo || 30),
       horarioPausa: {
         ativo: pausaAtiva,
         inicio: normalizarHorario(pausaInicio) || '12:00',
         fim: normalizarHorario(pausaFim) || '14:00',
       },
-      diasFechados,
-      horariosBloqueados,
       fotoPerfil,
       avaliacao: 5.0,
       ativo: true,
@@ -1228,7 +1269,7 @@ await reference.putFile(uri);
             <Text style={s.sectionTitle}>Dias de funcionamento</Text>
             <View style={s.card}>
               <Text style={s.helperText}>
-                Escolha em quais dias os clientes podem agendar.
+                Escolha em quais dias os clientes podem agendar nesse estabelecimento.
               </Text>
 
               <View style={s.daysGrid}>
@@ -1267,27 +1308,53 @@ await reference.putFile(uri);
             <Text style={s.sectionTitle}>Grade flexível</Text>
             <View style={s.card}>
               <Text style={s.helperText}>
-                Gere horários por intervalo e remova pausas, como almoço ou bloqueios do dia.
+                Gere horários por intervalo e remova pausas como almoço automaticamente.
               </Text>
 
               <View style={s.row}>
                 <View style={{ flex: 1, marginRight: 8 }}>
                   <Text style={s.miniLabel}>INÍCIO</Text>
-                  <TextInput style={s.input} value={gInicio} onChangeText={setGInicio} placeholderTextColor="#444" />
+                  <TextInput
+                    style={s.input}
+                    value={gInicio}
+                    onChangeText={setGInicio}
+                    placeholder="08:00"
+                    placeholderTextColor="#444"
+                  />
                 </View>
+
                 <View style={{ flex: 1, marginRight: 8 }}>
                   <Text style={s.miniLabel}>FIM</Text>
-                  <TextInput style={s.input} value={gFim} onChangeText={setGFim} placeholderTextColor="#444" />
+                  <TextInput
+                    style={s.input}
+                    value={gFim}
+                    onChangeText={setGFim}
+                    placeholder="18:00"
+                    placeholderTextColor="#444"
+                  />
                 </View>
+
                 <View style={{ flex: 1 }}>
                   <Text style={s.miniLabel}>MINS</Text>
-                  <TextInput style={s.input} value={gIntervalo} onChangeText={setGIntervalo} keyboardType="numeric" placeholderTextColor="#444" />
+                  <TextInput
+                    style={s.input}
+                    value={gIntervalo}
+                    onChangeText={setGIntervalo}
+                    keyboardType="numeric"
+                    placeholder="30"
+                    placeholderTextColor="#444"
+                  />
                 </View>
               </View>
 
               <View style={[s.pauseBox, { borderColor: pausaAtiva ? cor + '66' : '#222' }]}>
                 <View style={s.rowBetween}>
-                  <Text style={s.pauseTitle}>Pausa / almoço</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.pauseTitle}>Pausa / almoço</Text>
+                    <Text style={s.helperTextSmall}>
+                      Esse intervalo não aparece para o cliente.
+                    </Text>
+                  </View>
 
                   <Switch
                     value={pausaAtiva}
@@ -1298,13 +1365,14 @@ await reference.putFile(uri);
                 </View>
 
                 {pausaAtiva && (
-                  <View style={s.row}>
+                  <View style={[s.row, { marginTop: 12 }]}> 
                     <View style={{ flex: 1, marginRight: 8 }}>
                       <Text style={s.miniLabel}>PAUSA INÍCIO</Text>
                       <TextInput
                         style={s.input}
                         value={pausaInicio}
                         onChangeText={setPausaInicio}
+                        placeholder="12:00"
                         placeholderTextColor="#444"
                       />
                     </View>
@@ -1315,6 +1383,7 @@ await reference.putFile(uri);
                         style={s.input}
                         value={pausaFim}
                         onChangeText={setPausaFim}
+                        placeholder="14:00"
                         placeholderTextColor="#444"
                       />
                     </View>
@@ -1322,20 +1391,20 @@ await reference.putFile(uri);
                 )}
               </View>
 
-              <TouchableOpacity 
-  onPress={gerarGradeHorarios} 
-  style={[s.btnAdd, { backgroundColor: cor, marginTop: 15 }]}
->
-  <Icon name="clock-time-four-outline" size={18} color={getContraste(cor)} style={{ marginRight: 8 }} />
-  <Text style={[s.btnAddText, { color: getContraste(cor) }]}>Gerar Horários</Text>
-</TouchableOpacity>
+              <TouchableOpacity
+                onPress={gerarGradeHorarios}
+                style={[s.btnAdd, { backgroundColor: cor, marginTop: 15 }]}
+              >
+                <Icon name="clock-time-four-outline" size={18} color={getContraste(cor)} style={{ marginRight: 8 }} />
+                <Text style={[s.btnAddText, { color: getContraste(cor) }]}>Gerar grade</Text>
+              </TouchableOpacity>
 
-              <View style={[s.manualRow, { marginTop: 15 }]}>
+              <View style={[s.manualRow, { marginTop: 15 }]}> 
                 <TextInput
                   style={[s.input, { flex: 1, marginRight: 8 }]}
                   value={horarioManual}
                   onChangeText={setHorarioManual}
-                  placeholder="Ex: 15:30"
+                  placeholder="Adicionar horário manual. Ex: 15:30"
                   placeholderTextColor="#444"
                 />
 
@@ -1348,37 +1417,10 @@ await reference.putFile(uri);
               </View>
             </View>
 
-            <View style={s.rowBetween}>
-              <Text style={s.sectionTitle}>Horários disponíveis</Text>
-
-              {horarios.length > 0 && (
-                <TouchableOpacity onPress={limparHorariosLivres}>
-                  <Text style={[s.linkDanger, { color: '#FF6666' }]}>
-                    Limpar livres
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <View style={s.horariosGrid}>
-              {ordenarHorarios(horarios).map(h => {
-                const ocupado = agends.some(a => a.horario === h && a.status === 'confirmado');
-                return (
-                  <TouchableOpacity key={h}
-                    onPress={() => removerHorario(h, ocupado)}
-                    style={[s.timeChip, { borderColor: ocupado ? '#FF4444' : cor + '44', backgroundColor: ocupado ? '#FF444422' : 'transparent' }]}>
-                    <Text style={[s.timeText, ocupado && { color: '#FF4444' }]}>{h}</Text>
-                    {!ocupado && <Icon name="close" size={12} color="#666" style={{ marginLeft: 6 }} />}
-                    {ocupado && <Icon name="lock" size={12} color="#FF4444" style={{ marginLeft: 6 }} />}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
             <Text style={s.sectionTitle}>Bloqueios pontuais</Text>
             <View style={s.card}>
               <Text style={s.helperText}>
-                Use para fechar uma data específica ou bloquear só um horário por imprevisto.
+                Feche uma data específica ou bloqueie só um horário por imprevisto.
               </Text>
 
               <View style={s.row}>
@@ -1390,6 +1432,7 @@ await reference.putFile(uri);
                     onChangeText={setDataBloqueio}
                     placeholder="DD/MM/AAAA"
                     placeholderTextColor="#444"
+                    keyboardType="numeric"
                   />
                 </View>
 
@@ -1401,19 +1444,18 @@ await reference.putFile(uri);
                     onChangeText={setHorarioBloqueio}
                     placeholder="HH:MM"
                     placeholderTextColor="#444"
+                    keyboardType="numeric"
                   />
                 </View>
               </View>
 
-              <View style={[s.row, { gap: 10, marginTop: 12 }]}>
+              <View style={[s.row, { gap: 10, marginTop: 12 }]}> 
                 <TouchableOpacity
                   onPress={fecharDataPontual}
                   style={[s.actionBtn, { borderColor: '#FF6666' }]}
                 >
                   <Icon name="calendar-remove" size={18} color="#FF6666" style={{ marginRight: 6 }} />
-                  <Text style={[s.btnAddText, { color: '#FF6666' }]}>
-                    Fechar data
-                  </Text>
+                  <Text style={[s.btnAddText, { color: '#FF6666' }]}>Fechar data</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1421,24 +1463,20 @@ await reference.putFile(uri);
                   style={[s.actionBtn, { borderColor: cor }]}
                 >
                   <Icon name="clock-remove-outline" size={18} color={cor} style={{ marginRight: 6 }} />
-                  <Text style={[s.btnAddText, { color: cor }]}>
-                    Bloquear horário
-                  </Text>
+                  <Text style={[s.btnAddText, { color: cor }]}>Bloquear horário</Text>
                 </TouchableOpacity>
               </View>
 
               {diasFechados.length > 0 && (
                 <>
-                  <Text style={[s.miniLabel, { marginTop: 18 }]}>
-                    DATAS FECHADAS
-                  </Text>
+                  <Text style={[s.miniLabel, { marginTop: 18 }]}>DATAS FECHADAS</Text>
 
                   <View style={s.horariosGrid}>
                     {diasFechados.map(data => (
                       <TouchableOpacity
                         key={data}
                         onPress={() => removerDataFechada(data)}
-                        style={[s.timeChip, { borderColor: '#FF6666' }]}
+                        style={[s.timeChip, { borderColor: '#FF6666', backgroundColor: '#FF444422' }]}
                       >
                         <Text style={s.timeText}>{data}</Text>
                         <Icon name="close" size={12} color="#666" style={{ marginLeft: 6 }} />
@@ -1450,9 +1488,7 @@ await reference.putFile(uri);
 
               {Object.keys(horariosBloqueados).length > 0 && (
                 <>
-                  <Text style={[s.miniLabel, { marginTop: 18 }]}>
-                    HORÁRIOS BLOQUEADOS
-                  </Text>
+                  <Text style={[s.miniLabel, { marginTop: 18 }]}>HORÁRIOS BLOQUEADOS</Text>
 
                   {Object.entries(horariosBloqueados).map(([data, lista]) => (
                     <View key={data} style={s.bloqueioGrupo}>
@@ -1474,6 +1510,40 @@ await reference.putFile(uri);
                   ))}
                 </>
               )}
+            </View>
+
+            <View style={s.rowBetween}>
+              <Text style={s.sectionTitle}>Horários disponíveis</Text>
+
+              {horarios.length > 0 && (
+                <TouchableOpacity onPress={limparHorariosLivres}>
+                  <Text style={s.linkDanger}>Limpar livres</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={s.horariosGrid}>
+              {ordenarHorarios(horarios).map(h => {
+                const ocupado = agends.some(a => a.horario === h && a.status === 'confirmado');
+
+                return (
+                  <TouchableOpacity
+                    key={h}
+                    onPress={() => removerHorario(h, ocupado)}
+                    style={[
+                      s.timeChip,
+                      {
+                        borderColor: ocupado ? '#FF4444' : cor + '44',
+                        backgroundColor: ocupado ? '#FF444422' : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text style={[s.timeText, ocupado && { color: '#FF4444' }]}>{h}</Text>
+                    {!ocupado && <Icon name="close" size={12} color="#666" style={{ marginLeft: 6 }} />}
+                    {ocupado && <Icon name="lock" size={12} color="#FF4444" style={{ marginLeft: 6 }} />}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
         )}
@@ -1504,24 +1574,109 @@ await reference.putFile(uri);
                       <Text style={s.statusTxt}>{ag.status?.toUpperCase()}</Text>
                     </View>
                   </View>
-                  {ag.status === 'confirmado' && (
-                    <View style={[s.row, { gap: 10, marginTop: 15 }]}>
-                      <TouchableOpacity
-                        onPress={() => fn.httpsCallable('concluirAgendamento')({ agendamentoId: ag.id })}
-                        style={[s.actionBtn, { borderColor: '#4CAF50' }]}
-                      >
-                        <Icon name="check-circle-outline" size={16} color="#4CAF50" style={{ marginRight: 6 }} />
-                        <Text style={{ color: '#4CAF50', fontWeight: '900' }}>CONCLUIR</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => fn.httpsCallable('cancelarAgendamento')({ agendamentoId: ag.id })}
-                        style={[s.actionBtn, { borderColor: '#FF4444' }]}
-                      >
-                        <Icon name="close-circle-outline" size={16} color="#FF4444" style={{ marginRight: 6 }} />
-                        <Text style={{ color: '#FF4444', fontWeight: '900' }}>CANCELAR</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+{ag.status === 'confirmado' && (
+  <View style={[s.row, { gap: 10, marginTop: 15 }]}>
+
+    <TouchableOpacity
+      onPress={async () => {
+
+        try {
+
+          await httpsCallable(
+            functionsInstance,
+            'concluirAgendamento'
+          )({
+            agendamentoId: ag.id,
+          });
+
+          Alert.alert(
+            'Sucesso',
+            'Agendamento concluído.'
+          );
+
+        } catch (e: any) {
+
+          console.log(e);
+
+          Alert.alert(
+            'Erro',
+            e?.message || 'Falha ao concluir.'
+          );
+        }
+      }}
+      style={[
+        s.actionBtn,
+        { borderColor: '#4CAF50' }
+      ]}
+    >
+      <Icon
+        name="check-circle-outline"
+        size={16}
+        color="#4CAF50"
+        style={{ marginRight: 6 }}
+      />
+
+      <Text
+        style={{
+          color: '#4CAF50',
+          fontWeight: '900'
+        }}
+      >
+        CONCLUIR
+      </Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity
+      onPress={async () => {
+
+        try {
+
+          await httpsCallable(
+            functionsInstance,
+            'cancelarAgendamento'
+          )({
+            agendamentoId: ag.id,
+          });
+
+          Alert.alert(
+            'Sucesso',
+            'Agendamento cancelado.'
+          );
+
+        } catch (e: any) {
+
+          console.log(e);
+
+          Alert.alert(
+            'Erro',
+            e?.message || 'Falha ao cancelar.'
+          );
+        }
+      }}
+      style={[
+        s.actionBtn,
+        { borderColor: '#FF4444' }
+      ]}
+    >
+      <Icon
+        name="close-circle-outline"
+        size={16}
+        color="#FF4444"
+        style={{ marginRight: 6 }}
+      />
+
+      <Text
+        style={{
+          color: '#FF4444',
+          fontWeight: '900'
+        }}
+      >
+        CANCELAR
+      </Text>
+    </TouchableOpacity>
+
+  </View>
+)}
                 </View>
               ))}
           </View>
@@ -1613,7 +1768,11 @@ const s = StyleSheet.create({
   itemRemove: { padding: 8, marginLeft: 10 },
   
   horariosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 20 },
+  timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, height: 36, borderRadius: 10, borderWidth: 1 },
+  timeText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
+  
   helperText: { color: '#777', fontSize: 12, lineHeight: 18, marginBottom: 15 },
+  helperTextSmall: { color: '#777', fontSize: 11, marginTop: 2, lineHeight: 16 },
   daysGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   dayChip: { minWidth: 46, height: 36, borderRadius: 12, borderWidth: 1, borderColor: '#222', justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' },
   dayChipText: { color: '#777', fontSize: 12, fontWeight: '700' },
@@ -1621,11 +1780,9 @@ const s = StyleSheet.create({
   pauseTitle: { color: '#FFF', fontSize: 13, fontWeight: '800' },
   manualRow: { flexDirection: 'row', alignItems: 'center' },
   manualBtn: { width: 48, height: 48, borderRadius: 12, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
-  linkDanger: { fontSize: 12, fontWeight: '800' },
-  bloqueioGrupo: { marginTop: 10, borderTopWidth: 1, borderTopColor: '#222', paddingTop: 10 },
-  bloqueioData: { color: '#FFF', fontSize: 13, fontWeight: '800' },
-  timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, height: 36, borderRadius: 10, borderWidth: 1 },
-  timeText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
+  linkDanger: { color: '#FF6666', fontSize: 12, fontWeight: '800', marginTop: 25 },
+  bloqueioGrupo: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#222' },
+  bloqueioData: { color: '#FFF', fontSize: 12, fontWeight: '900', marginBottom: 6 },
   
   emptyContainer: { alignItems: 'center', marginTop: 100 },
   emptyText: { color: '#444', marginTop: 15, fontSize: 14 },

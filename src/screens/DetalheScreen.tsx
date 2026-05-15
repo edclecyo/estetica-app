@@ -78,7 +78,39 @@ const getDatas = (
   }
   return lista;
 };
+const toHHMM = (min: number) => {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
 
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+const horarioDisponivelCompleto = (
+  horarioInicio: string,
+  duracaoServico: number,
+  intervaloMin: number,
+  horariosOcupados: string[]
+) => {
+
+  const inicio = minutosHorario(horarioInicio);
+
+  const fim = inicio + duracaoServico;
+
+  for (
+    let m = inicio;
+    m < fim;
+    m += intervaloMin
+  ) {
+
+    const slot = toHHMM(m);
+
+    if (horariosOcupados.includes(slot)) {
+      return false;
+    }
+  }
+
+  return true;
+};
 const BannerMedia = ({ data, style }: { data: any, style: any }) => {
   const [imgErro, setImgErro] = useState(false);
 
@@ -307,23 +339,39 @@ function gerarSlotsTela(
   ).sort((a, b) => minutosHorario(a) - minutosHorario(b));
 }
 
+const bloqueadosDaData =
+  dataSel?.full && estab?.horariosBloqueados?.[dataSel.full]
+    ? estab.horariosBloqueados[dataSel.full].map(normalizarHorario)
+    : [];
+
 const todosHorarios = gerarSlotsTela(
   Array.isArray(estab?.horarios)
     ? estab.horarios
     : [],
   Number(estab?.intervaloMin || 30)
 ).filter(h => {
-  const bloqueados =
-    dataSel?.full && estab?.horariosBloqueados?.[dataSel.full]
-      ? estab.horariosBloqueados[dataSel.full]
-      : [];
+  const duracao = Number(servicoObj?.duracao || 30);
+  const intervalo = Number(estab?.intervaloMin || 30);
+  const inicio = minutosHorario(h);
+  const fim = inicio + duracao;
 
-  return !bloqueados.includes(h);
+  for (let m = inicio; m < fim; m += intervalo) {
+    if (bloqueadosDaData.includes(toHHMM(m))) {
+      return false;
+    }
+  }
+
+  return true;
 });
 
 const semHorarios = todosHorarios.every(h => {
 
-  const ocupado = horariosOcupados.includes(h);
+  const ocupado = !horarioDisponivelCompleto(
+  h,
+  Number(servicoObj?.duracao || 30),
+  Number(estab?.intervaloMin || 30),
+  horariosOcupados
+);
 
   const [hora, minuto] = h.split(':').map(Number);
 
@@ -451,7 +499,12 @@ const semHorarios = todosHorarios.every(h => {
               <View style={s.horariosWrap}>
             {todosHorarios.map(h => {
 
-  const ocupado = horariosOcupados.includes(h);
+  const ocupado = !horarioDisponivelCompleto(
+  h,
+  Number(servicoObj?.duracao || 30),
+  Number(estab?.intervaloMin || 30),
+  horariosOcupados
+);
 
   const [hora, minuto] = h.split(':').map(Number);
 

@@ -75,7 +75,22 @@ export const aoCriarNotificacao = onDocumentCreated(
 
     const data = snapshot.data() as any;
     const docId = event.params?.docId || '';
+const titulo = String(data.titulo || '').trim();
+const mensagem = String(data.mensagem || data.msg || '').trim();
 
+if (!titulo && !mensagem) {
+  await snapshot.ref.update({
+    apagada: true,
+    lida: true,
+    pushEnviado: false,
+    pushIgnorada: true,
+    pushErro: 'Notificação sem título e mensagem',
+    pushTentadoEm: FieldValue.serverTimestamp(),
+  });
+
+  console.log('⚠️ Notificação vazia ignorada:', docId);
+  return;
+}
     if (data.pushEnviado === true) {
       return;
     }
@@ -125,11 +140,11 @@ export const aoCriarNotificacao = onDocumentCreated(
         }
 
         await enviarPush(
-          tokens,
-          data.titulo || 'Atualização',
-          data.mensagem || '',
-          pushData
-        );
+  tokens,
+  titulo || 'Atualização',
+  mensagem,
+  pushData
+);
 
         await snapshot.ref.update({
           pushEnviado: true,
@@ -157,11 +172,11 @@ export const aoCriarNotificacao = onDocumentCreated(
         }
 
         await enviarPush(
-          tokens,
-          data.titulo || 'Nova atualização',
-          data.mensagem || '',
-          pushData
-        );
+  tokens,
+  titulo || 'Nova atualização',
+  mensagem,
+  pushData
+);
 
         await snapshot.ref.update({
           pushEnviado: true,

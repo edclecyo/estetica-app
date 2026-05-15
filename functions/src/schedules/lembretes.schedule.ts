@@ -1,3 +1,10 @@
+
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+
+import { db } from '../config/firebase';
+import { REGION } from '../config/region';
+
 export const lembreteAgendamento = onSchedule(
   {
     region: REGION,

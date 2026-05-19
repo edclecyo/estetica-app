@@ -60,12 +60,19 @@ export const solicitarSelo = onCall(
       );
     }
 
-    if (est.plano !== 'pro') {
-      throw new HttpsError(
-        'failed-precondition',
-        'Somente o plano Pro pode solicitar selo manualmente'
-      );
-    }
+   if (est.plano === 'elite') {
+  throw new HttpsError(
+    'already-exists',
+    'O plano Elite já possui selo automático'
+  );
+}
+
+if (est.plano !== 'pro') {
+  throw new HttpsError(
+    'failed-precondition',
+    'Somente o plano Pro pode solicitar selo manualmente'
+  );
+}
 
     if (est.assinaturaAtiva !== true) {
       throw new HttpsError(

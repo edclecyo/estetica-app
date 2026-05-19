@@ -109,17 +109,21 @@ export const salvarDadosConta = onCall(
     // SALVAR
     // =========================
     await ref.update({
+  responsavelNome,
+  responsavelCpf: responsavelCpf || null,
+  responsavelTelefone: responsavelTelefone || null,
+  responsavelEmail: responsavelEmail || null,
 
-      responsavelNome,
-      responsavelCpf: responsavelCpf || null,
-      responsavelTelefone: responsavelTelefone || null,
-      responsavelEmail: responsavelEmail || null,
+  pixChave: pix,
+  pixTipo: tipoFinal,
 
-      pixChave: pix,
-      pixTipo: tipoFinal,
+  pagamentoAppAtivo: true,
+  pagamentoAppConfiguradoEm:
+    admin.firestore.FieldValue.serverTimestamp(),
 
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-    });
+  atualizadoEm:
+    admin.firestore.FieldValue.serverTimestamp(),
+});
 
     return {
       success: true,

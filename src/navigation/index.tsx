@@ -29,6 +29,7 @@ import ContaBancariaScreen from '../screens/ContaBancariaScreen';
 import SeloVerificacaoScreen from '../screens/SeloVerificacaoScreen';
 import SeloPagamentoScreen from '../screens/SeloPagamentoScreen';
 import ImpulsionarScreen from '../screens/ImpulsionarScreen';
+import RelatorioFinanceiroScreen from '../screens/RelatorioFinanceiroScreen';
 
 // Telas Super Admin
 import SuperAdminDashScreen from '../screens/SuperAdminDashScreen';
@@ -153,6 +154,11 @@ export default function Navigation() {
 			   <Stack.Screen name="SeloVerificacaoScreen" component={SeloVerificacaoScreen}/>
 			   <Stack.Screen name="SeloPagamentoScreen" component={SeloPagamentoScreen}/>
 			   <Stack.Screen name="ImpulsionarScreen" component={ImpulsionarScreen}/>
+			   <Stack.Screen
+  name="RelatorioFinanceiroScreen"
+  component={RelatorioFinanceiroScreen}
+  options={{ headerShown: false }}
+/>
           </Stack.Group>
 
         // ─── CLIENTE ───

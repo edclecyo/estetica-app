@@ -1,4 +1,4 @@
-
+﻿
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
@@ -8,7 +8,7 @@ import { REGION } from '../config/region';
 export const lembreteAgendamento = onSchedule(
   {
     region: REGION,
-    schedule: 'every 5 minutes',
+    schedule: 'every 60 minutes',
     timeZone: 'America/Fortaleza',
     memory: '256MiB',
     timeoutSeconds: 120,
@@ -17,8 +17,11 @@ export const lembreteAgendamento = onSchedule(
   async () => {
     const agora = new Date();
 
-    const janelaInicio = new Date(agora.getTime() - 5 * 60 * 1000);
-    const janelaFim = new Date(agora.getTime() + 60 * 60 * 1000);
+const alvoInicio =
+  new Date(agora.getTime() + 55 * 60 * 1000);
+
+const alvoFim =
+  new Date(agora.getTime() + 65 * 60 * 1000);
 
     const snap = await db
       .collection('agendamentos')
@@ -56,8 +59,8 @@ export const lembreteAgendamento = onSchedule(
       if (isNaN(inicioAgendamento.getTime())) continue;
 
       const dentroDaJanela =
-        inicioAgendamento >= janelaInicio &&
-        inicioAgendamento <= janelaFim;
+  inicioAgendamento >= alvoInicio &&
+  inicioAgendamento <= alvoFim;
 
       if (!dentroDaJanela) continue;
 

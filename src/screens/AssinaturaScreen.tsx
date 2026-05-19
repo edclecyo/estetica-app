@@ -30,68 +30,84 @@ const GradientText = (props) => (
 const PLANOS = [
   {
     id: 'essencial',
+
     nome: 'ESSENCIAL',
+
     preco: '29,90',
+
     cor: '#C9A96E',
-    storyLimite: 'Fotos liberadas',
-    videoLimite: 'Sem videos nos stories',
-    resumo: 'Para agenda, servicos, horarios e divulgacao com fotos.',
+
+    storyLimite: 'Stories com fotos',
+    videoLimite: 'Sem vídeos',
+
+    resumo:
+      'Comece profissionalmente e organize seus agendamentos.',
+
     features: [
-      'Ate 2 estabelecimentos',
-      'Ate 20 servicos cadastrados',
-      'Agenda online com horarios flexiveis',
-      'Bloqueio de horarios e datas fechadas',
-      'Notificacoes para cliente e admin',
-      'Cadastro de servicos e precos',
-      'Resumo de faturamento no painel',
-      'Stories com foto por 24h, ate 10MB',
-      'Sem pagamento pelo app',
-      'Sem solicitacao de selo verificado',
+      '2 estabelecimentos',
+      '20 serviços cadastrados',
+      'Agenda online inteligente',
+      'Bloqueio de horários e folgas',
+      'Notificações automáticas',
+      'Stories com foto por 24h',
+      'Resumo de faturamento',
+      'Impulsionamento disponível',
     ],
   },
+
   {
     id: 'pro',
+
     nome: 'PROFESSIONAL',
+
     preco: '49,90',
+
     cor: GOLD,
+
     popular: true,
-    storyLimite: 'Fotos + videos ate 15s',
-    videoLimite: 'Videos ate 15 segundos',
-    resumo: 'Para vender pelo app, medir stories e solicitar selo.',
+
+    storyLimite: 'Fotos + vídeos até 15s',
+    videoLimite: 'Vídeos até 15 segundos',
+
+    resumo:
+      'Venda pelo app e aumente sua autoridade.',
+
     features: [
-      'Ate 5 estabelecimentos',
-      'Ate 80 servicos cadastrados',
-      'Tudo do plano Essencial',
-      'Pagamento pelo app via PIX cadastrado',
-      'Cadastro de PIX para recebimentos',
-      'Stories com foto e video por 24h',
-      'Videos de ate 15 segundos e ate 30MB',
-      'Metricas de stories: views, curtidas e compartilhamentos',
-      'Solicitacao de selo verificado mediante criterios',
-      'Taxa do selo cobrada somente apos aprovacao',
-      'Reputacao atualizada pelas avaliacoes',
+      '5 estabelecimentos',
+      '80 serviços cadastrados',
+      'Tudo do Essencial',
+      'Receba pagamentos via PIX',
+      'Stories com vídeos',
+      'Métricas de visualização',
+      'Solicitação de selo verificado',
+      'Mais alcance e reputação',
     ],
   },
+
   {
     id: 'elite',
+
     nome: 'ELITE VIP',
+
     preco: '89,99',
+
     cor: '#FFD700',
-    storyLimite: 'Fotos + videos ate 30s',
-    videoLimite: 'Videos ate 30 segundos',
-    resumo: 'Para operar sem limite de locais e receber selo automatico.',
+
+    storyLimite: 'Fotos + vídeos até 30s',
+    videoLimite: 'Vídeos até 30 segundos',
+
+    resumo:
+      'Máximo destaque, selo automático e alcance premium.',
+
     features: [
       'Estabelecimentos ilimitados',
-      'Servicos ilimitados',
-      'Tudo do plano Professional',
-      'Selo verificado automatico enquanto o plano estiver ativo',
-      'Aparece na area de estabelecimentos verificados',
-      'Stories com foto e video por 24h',
-      'Videos de ate 30 segundos e ate 60MB',
-      'Metricas de stories: views, curtidas e compartilhamentos',
-      'Pagamento pelo app via PIX cadastrado',
-      'Resumo de faturamento no painel',
-      'Reputacao atualizada pelas avaliacoes',
+      'Serviços ilimitados',
+      'Tudo do Professional',
+      'Selo verificado automático',
+      'Destaque básico incluso',
+      'Área premium do app',
+      'Vídeos até 30 segundos',
+      'Impulsionamento avançado disponível',
     ],
   },
 ];
@@ -296,8 +312,9 @@ const res = await fn({
           <View style={styles.noticeCard}>
             <Icon name="information-outline" color={GOLD} size={20} />
             <Text style={styles.noticeText}>
-              Impulsionamento para destaque e taxa do selo Pro sao cobrancas separadas. O selo Pro so e liberado apos aprovacao e pagamento da taxa.
-            </Text>
+  Todos os planos podem contratar impulsionamento extra.
+  O Elite já inclui destaque básico automático enquanto estiver ativo.
+</Text>
           </View>
         </View>
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState,useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   TextInput, StyleSheet, ActivityIndicator, Alert, Linking, Image,
@@ -11,7 +11,7 @@ import type { Estabelecimento } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/FontAwesome';
-
+import SeloVerificado from '../assets/selo_verificado.png';
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 const DIAS_PADRAO_FUNCIONAMENTO = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -156,8 +156,14 @@ export default function DetalheScreen() {
   const [confirmado, setConfirmado] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState('');
   const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
-
-  const podePagarNoApp = estab?.plano === 'pro' || estab?.plano === 'elite';
+const criandoAgendamentoRef = useRef(false);
+  const podePagarNoApp =
+  (estab?.plano === 'pro' || estab?.plano === 'elite') &&
+  estab?.pagamentoAppAtivo === true &&
+  !!estab?.pixChave &&
+  !!estab?.responsavelNome &&
+  !!estab?.responsavelTelefone &&
+  !!estab?.responsavelEmail;
   const datas = getDatas(
     estab?.diasFuncionamento,
     estab?.diasFechados
@@ -233,6 +239,12 @@ const servicoObj = estab?.servicos?.find(
 );
 
   const confirmar = async () => {
+  if (criandoAgendamentoRef.current || salvando) {
+    return;
+  }
+
+  criandoAgendamentoRef.current = true;
+  
     if (!servicoSel || !dataSel || !horarioSel || !nome || !formaPagamento) {
       Alert.alert('Atenção', 'Preencha todos os campos!');
       return;
@@ -282,9 +294,10 @@ const servicoObj = estab?.servicos?.find(
 
     } catch (e: any) {
       Alert.alert('Erro', e?.message || 'Falha ao agendar');
-    } finally {
-      setSalvando(false);
-    }
+   } finally {
+  setSalvando(false);
+  criandoAgendamentoRef.current = false;
+}
   };
 
  const abrirWhatsApp = async () => {
@@ -393,37 +406,183 @@ const semHorarios = todosHorarios.every(h => {
   return ocupado || jaPassou;
 });
  if (confirmado) {
-    return (
-      <View style={s.confirmWrap}>
-        <View style={s.confirmCard}>
-          <View style={s.confirmCircle}>
-            <Text style={s.confirmEmoji}>🎉</Text>
-          </View>
-          <Text style={s.confirmTitulo}>Agendado!</Text>
-          <Text style={s.confirmSub}>
-            Seu horário está confirmado, {nome.split(' ')[0]}!
-          </Text>
-          <View style={s.confirmResumo}>
-            <Text style={s.confirmEstab}>{estab?.nome}</Text>
-            <View style={s.confirmLinha}><Text>💆 {servicoSel}</Text></View>
-            <View style={s.confirmLinha}><Text>📅 {dataSel?.full}</Text></View>
-            <View style={s.confirmLinha}><Text>⏰ {horarioSel}</Text></View>
-          </View>
-          <TouchableOpacity
-            style={s.btnPrimario}
-            onPress={() =>
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'HomeTabs', params: { screen: 'Agendamentos' } }],
-              })
-            }
-          >
-            <Text style={s.btnPrimarioText}>Ver meus agendamentos</Text>
-          </TouchableOpacity>
+  return (
+    <View style={s.confirmWrap}>
+      <View style={s.confirmCard}>
+
+        {/* TOPO */}
+        <View style={s.confirmCircle}>
+          <Text style={s.confirmEmoji}>🎉</Text>
         </View>
+
+        <Text style={s.confirmTitulo}>
+          Agendamento confirmado!
+        </Text>
+
+        <Text style={s.confirmSub}>
+          Seu horário foi reservado com sucesso,
+          {' '}
+          {(nomeUsuario || nome).split(' ')[0]}.
+        </Text>
+
+        {/* RESUMO */}
+        <View style={s.confirmResumo}>
+
+          <View style={s.confirmHeader}>
+            <BannerMedia
+              data={estab}
+              style={s.confirmFoto}
+            />
+
+            <View style={{ flex: 1 }}>
+              <Text style={s.confirmEstab}>
+                {estab?.nome}
+              </Text>
+
+              <Text style={s.confirmTipo}>
+                {estab?.tipo}
+              </Text>
+            </View>
+          </View>
+
+          <View style={s.confirmDivider} />
+<View style={s.confirmLinha}>
+  <View style={s.confirmIconWrap}>
+    <Icon
+      name="user"
+      size={14}
+      color="#C9A96E"
+    />
+  </View>
+
+  <View style={{ flex: 1 }}>
+    <Text style={s.confirmLabel}>
+      Cliente
+    </Text>
+
+    <Text style={s.confirmValue}>
+      {nomeUsuario || nome}
+    </Text>
+  </View>
+</View>
+          <View style={s.confirmLinha}>
+            <View style={s.confirmIconWrap}>
+              <Icon
+                name="scissors"
+                size={14}
+                color="#C9A96E"
+              />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={s.confirmLabel}>
+                Serviço
+              </Text>
+
+              <Text style={s.confirmValue}>
+                {servicoSel}
+              </Text>
+            </View>
+          </View>
+
+          <View style={s.confirmLinha}>
+            <View style={s.confirmIconWrap}>
+              <Icon
+                name="calendar"
+                size={14}
+                color="#C9A96E"
+              />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={s.confirmLabel}>
+                Data
+              </Text>
+
+              <Text style={s.confirmValue}>
+                {dataSel?.full}
+              </Text>
+            </View>
+          </View>
+
+          <View style={s.confirmLinha}>
+            <View style={s.confirmIconWrap}>
+              <Icon
+                name="clock-o"
+                size={14}
+                color="#C9A96E"
+              />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={s.confirmLabel}>
+                Horário
+              </Text>
+
+              <Text style={s.confirmValue}>
+                {horarioSel}
+              </Text>
+            </View>
+          </View>
+
+          <View style={s.confirmLinha}>
+            <View style={s.confirmIconWrap}>
+              <Icon
+                name="credit-card"
+                size={14}
+                color="#C9A96E"
+              />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={s.confirmLabel}>
+                Pagamento
+              </Text>
+
+              <Text style={s.confirmValue}>
+                {formaPagamento === 'app'
+                  ? 'Pagamento via app'
+                  : 'Pagamento no local'}
+              </Text>
+            </View>
+          </View>
+
+        </View>
+
+        {/* ALERTA */}
+        <View style={s.confirmAlert}>
+          <Text style={s.confirmAlertText}>
+            ⏰ Você receberá um lembrete próximo ao horário do atendimento.
+          </Text>
+        </View>
+
+        {/* BOTÃO */}
+        <TouchableOpacity
+          activeOpacity={0.9}
+          style={s.btnPrimario}
+          onPress={() =>
+            navigation.reset({
+              index: 0,
+              routes: [
+                {
+                  name: 'HomeTabs',
+                  params: {
+                    screen: 'Agendamentos',
+                  },
+                },
+              ],
+            })
+          }
+        >
+          <Text style={s.btnPrimarioText}>
+            Ver meus agendamentos
+          </Text>
+        </TouchableOpacity>
+
       </View>
-    );
-  }
+    </View>
+  );
+}
 
   const svcsAtivos = Array.isArray(estab?.servicos) ? estab.servicos.filter(s => s.ativo) : [];
 
@@ -434,7 +593,20 @@ const semHorarios = todosHorarios.every(h => {
       <View style={s.banner}>
         <BannerMedia data={estab} style={s.bannerEmoji} />
         <View style={s.bannerInfo}>
-          <Text style={s.bannerNome}>{estab?.nome}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+  <Text style={s.bannerNome}>{estab?.nome}</Text>
+
+  {(estab?.verificado === true || estab?.plano === 'elite') && (
+    <Image
+      source={SeloVerificado}
+      style={{
+        width: 18,
+        height: 18,
+        resizeMode: 'contain',
+      }}
+    />
+  )}
+</View>
           <Text style={s.bannerTipo}>{estab?.tipo}</Text>
         </View>
       </View>
@@ -712,6 +884,72 @@ const s = StyleSheet.create({
   bannerNome: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
   bannerTipo: { fontSize: 12, color: '#666' },
   body: { padding: 16 },
+  confirmHeader: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 12,
+},
+
+confirmFoto: {
+  width: 52,
+  height: 52,
+  borderRadius: 26,
+  backgroundColor: '#F5F5F5',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 12,
+},
+
+confirmTipo: {
+  fontSize: 12,
+  color: '#888',
+  marginTop: 2,
+},
+
+confirmDivider: {
+  height: 1,
+  backgroundColor: '#eee',
+  marginVertical: 12,
+},
+
+confirmIconWrap: {
+  width: 30,
+  height: 30,
+  borderRadius: 15,
+  backgroundColor: '#C9A96E22',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 10,
+},
+
+confirmLabel: {
+  fontSize: 11,
+  color: '#999',
+  fontWeight: '700',
+  textTransform: 'uppercase',
+},
+
+confirmValue: {
+  fontSize: 14,
+  color: '#1A1A1A',
+  fontWeight: '700',
+},
+
+confirmAlert: {
+  backgroundColor: '#FFF8E8',
+  borderRadius: 14,
+  padding: 12,
+  marginBottom: 16,
+  borderWidth: 1,
+  borderColor: '#F0D080',
+},
+
+confirmAlertText: {
+  fontSize: 12,
+  color: '#8C6A3B',
+  textAlign: 'center',
+  fontWeight: '600',
+},
   stepsWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 16 },
   stepItem: { flexDirection: 'row', alignItems: 'center' },
   stepCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' },
@@ -768,7 +1006,11 @@ horarioChipPassado: {
   confirmSub: { fontSize: 14, color: '#888', marginBottom: 20, textAlign: 'center' },
   confirmResumo: { width: '100%', backgroundColor: '#F5F5F5', borderRadius: 14, padding: 16, marginBottom: 20 },
   confirmEstab: { fontSize: 14, fontWeight: '700', marginBottom: 10 },
-  confirmLinha: { marginBottom: 4 },
+ confirmLinha: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 12,
+},
   whatsappBtn: { position: 'absolute', bottom: 24, right: 24, backgroundColor: '#25D366', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 6 },
 pagamentoCard: {
   backgroundColor: '#fff',

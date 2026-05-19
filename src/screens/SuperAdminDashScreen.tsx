@@ -6,7 +6,7 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-
+import auth from '@react-native-firebase/auth';
 const GOLD = '#C9A96E';
 const DARK = '#0A0A0A';
 const CARD = '#111';
@@ -29,7 +29,7 @@ export default function SuperAdminDashScreen() {
     verificados: 0,
   });
   const [estabsRecentes, setEstabsRecentes] = useState<any[]>([]);
-
+const [acessoLiberado, setAcessoLiberado] = useState(false);
   const carregar = async () => {
     try {
       const [estabsSnap, adminsSnap, clientesSnap, agendSnap] = await Promise.all([
@@ -49,16 +49,57 @@ export default function SuperAdminDashScreen() {
       let verificados = 0;
       let estabsAtivos = 0;
 
-      estabs.forEach(e => {
-        const plano = e.plano || 'free';
-        if (planos.hasOwnProperty(plano)) (planos as any)[plano]++;
-        if (plano === 'essencial') receitaEstimada += 30;
-        if (plano === 'pro') receitaEstimada += 70;
-        if (plano === 'elite') receitaEstimada += 150;
-        if (e.destaqueAtivo) destaques++;
-        if (e.verificado) verificados++;
-        if (e.ativo) estabsAtivos++;
-      });
+     const agora = new Date();
+
+estabs.forEach(e => {
+  const plano = e.plano || 'free';
+
+  if (planos.hasOwnProperty(plano)) {
+    (planos as any)[plano]++;
+  }
+
+  // Valores iguais à tela de assinatura
+  if (plano === 'essencial' && e.assinaturaAtiva) {
+    receitaEstimada += 29.90;
+  }
+
+  if (plano === 'pro' && e.assinaturaAtiva) {
+    receitaEstimada += 49.90;
+  }
+
+  if (plano === 'elite' && e.assinaturaAtiva) {
+    receitaEstimada += 89.99;
+  }
+
+  const destaqueExpira =
+    e.destaqueExpira?.toDate?.() || null;
+
+  const destaquePagoValido =
+    e.destaqueAtivo === true &&
+    destaqueExpira &&
+    destaqueExpira > agora;
+
+  const destaqueBasicoElite =
+    e.destaqueBasicoAtivo === true &&
+    plano === 'elite' &&
+    e.assinaturaAtiva === true;
+
+  if (destaquePagoValido || destaqueBasicoElite) {
+    destaques++;
+  }
+
+  if (
+    e.verificado === true ||
+    e.verificadoAutomatico === true ||
+    (plano === 'elite' && e.assinaturaAtiva === true)
+  ) {
+    verificados++;
+  }
+
+  if (e.ativo) {
+    estabsAtivos++;
+  }
+});
 
       setStats({
         totalEstabs: estabs.length,
@@ -86,7 +127,60 @@ export default function SuperAdminDashScreen() {
     }
   };
 
-  useEffect(() => { carregar(); }, []);
+ useEffect(() => {
+
+  const verificarPermissao = async () => {
+    try {
+
+      const uid = auth().currentUser?.uid;
+
+      if (!uid) {
+        navigation.replace('Login');
+        return;
+      }
+
+      const adminSnap = await firestore()
+        .collection('admins')
+        .doc(uid)
+        .get();
+
+      if (!adminSnap.exists) {
+        navigation.goBack();
+        return;
+      }
+
+      const admin = adminSnap.data();
+
+      if (admin?.cargo !== 'Super Admin') {
+
+        Alert.alert(
+          'Acesso negado',
+          'Somente Super Admin pode acessar esta área.'
+        );
+
+        navigation.goBack();
+        return;
+      }
+
+      setAcessoLiberado(true);
+
+      await carregar();
+
+    } catch (e) {
+
+      console.log(e);
+
+      navigation.goBack();
+
+    } finally {
+
+      setLoading(false);
+    }
+  };
+
+  verificarPermissao();
+
+}, []);
 
   const onRefresh = () => { setRefreshing(true); carregar(); };
 
@@ -115,7 +209,13 @@ export default function SuperAdminDashScreen() {
   ];
 
   const totalPagantes = stats.planos.essencial + stats.planos.pro + stats.planos.elite;
-
+if (!acessoLiberado) {
+  return (
+    <View style={s.center}>
+      <ActivityIndicator size="large" color={GOLD} />
+    </View>
+  );
+}
   return (
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor={DARK} />
@@ -185,7 +285,7 @@ export default function SuperAdminDashScreen() {
             { ic: '👥', v: stats.totalClientes, l: 'Clientes', sub: 'cadastrados' },
             { ic: '🧑‍💼', v: stats.totalAdmins, l: 'Admins', sub: 'registrados' },
             { ic: '📅', v: stats.agendamentosHoje, l: 'Hoje', sub: `${stats.totalAgendamentos} total` },
-            { ic: '⭐', v: stats.destaques, l: 'Destaques', sub: 'ativos' },
+           { ic: '⭐', v: stats.destaques, l: 'Destaques', sub: 'pagos + elite' },
             { ic: '✅', v: stats.verificados, l: 'Verificados', sub: 'estabelecimentos' },
           ].map(({ ic, v, l, sub }) => (
             <View key={l} style={s.statCard}>

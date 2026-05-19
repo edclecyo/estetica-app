@@ -24,6 +24,7 @@ type MediaItem = {
   uri: string;
   type: 'image' | 'video';
   caption: string;
+  duration?: number;
 };
 
 const DICAS = [
@@ -69,20 +70,33 @@ export default function PostarStory() {
       useNativeDriver: false,
     }).start();
   }, [uploadProgress]);
-
+  
+const permiteVideo =
+  admin?.plano === 'pro' ||
+  admin?.plano === 'elite';
+  
   const abrirCamera = async () => {
     const res = await launchCamera({
-      mediaType: "mixed",
+      mediaType: permiteVideo ? 'mixed' : 'photo',
       quality: 0.85,
       videoQuality: 'high',
       saveToPhotos: true,
     });
     if (res.assets && res.assets.length > 0) {
       const nova: MediaItem = {
-        uri: res.assets[0].uri || '',
-        type: res.assets[0].type?.includes('video') ? 'video' : 'image',
-        caption: '',
-      };
+  uri: res.assets[0].uri || '',
+
+  type:
+    res.assets[0].type?.includes('video')
+      ? 'video'
+      : 'image',
+
+  caption: '',
+
+  // ✅ duração real
+  duration:
+    res.assets[0].duration || 0,
+};
       setMidias(prev => [...prev, nova].slice(0, 10));
       if (midias.length === 0) setIndexAtivo(0);
     }
@@ -90,17 +104,26 @@ export default function PostarStory() {
 
   const escolherMidias = async () => {
     const res = await launchImageLibrary({
-      mediaType: "mixed",
+      mediaType: permiteVideo ? 'mixed' : 'photo',
       quality: 0.85,
       videoQuality: 'high',
       selectionLimit: 10,
     });
     if (res.assets && res.assets.length > 0) {
       const novas: MediaItem[] = res.assets.map(a => ({
-        uri: a.uri || '',
-        type: a.type?.includes('video') ? 'video' : 'image',
-        caption: '',
-      }));
+  uri: a.uri || '',
+
+  type:
+    a.type?.includes('video')
+      ? 'video'
+      : 'image',
+
+  caption: '',
+
+  // ✅ duração real
+  duration:
+    a.duration || 0,
+}));
       setMidias(prev => [...prev, ...novas].slice(0, 10));
       if (midias.length === 0) setIndexAtivo(0);
     }
@@ -148,7 +171,7 @@ const sizeMB =
 
 const duration =
   m.type === 'video'
-    ? 15
+    ? Number(m.duration || 0)
     : 0;
 
 await validarStory({

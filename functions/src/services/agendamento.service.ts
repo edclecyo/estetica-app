@@ -282,7 +282,38 @@ if (conflitoComBloqueio) {
       agendamentoId = agRef.id;
 
       const adminId = est?.adminId || '';
+const pagamentoViaApp =
+  formaPagamento === 'app';
 
+const statusInicial =
+  pagamentoViaApp
+    ? 'aguardando_pagamento'
+    : 'confirmado';
+
+const statusPagamentoInicial =
+  pagamentoViaApp
+    ? 'aguardando_comprovante'
+    : 'nao_aplicavel';
+
+const tituloCliente =
+  pagamentoViaApp
+    ? 'Aguardando pagamento'
+    : 'Agendamento confirmado';
+
+const mensagemCliente =
+  pagamentoViaApp
+    ? `Seu horário de ${servicoNome} foi reservado para ${dataBr} às ${horarioNormalizado}. Envie o comprovante para o estabelecimento confirmar.`
+    : `Seu horário de ${servicoNome} foi confirmado para ${dataBr} às ${horarioNormalizado}.`;
+
+const tituloAdmin =
+  pagamentoViaApp
+    ? 'Novo agendamento aguardando pagamento'
+    : 'Novo agendamento';
+
+const mensagemAdmin =
+  pagamentoViaApp
+    ? `${clienteNome} reservou ${servicoNome} para ${dataBr} às ${horarioNormalizado} e precisa enviar o comprovante.`
+    : `${clienteNome} marcou ${servicoNome} para ${dataBr} às ${horarioNormalizado}.`;
       t.set(
         rateRef,
         {
@@ -313,9 +344,11 @@ if (conflitoComBloqueio) {
         dataKey: key,
         horario: horarioNormalizado,
 
-        status: 'confirmado',
+        status: statusInicial,
 
-        formaPagamento: formaPagamento || 'local',
+statusPagamento: statusPagamentoInicial,
+
+formaPagamento: formaPagamento || 'local',
 
         notificado: false,
         notificarEm: Timestamp.fromDate(notificarEm),
@@ -378,8 +411,8 @@ if (conflitoComBloqueio) {
 
         formaPagamento: formaPagamento || 'local',
 
-        titulo: 'Agendamento confirmado',
-        mensagem: `Seu horário de ${servicoNome} foi confirmado para ${dataBr} às ${horarioNormalizado}.`,
+       titulo: tituloCliente,
+mensagem: mensagemCliente,
 
         lida: false,
         apagada: false,
@@ -406,8 +439,8 @@ if (conflitoComBloqueio) {
 
         formaPagamento: formaPagamento || 'local',
 
-        titulo: 'Novo agendamento',
-        mensagem: `${clienteNome} marcou ${servicoNome} para ${dataBr} às ${horarioNormalizado}.`,
+      titulo: tituloAdmin,
+mensagem: mensagemAdmin,
 
         lida: false,
         apagada: false,

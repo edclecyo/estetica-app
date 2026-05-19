@@ -14,12 +14,13 @@ export * from './services/conta.service';
 export * from './services/selo.service';
 export * from './services/avaliacao.service';
 export * from './services/story.service';
+export * from './services/comunicado.service';
+export * from './services/relatorio.service';
 
 // 2. TRIGGERS (Gatilhos de Banco de Dados)
 // Funções que rodam sozinhas quando algo muda no Firestore (onDocumentCreated, etc).
 export * from './triggers/notificacao.trigger';
 export * from './triggers/agendamento.trigger';
-export * from './triggers/selo.trigger';
 
 // 3. SCHEDULES (Tarefas Agendadas)
 // Funções que rodam em horários específicos (CRON) para enviar lembretes e limpar dados.

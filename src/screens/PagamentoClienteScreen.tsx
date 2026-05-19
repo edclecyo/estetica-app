@@ -1,13 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Alert
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  ScrollView,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
-import firestore from '@react-native-firebase/firestore';
 import QRCode from 'react-native-qrcode-svg';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
@@ -15,181 +20,227 @@ export default function PagamentoClienteScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
 
-  const { agendamentoId, valor, servicoNome, nomeEstabelecimento } = route.params;
+  const {
+    agendamentoId,
+    valor,
+    servicoNome,
+    nomeEstabelecimento,
+  } = route.params;
 
   const [loading, setLoading] = useState(false);
-  const [qr, setQr] = useState<any>(null);
+  const [dadosPix, setDadosPix] = useState<any>(null);
   const [copiado, setCopiado] = useState(false);
-  const [status, setStatus] = useState<'pendente' | 'aprovado'>('pendente');
-  const [expiraEm, setExpiraEm] = useState<number | null>(null);
-  const [tempoRestante, setTempoRestante] = useState('');
+  const [mostrarResumo, setMostrarResumo] = useState(false);
 
-  // ✅ ESCUTA TEMPO REAL — com cleanup correto
   useEffect(() => {
-    const unsub = firestore()
-      .collection('agendamentos')
-      .doc(agendamentoId)
-      .onSnapshot(doc => {
-		  if (!doc.exists) return;
-        const data = doc.data();
-        if (data?.statusPagamento === 'approved') {
-          setStatus('aprovado');
-          setTimeout(() => navigation.goBack(), 2500);
-        }
+    gerarPixManual();
+  }, []);
+
+  const gerarPixManual = async () => {
+    try {
+      setLoading(true);
+
+      const functionsInstance = getFunctions(
+        getApp(),
+        'southamerica-east1'
+      );
+
+      const fn = httpsCallable(
+        functionsInstance,
+        'criarPagamentoCliente'
+      );
+
+      const res: any = await fn({
+        agendamentoId,
       });
 
-    return () => unsub();
-  }, [agendamentoId]);
+      if (!res?.data?.pixChave) {
+        Alert.alert(
+          'Erro',
+          'O estabelecimento não possui PIX cadastrado.'
+        );
 
-  // ✅ TIMER — com cleanup correto
-  useEffect(() => {
-    if (!expiraEm) return;
-
-    const interval = setInterval(() => {
-      const restante = expiraEm - Date.now();
-
-      if (restante <= 0) {
-        clearInterval(interval);
-        setQr(null);
-        setExpiraEm(null);
-        Alert.alert('PIX expirado', 'Gere um novo código PIX para continuar.');
         return;
       }
 
-      const min = Math.floor(restante / 60000);
-      const seg = Math.floor((restante % 60000) / 1000);
-      setTempoRestante(`${min}:${seg.toString().padStart(2, '0')}`);
-    }, 1000);
+      setDadosPix(res.data);
+    } catch (e: any) {
+      Alert.alert(
+        'Erro',
+        e?.message || 'Não foi possível gerar o PIX.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return () => clearInterval(interval);
-  }, [expiraEm]);
+  const copiarPix = () => {
+    if (!dadosPix?.pixChave) return;
 
-  const gerarPix = async () => {
-  try {
-    setLoading(true);
+    Clipboard.setString(dadosPix.pixChave);
+    setCopiado(true);
 
-    // ✅ PADRÃO NOVO (IGUAL AO AGENDAMENTO)
-    const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
+    setTimeout(() => {
+      setCopiado(false);
+    }, 2200);
+  };
 
-    const fn = httpsCallable(functionsInstance, 'criarPagamentoCliente');
-
-    const res: any = await fn({ agendamentoId });
-    const data = res.data;
-
-    if (!data?.qr_code) {
-      Alert.alert('Erro', 'Estabelecimento não configurou o Mercado Pago ainda.');
+  const abrirWhatsapp = async () => {
+    if (!dadosPix?.whatsappUrl) {
+      Alert.alert(
+        'Erro',
+        'WhatsApp do estabelecimento não encontrado.'
+      );
       return;
     }
 
-    setQr(data);
-    setExpiraEm(Date.now() + 15 * 60 * 1000);
+    const canOpen = await Linking.canOpenURL(dadosPix.whatsappUrl);
 
-  } catch (e: any) {
-    const msg = e?.message || 'Erro ao gerar PIX';
-    Alert.alert('Erro', msg);
-  } finally {
-    setLoading(false);
-  }
-};
+    if (!canOpen) {
+      Alert.alert(
+        'Erro',
+        'Não foi possível abrir o WhatsApp.'
+      );
+      return;
+    }
 
-  // ✅ CLIPBOARD MODERNO
-  const copiarCodigo = () => {
-    if (!qr?.qr_code) return;
-    Clipboard.setString(qr.qr_code);
-    setCopiado(true);
-    setTimeout(() => setCopiado(false), 2500);
+    await Linking.openURL(dadosPix.whatsappUrl);
   };
+
+  if (loading && !dadosPix) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color="#C9A96E" size="large" />
+        <Text style={s.loadingText}>
+          Gerando dados do pagamento...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={s.container}>
-
-      {/* HEADER */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Icon name="arrow-left" size={24} color="#C9A96E" />
         </TouchableOpacity>
-        <Text style={s.titulo}>Pagamento</Text>
+
+        <Text style={s.titulo}>Pagamento PIX</Text>
       </View>
 
-      {/* CARD */}
-      <View style={s.card}>
-        <Text style={s.estab}>{nomeEstabelecimento}</Text>
-        <View style={s.divider} />
-        <View style={s.linha}>
-          <Text style={s.label}>Serviço</Text>
-          <Text style={s.valor}>{servicoNome}</Text>
-        </View>
-        <View style={s.linha}>
-          <Text style={s.label}>Total</Text>
-          <Text style={s.preco}>R$ {valor}</Text>
-        </View>
-      </View>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={s.card}>
+          <Text style={s.estab}>
+            {dadosPix?.estabelecimentoNome || nomeEstabelecimento}
+          </Text>
 
-      {/* APROVADO */}
-      {status === 'aprovado' && (
-        <View style={s.sucesso}>
-          <Icon name="check-circle" size={26} color="#00FF9C" />
-          <Text style={s.sucessoTxt}>Pagamento confirmado! Redirecionando...</Text>
-        </View>
-      )}
+          <View style={s.divider} />
 
-      {/* BOTÃO GERAR PIX */}
-      {!qr && status !== 'aprovado' && (
+          <View style={s.linha}>
+            <Text style={s.label}>Serviço</Text>
+            <Text style={s.valor}>
+              {dadosPix?.servicoNome || servicoNome}
+            </Text>
+          </View>
+
+          <View style={s.linha}>
+            <Text style={s.label}>Total</Text>
+            <Text style={s.preco}>
+              R$ {Number(dadosPix?.valor || valor || 0)
+                .toFixed(2)
+                .replace('.', ',')}
+            </Text>
+          </View>
+        </View>
+
+        {dadosPix?.pixChave && (
+          <View style={s.pixCard}>
+            <Text style={s.pixTitulo}>Escaneie o QR Code</Text>
+
+            <View style={s.qrBox}>
+              <QRCode
+                value={String(dadosPix.pixChave)}
+                size={210}
+              />
+            </View>
+
+            <Text style={s.pixLabel}>
+              Chave PIX
+            </Text>
+
+            <View style={s.chaveBox}>
+              <Text style={s.chaveText} numberOfLines={2}>
+                {dadosPix.pixChave}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={s.copiarBtn}
+              onPress={copiarPix}
+            >
+              <Icon
+                name={copiado ? 'check' : 'content-copy'}
+                size={18}
+                color="#000"
+              />
+
+              <Text style={s.copiarTxt}>
+                {copiado ? 'Chave copiada!' : 'Copiar chave PIX'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <TouchableOpacity
-          style={[s.botao, loading && { opacity: 0.7 }]}
-          onPress={gerarPix}
-          disabled={loading}
+          style={s.resumoBtn}
+          onPress={() => setMostrarResumo(!mostrarResumo)}
         >
-          {loading ? (
-            <ActivityIndicator color="#000" />
-          ) : (
-            <>
-              <Icon name="qrcode" size={20} color="#000" />
-              <Text style={s.botaoText}>Gerar PIX</Text>
-            </>
-          )}
+          <Icon
+            name={mostrarResumo ? 'chevron-up' : 'file-document-outline'}
+            size={20}
+            color="#C9A96E"
+          />
+
+          <Text style={s.resumoBtnText}>
+            {mostrarResumo ? 'Ocultar resumo' : 'Ver resumo do pedido'}
+          </Text>
         </TouchableOpacity>
-      )}
 
-      {/* PIX GERADO */}
-      {qr?.qr_code && status !== 'aprovado' && (
-        <View style={s.pixBox}>
+        {mostrarResumo && dadosPix?.resumo && (
+          <View style={s.resumoCard}>
+            <Text style={s.resumoTitulo}>
+              Resumo do pedido
+            </Text>
 
-          <View style={s.qrContainer}>
-            <Image
-  source={{ uri: `data:image/png;base64,${qr.qr_code_base64}` }}
-  style={{ width: 200, height: 200 }}
-/>
-          </View>
-
-          <View style={s.timerBox}>
-            <Icon name="clock-outline" size={14} color="#C9A96E" />
-            <Text style={s.timer}>Expira em {tempoRestante}</Text>
-          </View>
-
-          <Text style={s.pixLabel}>Copia e cola</Text>
-
-          <View style={s.copyBox}>
-            <Text numberOfLines={2} style={s.codigo}>
-              {qr.qr_code}
+            <Text style={s.resumoTexto}>
+              {dadosPix.resumo}
             </Text>
           </View>
+        )}
 
-          <TouchableOpacity style={s.copiarBtn} onPress={copiarCodigo}>
-            <Icon name={copiado ? 'check' : 'content-copy'} size={18} color="#000" />
-            <Text style={s.copiarTxt}>
-              {copiado ? 'Copiado!' : 'Copiar código'}
-            </Text>
-          </TouchableOpacity>
+        <TouchableOpacity
+          style={s.whatsBtn}
+          onPress={abrirWhatsapp}
+        >
+          <Icon name="whatsapp" size={22} color="#FFF" />
 
-          {/* GERAR NOVO */}
-          <TouchableOpacity style={s.novoBtn} onPress={() => { setQr(null); setExpiraEm(null); }}>
-            <Text style={s.novoTxt}>Gerar novo código</Text>
-          </TouchableOpacity>
+          <Text style={s.whatsBtnText}>
+            Enviar resumo para o estabelecimento
+          </Text>
+        </TouchableOpacity>
 
+        <View style={s.avisoCard}>
+          <Icon
+            name="shield-check-outline"
+            size={22}
+            color="#C9A96E"
+          />
+
+          <Text style={s.avisoText}>
+            Seu agendamento só será confirmado após o estabelecimento conferir o comprovante de pagamento enviado pelo WhatsApp.
+          </Text>
         </View>
-      )}
-
+      </ScrollView>
     </View>
   );
 }
@@ -200,134 +251,214 @@ const s = StyleSheet.create({
     backgroundColor: '#0D0D0D',
     padding: 20,
   },
+
+  center: {
+    flex: 1,
+    backgroundColor: '#0D0D0D',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  loadingText: {
+    color: '#C9A96E',
+    marginTop: 12,
+    fontWeight: '700',
+  },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 40,
     marginBottom: 20,
   },
+
   titulo: {
     color: '#FFF',
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '800',
     marginLeft: 15,
   },
+
   card: {
     backgroundColor: '#1A1A1A',
     borderRadius: 18,
     padding: 20,
-    marginBottom: 20,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#C9A96E22',
   },
+
   estab: {
     color: '#C9A96E',
-    fontWeight: '700',
+    fontWeight: '800',
     fontSize: 16,
   },
+
   divider: {
     height: 1,
     backgroundColor: '#333',
     marginVertical: 12,
   },
+
   linha: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 10,
+    gap: 12,
   },
-  label: { color: '#aaa' },
-  valor: { color: '#fff' },
+
+  label: {
+    color: '#AAA',
+  },
+
+  valor: {
+    color: '#FFF',
+    flex: 1,
+    textAlign: 'right',
+    fontWeight: '700',
+  },
+
   preco: {
     color: '#C9A96E',
-    fontWeight: '700',
+    fontWeight: '900',
     fontSize: 18,
   },
-  botao: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#C9A96E',
-    padding: 16,
-    borderRadius: 14,
-  },
-  botaoText: {
-    fontWeight: '700',
-    color: '#000',
-    fontSize: 15,
-  },
-  pixBox: {
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  qrContainer: {
-    padding: 16,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-  },
-  timerBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 12,
-  },
-  timer: {
-    color: '#C9A96E',
-    fontWeight: '700',
-  },
-  pixLabel: {
-    color: '#aaa',
-    marginTop: 16,
-    marginBottom: 4,
-    fontSize: 12,
-  },
-  copyBox: {
+
+  pixCard: {
     backgroundColor: '#1A1A1A',
-    padding: 12,
-    borderRadius: 10,
-    marginTop: 6,
-    width: '100%',
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#C9A96E22',
   },
-  codigo: {
-    color: '#fff',
-    fontSize: 11,
+
+  pixTitulo: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 14,
+  },
+
+  qrBox: {
+    backgroundColor: '#FFF',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+  },
+
+  pixLabel: {
+    color: '#AAA',
+    fontSize: 12,
+    fontWeight: '700',
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+  },
+
+  chaveBox: {
+    width: '100%',
+    backgroundColor: '#0D0D0D',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+
+  chaveText: {
+    color: '#FFF',
+    fontSize: 12,
     textAlign: 'center',
   },
+
   copiarBtn: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 14,
-    backgroundColor: '#C9A96E',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 10,
     alignItems: 'center',
-  },
-  copiarTxt: {
-    fontWeight: '700',
-    color: '#000',
-  },
-  novoBtn: {
+    gap: 8,
+    backgroundColor: '#C9A96E',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     marginTop: 14,
-    padding: 10,
   },
-  novoTxt: {
-    color: '#555',
-    fontSize: 12,
-    textDecorationLine: 'underline',
+
+  copiarTxt: {
+    color: '#000',
+    fontWeight: '900',
   },
-  sucesso: {
+
+  resumoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#1E3D2F',
-    padding: 15,
-    borderRadius: 12,
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#C9A96E33',
+  },
+
+  resumoBtnText: {
+    color: '#C9A96E',
+    fontWeight: '800',
+  },
+
+  resumoCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+  },
+
+  resumoTitulo: {
+    color: '#1A1A1A',
+    fontSize: 15,
+    fontWeight: '900',
     marginBottom: 10,
   },
-  sucessoTxt: {
-    color: '#00FF9C',
-    fontWeight: '700',
+
+  resumoTexto: {
+    color: '#333',
+    fontSize: 13,
+    lineHeight: 21,
+  },
+
+  whatsBtn: {
+    backgroundColor: '#25D366',
+    borderRadius: 16,
+    padding: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+
+  whatsBtnText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  avisoCard: {
+    backgroundColor: 'rgba(201,169,110,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.25)',
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 30,
+  },
+
+  avisoText: {
+    color: '#C9A96E',
     flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
   },
 });

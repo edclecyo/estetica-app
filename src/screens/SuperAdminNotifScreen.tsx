@@ -5,6 +5,8 @@ import {
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 
 const GOLD = '#C9A96E';
 const DARK = '#0A0A0A';
@@ -39,84 +41,91 @@ export default function SuperAdminNotifScreen() {
   }, []);
 
   const enviar = async () => {
-    if (!titulo.trim() || !msg.trim()) {
-      Alert.alert('Atenção', 'Preencha título e mensagem.');
-      return;
-    }
-
+  if (!titulo.trim() || !msg.trim()) {
     Alert.alert(
-      'Confirmar envio',
-      `Enviar para: ${destino === 'todos' ? 'TODOS os estabelecimentos' : `plano ${planoFiltro.toUpperCase()}`}\n\nTítulo: ${titulo}`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Enviar',
-          onPress: async () => {
-            setEnviando(true);
-            try {
-              // ✅ Busca todos os admins
-              const adminsSnap = await firestore().collection('admins').get();
-              const admins = adminsSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+      'Atenção',
+      'Preencha título e mensagem.'
+    );
 
-              let destinatarios = admins;
+    return;
+  }
 
-              // ✅ Filtra por plano se necessário
-              if (destino === 'plano') {
-                const estabsSnap = await firestore()
-                  .collection('estabelecimentos')
-                  .where('plano', '==', planoFiltro)
-                  .where('assinaturaAtiva', '==', true)
-                  .get();
-                const adminIds = new Set(estabsSnap.docs.map(d => d.data().adminId));
-                destinatarios = admins.filter(a => adminIds.has(a.id));
-              }
+  Alert.alert(
+    'Confirmar envio',
 
-              // ✅ Cria notificações em batch
-              const batch = firestore().batch();
-              let enviados = 0;
+    `Enviar para: ${
+      destino === 'todos'
+        ? 'TODOS os estabelecimentos'
+        : `plano ${planoFiltro.toUpperCase()}`
+    }\n\nTítulo: ${titulo}`,
 
-              for (const a of destinatarios) {
-                const ref = firestore().collection('notificacoes').doc();
-                batch.set(ref, {
-                  adminId: a.id,
-                  titulo,
-                  msg,
-                  tipo: 'comunicado',
-                  lida: false,
-                  apagada: false,
-                  criadoEm: firestore.FieldValue.serverTimestamp(),
-                });
-                enviados++;
-              }
+    [
+      {
+        text: 'Cancelar',
+        style: 'cancel',
+      },
 
-              // ✅ Salva no histórico de comunicados
-              const comunicadoRef = firestore().collection('comunicados').doc();
-              batch.set(comunicadoRef, {
-                titulo,
-                msg,
+      {
+        text: 'Enviar',
+
+        onPress: async () => {
+          setEnviando(true);
+
+          try {
+            const functionsInstance =
+              getFunctions(
+                getApp(),
+                'southamerica-east1'
+              );
+
+            const fn = httpsCallable(
+              functionsInstance,
+              'enviarComunicadoSuperAdmin'
+            );
+
+            const response: any =
+              await fn({
+                titulo: titulo.trim(),
+
+                mensagem: msg.trim(),
+
                 destino,
-                planoFiltro: destino === 'plano' ? planoFiltro : null,
-                totalEnviados: enviados,
-                criadoEm: firestore.FieldValue.serverTimestamp(),
+
+                planoFiltro:
+                  destino === 'plano'
+                    ? planoFiltro
+                    : null,
               });
 
-              await batch.commit();
+            const total =
+              response?.data?.totalEnviados || 0;
 
-              Alert.alert('✅ Enviado!', `Comunicado enviado para ${enviados} estabelecimento(s)!`);
-              setTitulo('');
-              setMsg('');
-              setAba('historico');
-            } catch (e) {
-              console.error(e);
-              Alert.alert('Erro', 'Não foi possível enviar o comunicado.');
-            } finally {
-              setEnviando(false);
-            }
-          },
+            Alert.alert(
+              '✅ Enviado!',
+              `Comunicado enviado para ${total} estabelecimento(s)!`
+            );
+
+            setTitulo('');
+            setMsg('');
+            setAba('historico');
+
+          } catch (e: any) {
+            console.error(e);
+
+            Alert.alert(
+              'Erro',
+              e?.message ||
+                'Não foi possível enviar o comunicado.'
+            );
+
+          } finally {
+            setEnviando(false);
+          }
         },
-      ]
-    );
-  };
+      },
+    ]
+  );
+};
 
   return (
     <View style={s.container}>
@@ -276,7 +285,7 @@ export default function SuperAdminNotifScreen() {
                   <Text style={s.historicoBadgeText}>{item.totalEnviados} enviados</Text>
                 </View>
               </View>
-              <Text style={s.historicoMsg} numberOfLines={2}>{item.msg}</Text>
+              <Text style={s.historicoMsg} numberOfLines={2}>{item.mensagem}</Text>
               <View style={s.historicoRodape}>
                 <Text style={s.historicoData}>
                   {item.criadoEm?.toDate?.()?.toLocaleString('pt-BR', {

@@ -451,6 +451,36 @@ Gerado pelo BeautyHub`;
     setLoadingAcao(null);
   }
 };
+const confirmarPagamentoManual = async (
+  agendamentoId: string
+) => {
+  try {
+    const functionsInstance = getFunctions(
+      getApp(),
+      'southamerica-east1'
+    );
+
+    const fn = httpsCallable(
+      functionsInstance,
+      'confirmarPagamentoManual'
+    );
+
+    await fn({
+      agendamentoId,
+    });
+
+    Alert.alert(
+      'Pagamento confirmado ✅',
+      'O agendamento foi liberado.'
+    );
+
+  } catch (e: any) {
+    Alert.alert(
+      'Erro',
+      e?.message || 'Erro ao confirmar pagamento'
+    );
+  }
+};
 const [saindo, setSaindo] = useState(false);
   const handleLogout = () => {
   if (saindo) return;
@@ -616,9 +646,13 @@ const [saindo, setSaindo] = useState(false);
     return { titulo: 'Obter Selo Verificado', sub: 'Plano Pro — solicite o selo por R$ 14,90', cor: GOLD, emoji: '⭐' };
   };
 
-  const badge = planoBadge();
-  const selo = seloInfo();
-  const mostrarCardSelo = planoAtual === 'pro' || planoAtual === 'elite';
+ const badge = planoBadge();
+const selo = seloInfo();
+const mostrarCardSelo = planoAtual === 'pro' || planoAtual === 'elite';
+
+const temSelo =
+  verificado === true ||
+  planoAtual === 'elite';
 
   return (
     <View style={s.container}>
@@ -629,9 +663,16 @@ const [saindo, setSaindo] = useState(false);
           <Text style={s.headerSub}>PAINEL ADMINISTRATIVO</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
             <Text style={s.headerTitulo}>Olá, {admin?.nome?.split(' ')[0]}</Text>
-            {verificado && (
-              <Image source={SeloVerificado} style={{ width: 20, height: 20, resizeMode: 'contain' }} />
-            )}
+          {temSelo && (
+  <Image
+    source={SeloVerificado}
+    style={{
+      width: 20,
+      height: 20,
+      resizeMode: 'contain',
+    }}
+  />
+)}
           </View>
         </View>
         <View style={s.headerAcoes}>
@@ -845,9 +886,27 @@ const [saindo, setSaindo] = useState(false);
                 );
               })}
             </View>
-            <TouchableOpacity style={s.btnRelatorioFaturamento} onPress={compartilharRelatorio} activeOpacity={0.8}>
-              <Text style={s.btnRelatorioFaturamentoText}>📊 Gerar relatório mensal</Text>
-            </TouchableOpacity>
+            <TouchableOpacity
+  style={s.btnRelatorioFaturamento}
+  activeOpacity={0.8}
+  onPress={() => {
+    if (planoAtual !== 'pro' && planoAtual !== 'elite') {
+      Alert.alert(
+        'Recurso Pro',
+        'Relatórios financeiros profissionais estão disponíveis nos planos Pro e Elite.'
+      );
+      return;
+    }
+
+    navigation.navigate('RelatorioFinanceiroScreen', {
+      estabelecimentoId: principal?.id,
+    });
+  }}
+>
+  <Text style={s.btnRelatorioFaturamentoText}>
+    📊 Relatório financeiro profissional
+  </Text>
+</TouchableOpacity>
           </View>
 
           {/* GRÁFICO */}
@@ -1043,20 +1102,47 @@ const [saindo, setSaindo] = useState(false);
                 </View>
                 <Text style={s.agendPreco}>R$ {item.servicoPreco}</Text>
               </View>
-              <View style={[
-                s.statusBadge,
-                item.status === 'confirmado' ? s.bgConfirmado :
-                item.status === 'cancelado' ? s.bgCancelado : s.bgConcluido,
-              ]}>
-                <Text style={[
-                  s.statusText,
-                  item.status === 'confirmado' ? s.txtConfirmado :
-                  item.status === 'cancelado' ? s.txtCancelado : s.txtConcluido,
-                ]}>
-                  {item.status?.toUpperCase()}
-                </Text>
-              </View>
-              {item.status === 'confirmado' && (
+              <View
+  style={[
+    s.statusBadge,
+    item.status === 'confirmado'
+      ? s.bgConfirmado
+      : item.status === 'cancelado'
+      ? s.bgCancelado
+      : s.bgConcluido,
+  ]}
+>
+  <Text
+    style={[
+      s.statusText,
+      item.status === 'confirmado'
+        ? s.txtConfirmado
+        : item.status === 'cancelado'
+        ? s.txtCancelado
+        : s.txtConcluido,
+    ]}
+  >
+    {item.status?.toUpperCase()}
+  </Text>
+</View>
+
+{/* ✅ NOVO BOTÃO */}
+{item.formaPagamento === 'app' &&
+  item.status === 'aguardando_pagamento' &&
+  item.statusPagamento !== 'approved' && (
+    <TouchableOpacity
+      style={s.btnConfirmarPagamento}
+      onPress={() =>
+        confirmarPagamentoManual(item.id)
+      }
+    >
+      <Text style={s.btnConfirmarPagamentoText}>
+        ✅ Confirmar pagamento
+      </Text>
+    </TouchableOpacity>
+)}
+
+{item.status === 'confirmado' && (
   <View style={s.acoesWrap}>
 
     {/* CONCLUIR */}
@@ -1371,6 +1457,19 @@ financeiroCardDash: {
   btnConcluirText: { color: GOLD, fontSize: 13, fontWeight: '700' },
   btnCancelar: { flex: 1, backgroundColor: '#F5F5F5', borderRadius: 12, padding: 12, alignItems: 'center' },
   btnCancelarText: { color: '#999', fontSize: 13, fontWeight: '700' },
+  btnConfirmarPagamento: {
+  marginTop: 14,
+  backgroundColor: '#25D366',
+  borderRadius: 14,
+  paddingVertical: 14,
+  alignItems: 'center',
+},
+
+btnConfirmarPagamentoText: {
+  color: '#FFF',
+  fontSize: 14,
+  fontWeight: '800',
+},
   novoBtn: { backgroundColor: GOLD, borderRadius: 16, padding: 18, alignItems: 'center', marginVertical: 20 },
   novoBtnText: { color: '#1A1A1A', fontSize: 15, fontWeight: '800' },
   estabCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 12, flexDirection: 'row', alignItems: 'center', borderLeftWidth: 6 },

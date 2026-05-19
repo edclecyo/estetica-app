@@ -49,7 +49,7 @@ export const criarPagamentoCliente = onCall(
       );
     }
 
-    const { agendamentoId } = req.data;
+    const { agendamentoId } = req.data || {};
 
     if (!agendamentoId) {
       throw new HttpsError(
@@ -95,33 +95,212 @@ export const criarPagamentoCliente = onCall(
       );
     }
 
-    if (
-      !estab?.plano ||
-      !['pro', 'elite'].includes(estab.plano)
-    ) {
+   if (
+  !estab?.plano ||
+  !['pro', 'elite'].includes(estab.plano)
+) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Este estabelecimento não aceita pagamento pelo app'
+  );
+}
+
+// ✅ NOVO
+if (estab?.pagamentoAppAtivo !== true) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Pagamento pelo app indisponível. O estabelecimento precisa configurar os dados PIX.'
+  );
+}
+
+// ✅ NOVO
+if (
+  !estab?.pixChave ||
+  !estab?.responsavelNome ||
+  !estab?.responsavelTelefone ||
+  !estab?.responsavelEmail
+) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Estabelecimento precisa completar os dados de recebimento PIX'
+  );
+}
+
+if (!estab?.pixChave) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Estabelecimento sem PIX'
+  );
+}
+
+    if (!estab?.telefone) {
       throw new HttpsError(
         'failed-precondition',
-        'Este estabelecimento não aceita pagamento pelo app'
+        'Estabelecimento sem WhatsApp cadastrado'
       );
     }
 
-    if (!estab?.pixChave) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Estabelecimento sem PIX'
-      );
-    }
+    const valor =
+      Number(ag.servicoPreco || 0);
+
+    const resumo =
+`*COMPROVANTE DE AGENDAMENTO*
+
+*Estabelecimento:* ${estab.nome || ag.estabelecimentoNome || ''}
+*Cliente:* ${ag.clienteNome || ''}
+*Serviço:* ${ag.servicoNome || ''}
+*Data:* ${ag.data || ''}
+*Horário:* ${ag.horario || ''}
+*Valor:* R$ ${valor.toFixed(2).replace('.', ',')}
+*Forma de pagamento:* PIX manual pelo app
+
+*ID do agendamento:* ${agendamentoId}
+
+Olá, realizei o pagamento do agendamento e estou enviando o comprovante em anexo.`;
+
+    const telefone =
+      String(estab.telefone || '')
+        .replace(/\D/g, '');
+
+    const numeroFinal =
+      telefone.startsWith('55')
+        ? telefone
+        : `55${telefone}`;
+
+    const whatsappUrl =
+      `https://wa.me/${numeroFinal}?text=${encodeURIComponent(resumo)}`;
+
+    // ✅ marca geração do pagamento
+    await agRef.update({
+
+      pixManualGerado: true,
+
+      pixManualGeradoEm:
+        FieldValue.serverTimestamp(),
+
+      atualizadoEm:
+        FieldValue.serverTimestamp(),
+    });
 
     return {
+
+      ok: true,
+
+      agendamentoId,
+
       pixChave: estab.pixChave,
-      pixTipo: estab.pixTipo || 'aleatoria',
-      valor: ag.servicoPreco,
-      nome: estab.nome,
-      descricao: ag.servicoNome,
+
+      pixTipo:
+        estab.pixTipo || 'aleatoria',
+
+      valor,
+
+      estabelecimentoNome:
+        estab.nome || '',
+
+      servicoNome:
+        ag.servicoNome || '',
+
+      clienteNome:
+        ag.clienteNome || '',
+
+      data:
+        ag.data || '',
+
+      horario:
+        ag.horario || '',
+
+      resumo,
+
+      whatsappUrl,
     };
   }
 );
 
+export const confirmarPagamentoManual = onCall(
+  { region: REGION },
+
+  async req => {
+    if (!req.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
+
+    const { agendamentoId } = req.data || {};
+
+    if (!agendamentoId) {
+      throw new HttpsError('invalid-argument', 'Agendamento obrigatório');
+    }
+
+    const agRef = db.collection('agendamentos').doc(agendamentoId);
+    const agSnap = await agRef.get();
+
+    if (!agSnap.exists) {
+      throw new HttpsError('not-found', 'Agendamento não encontrado');
+    }
+
+    const ag = agSnap.data() as any;
+
+    if (ag.adminId !== req.auth.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissão');
+    }
+
+    if (ag.formaPagamento !== 'app') {
+      throw new HttpsError(
+        'failed-precondition',
+        'Este agendamento não é pagamento pelo app'
+      );
+    }
+
+    if (ag.statusPagamento === 'approved') {
+      return {
+        ok: true,
+        status: 'confirmado',
+        jaConfirmado: true,
+      };
+    }
+
+    await agRef.update({
+      status: 'confirmado',
+      statusPagamento: 'approved',
+
+      pagamentoConfirmadoManual: true,
+      pagamentoConfirmadoPor: req.auth.uid,
+      pagamentoConfirmadoEm: FieldValue.serverTimestamp(),
+
+      atualizadoEm: FieldValue.serverTimestamp(),
+    });
+
+    await db.collection('notificacoes').add({
+      tipo: 'cliente',
+      type: 'PAGAMENTO_CONFIRMADO',
+
+      clienteId: ag.clienteUid,
+      userId: ag.clienteUid,
+      adminId: ag.adminId,
+
+      agendamentoId,
+      estabelecimentoId: ag.estabelecimentoId || '',
+      estabelecimentoNome: ag.estabelecimentoNome || '',
+
+      clienteNome: ag.clienteNome || '',
+      servicoNome: ag.servicoNome || '',
+      formaPagamento: ag.formaPagamento || '',
+
+      titulo: 'Pagamento confirmado',
+      mensagem: `Seu pagamento foi confirmado e seu horário de ${ag.servicoNome || 'serviço'} está liberado.`,
+
+      lida: false,
+      apagada: false,
+
+      criadoEm: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      ok: true,
+      status: 'confirmado',
+    };
+  }
+);
 // =====================================================
 // 2. PIX ASSINATURA
 // =====================================================

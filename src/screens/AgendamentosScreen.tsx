@@ -33,49 +33,79 @@ export default function AgendamentosScreen() {
   }, []);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setAgendamentos([]);
-      setLoading(false);
-      return;
-    }
+  if (!user?.uid) {
+    setAgendamentos([]);
+    setLoading(false);
+    return;
+  }
 
-    setLoading(true);
+  setLoading(true);
 
-    const ref = firestore()
-      .collection('agendamentos')
-      .where('clienteUid', '==', user.uid);
+  const aplicarDados = (listas: any[][]) => {
+    const map = new Map();
 
-    const unsubscribe = ref.onSnapshot(
+    listas.flat().forEach((item: any) => {
+      if (item?.id) {
+        map.set(item.id, item);
+      }
+    });
+
+    const dados = Array.from(map.values())
+      .filter((a: any) => a.deletado !== true)
+      .sort((a: any, b: any) => {
+        const aTime = a.criadoEm?.toMillis?.() || 0;
+        const bTime = b.criadoEm?.toMillis?.() || 0;
+        return bTime - aTime;
+      });
+
+    setAgendamentos(dados as Agendamento[]);
+    setLoading(false);
+  };
+
+  let listaUid: any[] = [];
+  let listaId: any[] = [];
+
+  const unsubUid = firestore()
+    .collection('agendamentos')
+    .where('clienteUid', '==', user.uid)
+    .onSnapshot(
       snap => {
-        if (!snap) {
-          setAgendamentos([]);
-          setLoading(false);
-          return;
-        }
+        listaUid = snap?.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        })) || [];
 
-        const dados = snap.docs
-          .map(d => ({
-            id: d.id,
-            ...d.data(),
-          }))
-          .filter((a: any) => a.deletado !== true)
-          .sort((a: any, b: any) => {
-            const aTime = a.criadoEm?.toMillis?.() || 0;
-            const bTime = b.criadoEm?.toMillis?.() || 0;
-            return bTime - aTime;
-          });
-
-        setAgendamentos(dados as Agendamento[]);
-        setLoading(false);
+        aplicarDados([listaUid, listaId]);
       },
       error => {
-        console.log('Firestore error:', error);
+        console.log('Erro clienteUid:', error);
         setLoading(false);
       }
     );
 
-    return unsubscribe;
-  }, [user?.uid]);
+  const unsubId = firestore()
+    .collection('agendamentos')
+    .where('clienteId', '==', user.uid)
+    .onSnapshot(
+      snap => {
+        listaId = snap?.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        })) || [];
+
+        aplicarDados([listaUid, listaId]);
+      },
+      error => {
+        console.log('Erro clienteId:', error);
+        setLoading(false);
+      }
+    );
+
+  return () => {
+    unsubUid();
+    unsubId();
+  };
+}, [user?.uid]);
 
   const handleLogout = () => {
     Alert.alert('Sair', 'Deseja sair da sua conta?', [

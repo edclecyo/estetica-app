@@ -19,17 +19,12 @@ type MercadoPagoPayment = {
   status_detail?: string;
 };
 
-// =====================================================
-// WEBHOOK MERCADO PAGO
-// =====================================================
+const isElite = (plano: any) => String(plano || '').toLowerCase() === 'elite';
 
 export const webhookMercadoPago = onRequest(
   {
     region: REGION,
-    secrets: [
-      MP_WEBHOOK_SECRET,
-      MP_ACCESS_TOKEN,
-    ],
+    secrets: [MP_WEBHOOK_SECRET, MP_ACCESS_TOKEN],
   },
 
   async (req, res): Promise<void> => {
@@ -42,10 +37,6 @@ export const webhookMercadoPago = onRequest(
         res.sendStatus(200);
         return;
       }
-
-      // =====================================================
-      // ID DO PAGAMENTO
-      // =====================================================
 
       const rawId =
         req.body?.data?.id ||
@@ -72,10 +63,6 @@ export const webhookMercadoPago = onRequest(
         query: req.query,
       });
 
-      // =====================================================
-      // VALIDA ASSINATURA, MAS NÃO BLOQUEIA
-      // =====================================================
-
       if (segredoWebhook) {
         try {
           const signature = Array.isArray(req.headers['x-signature'])
@@ -101,10 +88,6 @@ export const webhookMercadoPago = onRequest(
         }
       }
 
-      // =====================================================
-      // BUSCA PAGAMENTO NO MERCADO PAGO
-      // =====================================================
-
       const resp = await axios.get<MercadoPagoPayment>(
         `https://api.mercadopago.com/v1/payments/${id}`,
         {
@@ -127,6 +110,11 @@ export const webhookMercadoPago = onRequest(
       const paymentType = mpData.payment_type_id;
       const status = mpData.status;
 
+      const isApproved =
+        status === 'approved' ||
+        status === 'authorized' ||
+        status === 'accredited';
+
       console.log('💳 PAGAMENTO MP:', {
         paymentId,
         paymentType,
@@ -134,31 +122,86 @@ export const webhookMercadoPago = onRequest(
         external_reference: mpData.external_reference,
       });
 
-      const isApproved =
-        status === 'approved' ||
-        status === 'authorized' ||
-        status === 'accredited';
-
       // =====================================================
-      // 🔵 PIX
+      // 🔵 PIX / BANK TRANSFER
       // =====================================================
 
-    if (
-  paymentType === 'pix' ||
-  paymentType === 'bank_transfer'
-) {
-        console.log('🔎 BUSCANDO PIX NO FIRESTORE:', {
-          paymentId,
-          type: typeof paymentId,
-        });
+      if (paymentType === 'pix' || paymentType === 'bank_transfer') {
+        // 1. PRIMEIRO VERIFICA SE É IMPULSIONAMENTO
+        const pagamentoSnap = await db
+          .collection('pagamentos')
+          .where('mercadoPagoId', '==', paymentId)
+          .limit(1)
+          .get();
 
+        if (!pagamentoSnap.empty) {
+          const pagamentoRef = pagamentoSnap.docs[0].ref;
+          const pagamentoData = pagamentoSnap.docs[0].data() as any;
+
+          if (pagamentoData?.tipo === 'impulsionamento') {
+            if (!isApproved) {
+              await pagamentoRef.update({
+                status,
+                atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              console.log('⚠️ IMPULSIONAMENTO STATUS:', status);
+              res.sendStatus(200);
+              return;
+            }
+
+            const estabelecimentoId = pagamentoData.estabelecimentoId;
+
+            if (!estabelecimentoId) {
+              console.log('❌ IMPULSIONAMENTO SEM ESTABELECIMENTO');
+              res.sendStatus(200);
+              return;
+            }
+
+            const dias = Number(pagamentoData.dias || 7);
+
+            const expira = new Date();
+            expira.setDate(expira.getDate() + dias);
+
+            await db
+              .collection('estabelecimentos')
+              .doc(estabelecimentoId)
+              .update({
+                destaqueAtivo: true,
+                destaqueOrigem: 'impulsionamento',
+                destaqueEm: admin.firestore.FieldValue.serverTimestamp(),
+                destaqueExpira: admin.firestore.Timestamp.fromDate(expira),
+
+                impulsionamentoPendente:
+                  admin.firestore.FieldValue.delete(),
+
+                atualizadoEm:
+                  admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+            await pagamentoRef.update({
+              status: 'approved',
+              aprovadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+              atualizadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            console.log('⭐ IMPULSIONAMENTO ATIVADO:', estabelecimentoId);
+
+            res.sendStatus(200);
+            return;
+          }
+        }
+
+        // 2. SE NÃO FOR IMPULSIONAMENTO, É ASSINATURA PIX
         const snap = await db
           .collection('estabelecimentos')
           .where('pixPagamentoId', '==', paymentId)
           .limit(1)
           .get();
 
-        console.log('📄 PIX DOCS ENCONTRADOS:', snap.size);
+        console.log('📄 PIX ASSINATURA DOCS ENCONTRADOS:', snap.size);
 
         if (snap.empty) {
           console.log('⚠️ PIX NÃO ENCONTRADO:', paymentId);
@@ -179,13 +222,27 @@ export const webhookMercadoPago = onRequest(
         }
 
         if (isApproved) {
+          const planoFinal = data?.planoPendente ?? data?.plano;
+          const elite = isElite(planoFinal);
+
           await ref.update({
-  plano: data?.planoPendente ?? data?.plano,
-  planoAprovado: data?.planoPendente ?? data?.plano,
-  planoPendente: admin.firestore.FieldValue.delete(),
+            plano: planoFinal,
+            planoAprovado: planoFinal,
+            planoPendente: admin.firestore.FieldValue.delete(),
 
             assinaturaAtiva: true,
             statusPlano: 'ativo',
+
+            // ✅ SELO AUTOMÁTICO ELITE
+            verificado: elite ? true : data?.verificadoManual === true,
+            verificadoAutomatico: elite,
+            verificadoEm: elite
+              ? admin.firestore.FieldValue.serverTimestamp()
+              : null,
+
+            // ✅ DESTAQUE BÁSICO ELITE
+            destaqueBasicoAtivo: elite,
+            destaqueBasicoOrigem: elite ? 'plano_elite' : null,
 
             paymentStatus: 'approved',
             paymentType: 'pix',
@@ -194,51 +251,45 @@ export const webhookMercadoPago = onRequest(
             pixPagamentoId: paymentId,
             pixProcessado: paymentId,
             webhookProcessedPix: paymentId,
-			pagamentoAprovadoId: paymentId,
+            pagamentoAprovadoId: paymentId,
 
             expiraEm: admin.firestore.Timestamp.fromDate(
               new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
             ),
 
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            atualizadoEm:
+              admin.firestore.FieldValue.serverTimestamp(),
           });
 
-          const pagamentos = await db
-            .collection('pagamentos')
-            .where('mercadoPagoId', '==', paymentId)
-            .limit(1)
-            .get();
-
-          if (!pagamentos.empty) {
-            await pagamentos.docs[0].ref.update({
+          if (!pagamentoSnap.empty) {
+            await pagamentoSnap.docs[0].ref.update({
               status: 'approved',
-              aprovadoEm: admin.firestore.FieldValue.serverTimestamp(),
+              aprovadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+              atualizadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
             });
           }
 
-          console.log('✅ PIX APROVADO:', paymentId);
+          console.log('✅ PIX ASSINATURA APROVADO:', paymentId);
         } else {
           await ref.update({
             pixStatus: status,
             paymentStatus: status,
             paymentType: 'pix',
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            atualizadoEm:
+              admin.firestore.FieldValue.serverTimestamp(),
           });
 
-          const pagamentos = await db
-            .collection('pagamentos')
-            .where('mercadoPagoId', '==', paymentId)
-            .limit(1)
-            .get();
-
-          if (!pagamentos.empty) {
-            await pagamentos.docs[0].ref.update({
+          if (!pagamentoSnap.empty) {
+            await pagamentoSnap.docs[0].ref.update({
               status,
-              atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+              atualizadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
             });
           }
 
-          console.log('⚠️ PIX STATUS:', status);
+          console.log('⚠️ PIX ASSINATURA STATUS:', status);
         }
 
         res.sendStatus(200);
@@ -246,7 +297,7 @@ export const webhookMercadoPago = onRequest(
       }
 
       // =====================================================
-      // 🟡 CARTÃO
+      // 🟡 CARTÃO ASSINATURA
       // =====================================================
 
       if (paymentType === 'credit_card') {
@@ -284,28 +335,59 @@ export const webhookMercadoPago = onRequest(
         }
 
         if (isApproved) {
+          const planoFinal = data?.planoPendente ?? data?.plano;
+          const elite = isElite(planoFinal);
+
           await ref.update({
-  plano: data?.planoPendente ?? data?.plano,
-  planoAprovado: data?.planoPendente ?? data?.plano,
-  planoPendente: admin.firestore.FieldValue.delete(),
+            plano: planoFinal,
+            planoAprovado: planoFinal,
+            planoPendente: admin.firestore.FieldValue.delete(),
 
-  assinaturaAtiva: true,
-  statusPlano: 'ativo',
+            assinaturaAtiva: true,
+            statusPlano: 'ativo',
 
-  paymentStatus: 'approved',
-  paymentType: 'credit_card',
+            // ✅ SELO AUTOMÁTICO ELITE
+            verificado: elite ? true : data?.verificadoManual === true,
+            verificadoAutomatico: elite,
+            verificadoEm: elite
+              ? admin.firestore.FieldValue.serverTimestamp()
+              : null,
 
-  pagamentoId: paymentId,
-  pagamentoAprovadoId: paymentId,
+            // ✅ DESTAQUE BÁSICO ELITE
+            destaqueBasicoAtivo: elite,
+            destaqueBasicoOrigem: elite ? 'plano_elite' : null,
 
-  statusDetail: mpData.status_detail || null,
+            paymentStatus: 'approved',
+            paymentType: 'credit_card',
 
-  expiraEm: admin.firestore.Timestamp.fromDate(
-    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-  ),
+            pagamentoId: paymentId,
+            pagamentoAprovadoId: paymentId,
 
-  atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-});
+            statusDetail: mpData.status_detail || null,
+
+            expiraEm: admin.firestore.Timestamp.fromDate(
+              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            ),
+
+            atualizadoEm:
+              admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          const pagamentoSnap = await db
+            .collection('pagamentos')
+            .where('mercadoPagoId', '==', paymentId)
+            .limit(1)
+            .get();
+
+          if (!pagamentoSnap.empty) {
+            await pagamentoSnap.docs[0].ref.update({
+              status: 'approved',
+              aprovadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+              atualizadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
 
           console.log('✅ CARTÃO APROVADO:', paymentId);
         } else {
@@ -314,8 +396,23 @@ export const webhookMercadoPago = onRequest(
             paymentType: 'credit_card',
             pagamentoId: paymentId,
             statusDetail: mpData.status_detail || null,
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            atualizadoEm:
+              admin.firestore.FieldValue.serverTimestamp(),
           });
+
+          const pagamentoSnap = await db
+            .collection('pagamentos')
+            .where('mercadoPagoId', '==', paymentId)
+            .limit(1)
+            .get();
+
+          if (!pagamentoSnap.empty) {
+            await pagamentoSnap.docs[0].ref.update({
+              status,
+              atualizadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
 
           console.log('⚠️ CARTÃO STATUS:', status);
         }

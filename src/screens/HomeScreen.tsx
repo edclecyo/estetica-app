@@ -204,26 +204,57 @@ function VerificadosSection({ navigation, user }: { navigation: any; user: any }
     let mounted = true;
 
     async function carregarVerificados() {
-      try {
-        const snap = await firestore()
-          .collection('estabelecimentos')
-          .where('verificado', '==', true)
-          .where('ativo', '==', true)
-          .limit(20)
-          .get();
+  try {
+    const agora = new Date();
 
-        if (!mounted) return;
+    const snap = await firestore()
+      .collection('estabelecimentos')
+      .where('ativo', '==', true)
+      .limit(80)
+      .get();
 
-        setVerificados(
-          snap.docs.map(d => ({
-            id: d.id,
-            ...d.data(),
-          }))
-        );
-      } catch (e) {
-        console.log('Erro verificados:', e);
-      }
-    }
+    if (!mounted) return;
+
+    const dados = snap.docs
+      .map(d => ({
+        id: d.id,
+        ...d.data(),
+      }))
+      .filter((e: any) => {
+        const expira = e.destaqueExpira?.toDate?.();
+
+        const destaquePagoAtivo =
+          e.destaqueAtivo === true &&
+          expira &&
+          expira > agora;
+
+        const destaqueBasicoElite =
+          e.plano === 'elite' &&
+          e.assinaturaAtiva === true;
+
+        return destaquePagoAtivo || destaqueBasicoElite;
+      })
+      .sort((a: any, b: any) => {
+        const aPago =
+          a.destaqueAtivo === true &&
+          a.destaqueExpira?.toDate?.() > agora;
+
+        const bPago =
+          b.destaqueAtivo === true &&
+          b.destaqueExpira?.toDate?.() > agora;
+
+        if (aPago && !bPago) return -1;
+        if (!aPago && bPago) return 1;
+
+        return 0;
+      })
+      .slice(0, 20);
+
+    setVerificados(dados);
+  } catch (e) {
+    console.log('Erro destaques:', e);
+  }
+}
 
     carregarVerificados();
 
@@ -296,13 +327,28 @@ function VerificadosSection({ navigation, user }: { navigation: any; user: any }
               <View style={sv.fotoContainer}>
                 <FotoVerificada uri={imagemUri} emoji={item.img} size={68} />
                 <View style={sv.seloWrap}>
-                  <SeloVerificado size={18} />
-                </View>
+  <Text style={{ fontSize: 13 }}>
+    {item.destaqueAtivo ? '⭐' : '👑'}
+  </Text>
+</View>
               </View>
 
-              <Text style={sv.nome} numberOfLines={1}>
-                {item.nome}
-              </Text>
+              <View
+  style={{
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  }}
+>
+  <Text style={sv.nome} numberOfLines={1}>
+    {item.nome}
+  </Text>
+
+  {(item.verificado === true || item.plano === 'elite') && (
+    <SeloVerificado size={15} />
+  )}
+</View>
 
               <Text style={sv.tipo} numberOfLines={1}>
                 {item.tipo}
@@ -586,7 +632,9 @@ export default function HomeScreen() {
     const aberto = item._aberto;
     const dist = item._dist < 9999 ? item._dist : null;
     const imagemUri = item.fotoPerfil || (item.img?.startsWith('http') ? item.img : null);
-    const verificado = item.verificado;
+    const verificado =
+  item.verificado === true ||
+  item.plano === 'elite';
 
     return (
       <TouchableOpacity
@@ -662,74 +710,91 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <View style={s.cardBodyCentral}>
-              <View style={s.nomeIconRow}>
-                <Text style={s.cardNome} numberOfLines={1}>
-                  {item.nome}
-                </Text>
+       <View style={s.cardBodyCentral}>
 
-                {verificado && <SeloVerificado size={18} />}
+  <View style={s.nomeIconRow}>
+    <Text style={s.cardNome} numberOfLines={1}>
+      {item.nome}
+    </Text>
 
-                <Text style={s.miniIcon}>
-                  {TIPO_ICONS[item.tipo] || '✨'}
-                </Text>
-              </View>
+    {verificado && (
+      <SeloVerificado size={18} />
+    )}
+  </View>
 
-              <Text style={[s.cardTipo, { color: item.cor || GOLD }]}>
-                {item.tipo}
-              </Text>
+  <Text style={s.miniIcon}>
+    {TIPO_ICONS[item.tipo] || '✨'}
+  </Text>
 
-              <View style={s.statusRowCentral}>
-                <View
-                  style={[
-                    s.dot,
-                    {
-                      backgroundColor: aberto ? '#4CAF50' : '#F44336',
-                    },
-                  ]}
-                />
+  <Text
+    style={[
+      s.cardTipo,
+      { color: item.cor || GOLD },
+    ]}
+  >
+    {item.tipo}
+  </Text>
 
-                <Text
-                  style={[
-                    s.statusText,
-                    {
-                      color: aberto ? '#4CAF50' : '#F44336',
-                    },
-                  ]}
-                >
-                  {aberto ? 'Aberto agora' : 'Fechado no momento'}
-                </Text>
+  <View style={s.statusRowCentral}>
+    <View
+      style={[
+        s.dot,
+        {
+          backgroundColor: aberto
+            ? '#4CAF50'
+            : '#F44336',
+        },
+      ]}
+    />
 
-                {item.horarioFuncionamento && (
-                  <Text style={s.horarioTexto}>
-                    {' '}• {item.horarioFuncionamento}
-                  </Text>
-                )}
-              </View>
+    <Text
+      style={[
+        s.statusText,
+        {
+          color: aberto
+            ? '#4CAF50'
+            : '#F44336',
+        },
+      ]}
+    >
+      {aberto
+        ? 'Aberto agora'
+        : 'Fechado no momento'}
+    </Text>
 
-              {dist !== null && (
-                <View style={s.distInfoRow}>
-                  <Icon
-                    name="map-marker-outline"
-                    size={13}
-                    color="#888"
-                    style={{ marginRight: 4 }}
-                  />
+    {item.horarioFuncionamento && (
+      <Text style={s.horarioTexto}>
+        {' '}• {item.horarioFuncionamento}
+      </Text>
+    )}
+  </View>
 
-                  <Text style={s.distanciaInfoSub}>
-                    A {formatarDistancia(dist)} de você
-                  </Text>
-                </View>
-              )}
+  {dist !== null && (
+    <View style={s.distInfoRow}>
+      <Icon
+        name="map-marker-outline"
+        size={13}
+        color="#888"
+        style={{ marginRight: 4 }}
+      />
 
-              <View style={s.ratingRow}>
-                {renderStars(item.avaliacao || 5)}
+      <Text style={s.distanciaInfoSub}>
+        A {formatarDistancia(dist)} de você
+      </Text>
+    </View>
+  )}
 
-                <Text style={s.avaliacaoNumero}>
-                  ({item.avaliacao ? item.avaliacao.toFixed(1) : '5.0'})
-                </Text>
-              </View>
-            </View>
+  <View style={s.ratingRow}>
+    {renderStars(item.avaliacao || 5)}
+
+    <Text style={s.avaliacaoNumero}>
+      ({item.avaliacao
+        ? item.avaliacao.toFixed(1)
+        : '5.0'})
+    </Text>
+  </View>
+
+</View>
 
             <View style={[s.cardBtn, { backgroundColor: item.cor || GOLD }]}>
              <Text style={[s.cardBtnText, { color: '#000' }]}>

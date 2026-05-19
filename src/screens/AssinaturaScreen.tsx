@@ -41,17 +41,20 @@ const PLANOS = [
     videoLimite: 'Sem vídeos',
 
     resumo:
-      'Comece profissionalmente e organize seus agendamentos.',
+      'Organize seu negócio, automatize agendamentos e comece profissionalmente.',
 
     features: [
       '2 estabelecimentos',
       '20 serviços cadastrados',
       'Agenda online inteligente',
+      'Confirmação automática de agendamentos',
       'Bloqueio de horários e folgas',
       'Notificações automáticas',
       'Stories com foto por 24h',
-      'Resumo de faturamento',
+      'Resumo básico de faturamento',
+      'Perfil profissional no app',
       'Impulsionamento disponível',
+      'Suporte prioritário',
     ],
   },
 
@@ -70,17 +73,25 @@ const PLANOS = [
     videoLimite: 'Vídeos até 15 segundos',
 
     resumo:
-      'Venda pelo app e aumente sua autoridade.',
+      'Venda pelo app, receba pagamentos via PIX e aumente sua autoridade.',
 
     features: [
       '5 estabelecimentos',
       '80 serviços cadastrados',
       'Tudo do Essencial',
-      'Receba pagamentos via PIX',
+      'Recebimento via PIX no app',
+      'QR Code automático para pagamentos',
+      'Resumo de pedido via WhatsApp',
+      'Confirmação manual de pagamentos',
+      'Relatório financeiro profissional em PDF',
       'Stories com vídeos',
+      'Vídeos até 15 segundos',
       'Métricas de visualização',
       'Solicitação de selo verificado',
       'Mais alcance e reputação',
+      'Prioridade nas buscas do app',
+      'Mais visibilidade no feed',
+      'Impulsionamento avançado disponível',
     ],
   },
 
@@ -97,17 +108,25 @@ const PLANOS = [
     videoLimite: 'Vídeos até 30 segundos',
 
     resumo:
-      'Máximo destaque, selo automático e alcance premium.',
+      'Máxima autoridade, selo automático, destaque premium e alcance avançado.',
 
     features: [
       'Estabelecimentos ilimitados',
       'Serviços ilimitados',
       'Tudo do Professional',
       'Selo verificado automático',
-      'Destaque básico incluso',
-      'Área premium do app',
+      'Destaque básico automático incluso',
+      'Visibilidade premium no app',
+      'Maior prioridade nas buscas',
+      'Mais alcance no feed',
+      'Relatório financeiro premium detalhado',
+      'Resumo financeiro avançado',
       'Vídeos até 30 segundos',
-      'Impulsionamento avançado disponível',
+      'Stories premium com maior alcance',
+      'Maior reputação e autoridade',
+      'Impulsionamento premium disponível',
+      'Recursos exclusivos Elite',
+      'Prioridade máxima no suporte',
     ],
   },
 ];

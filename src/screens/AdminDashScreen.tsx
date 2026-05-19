@@ -10,7 +10,7 @@ import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-import { BarChart } from 'react-native-chart-kit';
+import { BarChart, LineChart } from 'react-native-chart-kit';
 import Share from 'react-native-share';
 
 
@@ -94,6 +94,8 @@ export default function AdminDashScreen() {
  const [loadingAcao, setLoadingAcao] =
   useState<{ id: string; acao: 'concluido' | 'cancelado' } | null>(null);
   
+  const [periodoGrafico, setPeriodoGrafico] =
+  useState<'dia' | 'mes' | 'ano'>('dia');
   const [whatsSuporte, setWhatsSuporte] = useState<string | null>(null);
   // ===== LÓGICA =====
 const temEstabelecimento = estabs.length > 0;
@@ -540,39 +542,92 @@ const [saindo, setSaindo] = useState(false);
   const valores: number[] = [];
   const hoje = new Date();
 
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(hoje.getDate() - i);
+  const agendamentosValidos = agends.filter(a =>
+    (a.status === 'confirmado' || a.status === 'concluido') &&
+    a.data
+  );
 
-    const label = d.toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-    });
+  if (periodoGrafico === 'dia') {
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(hoje.getDate() - i);
 
-    labels.push(label);
+      const label = d.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+      });
 
-    const ds = d.toLocaleDateString('pt-BR');
+      const dataBusca = d.toLocaleDateString('pt-BR');
 
-    const totalDia = agends
-      .filter(a => {
-        const dataFormatada = formatDate(a.data);
-        if (!dataFormatada) return false;
+      labels.push(label);
 
-        return (
-          dataFormatada === ds &&
-          (a.status === 'confirmado' || a.status === 'concluido')
-        );
-      })
-      .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
+      const total = agendamentosValidos
+        .filter(a => formatDate(a.data) === dataBusca)
+        .reduce((acc, a) => acc + Number(a.servicoPreco || 0), 0);
 
-    valores.push(totalDia);
+      valores.push(total);
+    }
+  }
+
+  if (periodoGrafico === 'mes') {
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(hoje.getMonth() - i);
+
+      const mes = d.getMonth();
+      const ano = d.getFullYear();
+
+      labels.push(
+        d.toLocaleDateString('pt-BR', {
+          month: 'short',
+        })
+      );
+
+      const total = agendamentosValidos
+        .filter(a => {
+          const dataAg = formatDate(a.data);
+          if (!dataAg) return false;
+
+          const [dia, mesAg, anoAg] = dataAg.split('/').map(Number);
+          const dAg = new Date(anoAg, mesAg - 1, dia);
+
+          return (
+            dAg.getMonth() === mes &&
+            dAg.getFullYear() === ano
+          );
+        })
+        .reduce((acc, a) => acc + Number(a.servicoPreco || 0), 0);
+
+      valores.push(total);
+    }
+  }
+
+  if (periodoGrafico === 'ano') {
+    for (let i = 4; i >= 0; i--) {
+      const ano = hoje.getFullYear() - i;
+
+      labels.push(String(ano));
+
+      const total = agendamentosValidos
+        .filter(a => {
+          const dataAg = formatDate(a.data);
+          if (!dataAg) return false;
+
+          const [, , anoAg] = dataAg.split('/').map(Number);
+
+          return anoAg === ano;
+        })
+        .reduce((acc, a) => acc + Number(a.servicoPreco || 0), 0);
+
+      valores.push(total);
+    }
   }
 
   return {
     labels,
     datasets: [{ data: valores }],
   };
-}, [agends]);
+}, [agends, periodoGrafico]);
 
   const safeChartData = useMemo(() => {
   if (!chartData?.datasets?.length) {
@@ -909,25 +964,69 @@ const temSelo =
 </TouchableOpacity>
           </View>
 
-          {/* GRÁFICO */}
-          <View style={s.chartWrapper}>
-            <View style={s.chartHeader}>
-              <Text style={s.chartTitle}>Faturamento 6 dias</Text>
-              <Text style={s.chartTotal}>Total: R$ {receitaTotal.toLocaleString('pt-BR')}</Text>
-            </View>
-            <BarChart
-              data={safeChartData}
-              width={width - 40}
-              height={180}
-              yAxisLabel="R$"
-              chartConfig={{ ...chartConfig, fillShadowGradient: GOLD, fillShadowGradientOpacity: 1 }}
-              fromZero
-              withInnerLines={false}
-              style={s.chartStyle}
-              flatColor
-              showValuesOnTopOfBars
-            />
-          </View>
+          {/* GRÁFICO PROFISSIONAL */}
+<View style={s.chartWrapper}>
+  <View style={s.chartHeader}>
+    <View>
+      <Text style={s.chartTitle}>
+        Faturamento
+      </Text>
+
+      <Text style={s.chartSub}>
+        Visão por {periodoGrafico === 'dia'
+          ? 'dia'
+          : periodoGrafico === 'mes'
+          ? 'mês'
+          : 'ano'}
+      </Text>
+    </View>
+
+    <Text style={s.chartTotal}>
+      R$ {receitaTotal.toLocaleString('pt-BR')}
+    </Text>
+  </View>
+
+  <View style={s.periodoGraficoRow}>
+    {[
+      { k: 'dia', l: 'Dia' },
+      { k: 'mes', l: 'Mês' },
+      { k: 'ano', l: 'Ano' },
+    ].map(p => (
+      <TouchableOpacity
+        key={p.k}
+        onPress={() => setPeriodoGrafico(p.k as any)}
+        style={[
+          s.periodoGraficoBtn,
+          periodoGrafico === p.k && s.periodoGraficoBtnAtivo,
+        ]}
+      >
+        <Text
+          style={[
+            s.periodoGraficoText,
+            periodoGrafico === p.k && s.periodoGraficoTextAtivo,
+          ]}
+        >
+          {p.l}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+
+  <LineChart
+    data={safeChartData}
+    width={width - 40}
+    height={210}
+    yAxisLabel="R$"
+    chartConfig={chartConfig}
+    bezier
+    fromZero
+    withInnerLines={false}
+    withOuterLines={false}
+    withDots
+    withShadow
+    style={s.chartStyle}
+  />
+</View>
 
           {/* POSTAR STORY COM BLOQUEIO */}
           <TouchableOpacity
@@ -1270,11 +1369,24 @@ navigation.navigate('AdminEstab', { estabelecimentoId: 'novo' });
 const chartConfig = {
   backgroundGradientFrom: '#1A1A1A',
   backgroundGradientTo: '#1A1A1A',
-  color: (opacity = 1) => `rgba(201, 169, 110, ${opacity})`,
-  labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.4})`,
-  strokeWidth: 2,
-  barPercentage: 0.5,
+
+  color: (opacity = 1) =>
+    `rgba(201, 169, 110, ${opacity})`,
+
+  labelColor: (opacity = 1) =>
+    `rgba(255, 255, 255, ${opacity * 0.55})`,
+
   decimalPlaces: 0,
+
+  propsForDots: {
+    r: '4',
+    strokeWidth: '2',
+    stroke: GOLD,
+  },
+
+  propsForBackgroundLines: {
+    stroke: 'rgba(255,255,255,0.06)',
+  },
 };
 
 const s = StyleSheet.create({
@@ -1291,6 +1403,41 @@ const s = StyleSheet.create({
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
   },
+  chartSub: {
+  color: '#777',
+  fontSize: 11,
+  marginTop: 3,
+  fontWeight: '600',
+},
+
+periodoGraficoRow: {
+  flexDirection: 'row',
+  backgroundColor: '#0D0D0D',
+  borderRadius: 14,
+  padding: 4,
+  marginBottom: 16,
+},
+
+periodoGraficoBtn: {
+  flex: 1,
+  paddingVertical: 9,
+  borderRadius: 11,
+  alignItems: 'center',
+},
+
+periodoGraficoBtnAtivo: {
+  backgroundColor: GOLD,
+},
+
+periodoGraficoText: {
+  color: '#777',
+  fontSize: 12,
+  fontWeight: '800',
+},
+
+periodoGraficoTextAtivo: {
+  color: '#000',
+},
   seloVerificacaoBtn: {
   backgroundColor: '#1A1A1A',
   borderRadius: 22,

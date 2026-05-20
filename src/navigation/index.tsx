@@ -15,6 +15,7 @@ import AvaliarScreen from '../screens/AvaliarScreen';
 import NotificacoesCliente from '../screens/NotificacoesCliente';
 import StoryView from '../screens/StoryView';
 import PagamentoClienteScreen from '../screens/PagamentoClienteScreen';
+import AISimulacaoScreen from '../screens/AISimulacaoScreen';
 
 // Telas Admin
 import AdminLoginScreen from '../screens/AdminLoginScreen';
@@ -30,6 +31,7 @@ import SeloVerificacaoScreen from '../screens/SeloVerificacaoScreen';
 import SeloPagamentoScreen from '../screens/SeloPagamentoScreen';
 import ImpulsionarScreen from '../screens/ImpulsionarScreen';
 import RelatorioFinanceiroScreen from '../screens/RelatorioFinanceiroScreen';
+import IADemoScreen from '../screens/IADemoScreen';
 
 // Telas Super Admin
 import SuperAdminDashScreen from '../screens/SuperAdminDashScreen';
@@ -159,6 +161,11 @@ export default function Navigation() {
   component={RelatorioFinanceiroScreen}
   options={{ headerShown: false }}
 />
+<Stack.Screen
+  name="IADemoScreen"
+  component={IADemoScreen}
+  options={{ headerShown: false }}
+/>
           </Stack.Group>
 
         // ─── CLIENTE ───
@@ -172,6 +179,11 @@ export default function Navigation() {
             <Stack.Screen name="NotificacoesCliente" component={NotificacoesCliente} />
             <Stack.Screen name="StoryView" component={StoryView} />
 			<Stack.Screen name="PagamentoCliente" component={PagamentoClienteScreen}/>
+			<Stack.Screen
+  name="AISimulacaoScreen"
+  component={AISimulacaoScreen}
+  options={{ headerShown: false }}
+/>
           </Stack.Group>
         )}
 

@@ -139,7 +139,7 @@ export default function AssinaturaScreen({ navigation }) {
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [trialUsado, setTrialUsado] = useState(false);
   const [trialAtivo, setTrialAtivo] = useState(false);
-
+const [addIA, setAddIA] = useState(false);
   useEffect(() => {
     const user = auth().currentUser;
     if (!user) return;
@@ -302,16 +302,63 @@ const res = await fn({
                     <Text style={styles.featureText}>{f}</Text>
                   </View>
                 ))}
+				
+{plano.id === 'elite' && (
+  <TouchableOpacity
+    style={styles.iaAddonBox}
+    onPress={() => setAddIA(!addIA)}
+    activeOpacity={0.85}
+  >
+    <View style={styles.iaCheck}>
+      <Text style={styles.iaCheckText}>
+        {addIA ? '✓' : ''}
+      </Text>
+    </View>
 
+    <View style={{ flex: 1 }}>
+      <Text style={styles.iaAddonTitle}>
+        ✨ Adicionar Prévia IA
+      </Text>
+
+      <Text style={styles.iaAddonDesc}>
+        Clientes podem simular o resultado antes de agendar.
+      </Text>
+
+      <Text style={styles.iaAddonPrice}>
+        + R$ 19,90/mês • 2 simulações por cliente/mês
+      </Text>
+    </View>
+	
+  </TouchableOpacity>
+  
+)}
+{plano.id === 'elite' && (
+  <TouchableOpacity
+    style={styles.iaDemoBtn}
+    onPress={() => navigation.navigate('IADemoScreen')}
+  >
+    <Text style={styles.iaDemoText}>
+      Ver demonstração da Prévia IA
+    </Text>
+  </TouchableOpacity>
+)}
                 <TouchableOpacity
                   disabled={isAtivo}
                   onPress={() => {
-                    navigation.navigate('CheckoutPagamentoScreen', {
-                      planoId: plano.id,
-                      estabelecimentoId: estId,
-                      planoNome: plano.nome,
-                      valor: Number(plano.preco.replace(',', '.'))
-                    });
+                    const valorBase = Number(plano.preco.replace(',', '.'));
+
+const valorFinal =
+  plano.id === 'elite' && addIA
+    ? valorBase + 19.90
+    : valorBase;
+
+navigation.navigate('CheckoutPagamentoScreen', {
+  planoId: plano.id,
+  estabelecimentoId: estId,
+  planoNome: plano.nome,
+  valor: valorFinal,
+  addIA: plano.id === 'elite' ? addIA : false,
+});
                   }}
                 >
                   <LinearGradient
@@ -369,7 +416,19 @@ limitBox: {
   padding: 12,
   marginBottom: 18,
 },
+iaDemoBtn: {
+  borderWidth: 1,
+  borderColor: '#C9A96E',
+  borderRadius: 14,
+  padding: 13,
+  alignItems: 'center',
+  marginBottom: 14,
+},
 
+iaDemoText: {
+  color: '#C9A96E',
+  fontWeight: '900',
+},
 limitText: {
   color: '#D4AF37',
   fontSize: 12,
@@ -454,5 +513,50 @@ limitText: {
     fontSize: 12,
     lineHeight: 18,
     fontWeight: '600',
-  }
+  },
+iaAddonBox: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: 'rgba(212,175,55,0.08)',
+  borderWidth: 1,
+  borderColor: 'rgba(212,175,55,0.28)',
+  borderRadius: 16,
+  padding: 14,
+  marginBottom: 16,
+},
+
+iaCheck: {
+  width: 26,
+  height: 26,
+  borderRadius: 13,
+  borderWidth: 2,
+  borderColor: GOLD,
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 12,
+},
+
+iaCheckText: {
+  color: GOLD,
+  fontWeight: '900',
+},
+
+iaAddonTitle: {
+  color: '#FFF',
+  fontSize: 14,
+  fontWeight: '900',
+},
+
+iaAddonDesc: {
+  color: '#AAA',
+  fontSize: 12,
+  marginTop: 3,
+},
+
+iaAddonPrice: {
+  color: GOLD,
+  fontSize: 12,
+  fontWeight: '800',
+  marginTop: 6,
+},
 });

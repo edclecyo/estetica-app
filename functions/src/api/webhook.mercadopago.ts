@@ -19,7 +19,8 @@ type MercadoPagoPayment = {
   status_detail?: string;
 };
 
-const isElite = (plano: any) => String(plano || '').toLowerCase() === 'elite';
+const isElite = (plano: any) =>
+  String(plano || '').toLowerCase() === 'elite';
 
 export const webhookMercadoPago = onRequest(
   {
@@ -127,7 +128,6 @@ export const webhookMercadoPago = onRequest(
       // =====================================================
 
       if (paymentType === 'pix' || paymentType === 'bank_transfer') {
-        // 1. PRIMEIRO VERIFICA SE É IMPULSIONAMENTO
         const pagamentoSnap = await db
           .collection('pagamentos')
           .where('mercadoPagoId', '==', paymentId)
@@ -194,7 +194,6 @@ export const webhookMercadoPago = onRequest(
           }
         }
 
-        // 2. SE NÃO FOR IMPULSIONAMENTO, É ASSINATURA PIX
         const snap = await db
           .collection('estabelecimentos')
           .where('pixPagamentoId', '==', paymentId)
@@ -225,6 +224,10 @@ export const webhookMercadoPago = onRequest(
           const planoFinal = data?.planoPendente ?? data?.plano;
           const elite = isElite(planoFinal);
 
+          const iaAtiva =
+            data?.iaSimulacaoPendente === true &&
+            elite;
+
           await ref.update({
             plano: planoFinal,
             planoAprovado: planoFinal,
@@ -233,16 +236,20 @@ export const webhookMercadoPago = onRequest(
             assinaturaAtiva: true,
             statusPlano: 'ativo',
 
-            // ✅ SELO AUTOMÁTICO ELITE
             verificado: elite ? true : data?.verificadoManual === true,
             verificadoAutomatico: elite,
             verificadoEm: elite
               ? admin.firestore.FieldValue.serverTimestamp()
               : null,
 
-            // ✅ DESTAQUE BÁSICO ELITE
             destaqueBasicoAtivo: elite,
             destaqueBasicoOrigem: elite ? 'plano_elite' : null,
+
+            iaSimulacaoAtiva: iaAtiva,
+            iaSimulacaoLimiteMensal: iaAtiva ? 2 : 0,
+            iaSimulacaoPacote: iaAtiva ? 'elite_ia_2' : null,
+            iaSimulacaoValor: iaAtiva ? 19.9 : 0,
+            iaSimulacaoPendente: admin.firestore.FieldValue.delete(),
 
             paymentStatus: 'approved',
             paymentType: 'pix',
@@ -338,6 +345,10 @@ export const webhookMercadoPago = onRequest(
           const planoFinal = data?.planoPendente ?? data?.plano;
           const elite = isElite(planoFinal);
 
+          const iaAtiva =
+            data?.iaSimulacaoPendente === true &&
+            elite;
+
           await ref.update({
             plano: planoFinal,
             planoAprovado: planoFinal,
@@ -346,16 +357,20 @@ export const webhookMercadoPago = onRequest(
             assinaturaAtiva: true,
             statusPlano: 'ativo',
 
-            // ✅ SELO AUTOMÁTICO ELITE
             verificado: elite ? true : data?.verificadoManual === true,
             verificadoAutomatico: elite,
             verificadoEm: elite
               ? admin.firestore.FieldValue.serverTimestamp()
               : null,
 
-            // ✅ DESTAQUE BÁSICO ELITE
             destaqueBasicoAtivo: elite,
             destaqueBasicoOrigem: elite ? 'plano_elite' : null,
+
+            iaSimulacaoAtiva: iaAtiva,
+            iaSimulacaoLimiteMensal: iaAtiva ? 2 : 0,
+            iaSimulacaoPacote: iaAtiva ? 'elite_ia_2' : null,
+            iaSimulacaoValor: iaAtiva ? 19.9 : 0,
+            iaSimulacaoPendente: admin.firestore.FieldValue.delete(),
 
             paymentStatus: 'approved',
             paymentType: 'credit_card',

@@ -321,10 +321,11 @@ export const criarPagamentoPixAssinatura = onCall(
     }
 
     const {
-      estabelecimentoId,
-      plano,
-      valor
-    } = req.data || {};
+  estabelecimentoId,
+  plano,
+  valor,
+  addIA,
+} = req.data || {};
 
     if (
       !estabelecimentoId ||
@@ -545,29 +546,36 @@ export const criarPagamentoPixAssinatura = onCall(
 
       await ref.update({
 
-        planoPendente: plano,
+  planoPendente: plano,
 
-        paymentStatus: 'pending',
+  paymentStatus: 'pending',
 
-        assinaturaAtiva: false,
+  assinaturaAtiva: false,
 
-        pixPagamentoId:
-          String(data?.id),
+  iaSimulacaoPendente:
+    plano === 'elite' && addIA === true,
 
-        pixQrCode: qrText,
+  iaSimulacaoValor:
+    plano === 'elite' && addIA === true
+      ? 19.90
+      : 0,
 
-        pixQrCodeBase64: qrBase64,
+  pixPagamentoId:
+    String(data?.id),
 
-        pixCriadoEm:
-          FieldValue.serverTimestamp(),
+  pixQrCode: qrText,
 
-        pixExpiraEm:
-          Timestamp.fromDate(expira),
+  pixQrCodeBase64: qrBase64,
 
-        atualizadoEm:
-          FieldValue.serverTimestamp(),
-      });
+  pixCriadoEm:
+    FieldValue.serverTimestamp(),
 
+  pixExpiraEm:
+    Timestamp.fromDate(expira),
+
+  atualizadoEm:
+    FieldValue.serverTimestamp(),
+});
       await lockRef.delete();
 
       return {
@@ -881,13 +889,14 @@ export const criarAssinaturaCartao = onCall(
     }
 
     const {
-      estabelecimentoId,
-      plano,
-      email,
-      token,
-      valor,
-      payment_method_id
-    } = req.data || {};
+  estabelecimentoId,
+  plano,
+  email,
+  token,
+  valor,
+  payment_method_id,
+  addIA,
+} = req.data || {};
 
     if (
       !estabelecimentoId ||
@@ -1024,33 +1033,58 @@ export const criarAssinaturaCartao = onCall(
 
       await ref.update({
 
-        planoPendente: plano,
+  planoPendente: plano,
 
-        paymentStatus:
-          data.status || 'pending',
+  paymentStatus:
+    data.status || 'pending',
 
-        paymentType: 'credit_card',
+  paymentType: 'credit_card',
 
-        pagamentoId:
-          String(data.id),
+  pagamentoId:
+    String(data.id),
 
-        atualizadoEm:
-          FieldValue.serverTimestamp(),
+  atualizadoEm:
+    FieldValue.serverTimestamp(),
 
-        statusDetail:
-          data.status_detail || null,
+  statusDetail:
+    data.status_detail || null,
 
-        assinaturaAtiva: aprovado,
+  assinaturaAtiva: aprovado,
 
-        statusPlano:
-          aprovado
-            ? 'ativo'
-            : est.statusPlano || 'trial',
+  statusPlano:
+    aprovado
+      ? 'ativo'
+      : est.statusPlano || 'trial',
 
-        ...(aprovado && {
-          plano,
-        }),
-      });
+  iaSimulacaoPendente:
+    plano === 'elite' && addIA === true,
+
+  iaSimulacaoValor:
+    plano === 'elite' && addIA === true
+      ? 19.90
+      : 0,
+
+  ...(aprovado && {
+
+    plano,
+
+    iaSimulacaoAtiva:
+      plano === 'elite' &&
+      addIA === true,
+
+    iaSimulacaoLimiteMensal:
+      plano === 'elite' &&
+      addIA === true
+        ? 2
+        : 0,
+
+    iaSimulacaoPacote:
+      plano === 'elite' &&
+      addIA === true
+        ? 'elite_ia_2'
+        : null,
+  }),
+});
 
       return {
 

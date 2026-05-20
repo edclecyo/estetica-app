@@ -29,13 +29,18 @@ export default function CheckoutScreen({
   navigation
 }: any) {
 
-  const {
-    planoId,
-    estabelecimentoId,
-    planoNome,
-    valor
-  } = route.params;
+ const {
+  planoId,
+  preco,
+  valor,
+  planoNome,
+  estabelecimentoId,
+  addIA,
+} = route.params;
 
+const valorFinal =
+  Number(valor ?? preco ?? 0);
+  
   const functionsInstance = getFunctions(
     getApp(),
     'southamerica-east1'
@@ -294,10 +299,11 @@ if (
     );
 
     const { data }: any = await fn({
-      estabelecimentoId,
-      plano: planoId,
-      valor
-    });
+  estabelecimentoId,
+  plano: planoId,
+  valor: valorFinal,
+  addIA: addIA === true,
+});
 
     if (!data?.qr_code_base64) {
       throw new Error('PIX inválido');
@@ -466,7 +472,12 @@ if (
         <Text style={s.valor}>
           R$ {Number(valor).toFixed(2)}
         </Text>
-
+{planoId === 'elite' && addIA === true && (
+  <Text style={s.iaResumo}>
+    ✨ Prévia IA incluída:
+    + R$ 19,90/mês
+  </Text>
+)}
         <View style={s.badgeRow}>
 
           <Text
@@ -775,6 +786,12 @@ const s = StyleSheet.create({
 
   copyText: {
     color: '#C9A96E'
-  }
-
+  },
+iaResumo: {
+  color: '#D4AF37',
+  fontSize: 13,
+  fontWeight: '800',
+  marginTop: 10,
+  textAlign: 'center',
+},
 });

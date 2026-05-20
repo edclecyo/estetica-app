@@ -612,8 +612,30 @@ const semHorarios = todosHorarios.every(h => {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={s.body}>
-          <View style={s.stepsWrap}>
+  <View style={s.body}>
+
+    {estab?.plano === 'elite' &&
+      estab?.assinaturaAtiva === true &&
+      (estab as any)?.iaSimulacaoAtiva === true && (
+        <TouchableOpacity
+          style={s.iaBtn}
+          onPress={() =>
+            navigation.navigate('AISimulacaoScreen', {
+              estabelecimentoId: estab.id,
+            })
+          }
+        >
+          <Text style={s.iaBtnText}>
+            ✨ Simular resultado com IA
+          </Text>
+
+          <Text style={s.iaBtnSub}>
+            Veja uma prévia antes de agendar
+          </Text>
+        </TouchableOpacity>
+    )}
+
+    <View style={s.stepsWrap}>
             {[1, 2, 3, 4].map(i => (
               <View key={i} style={s.stepItem}>
                 <View style={[s.stepCircle, step >= i && s.stepCircleAtivo]}>
@@ -1057,5 +1079,27 @@ semHorarioDesc: {
   fontSize: 12,
   color: '#666',
   textAlign: 'center'
+},
+iaBtn: {
+  backgroundColor: '#1A1A1A',
+  borderRadius: 18,
+  padding: 16,
+  alignItems: 'center',
+  marginBottom: 18,
+  borderWidth: 1,
+  borderColor: '#C9A96E',
+},
+
+iaBtnText: {
+  color: '#C9A96E',
+  fontSize: 15,
+  fontWeight: '900',
+},
+
+iaBtnSub: {
+  color: '#AAA',
+  fontSize: 12,
+  marginTop: 4,
+  fontWeight: '600',
 },
 });

@@ -19,6 +19,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 
 const GOLD = '#C9A96E';
+const RENOVACAO_ANTECEDENCIA_MS = 2 * 60 * 60 * 1000;
 
 const PACOTES = [
   {
@@ -168,8 +169,58 @@ export default function ImpulsionarScreen() {
     [pacoteId]
   );
 
+  const destaqueExpira = useMemo(
+    () => estab?.destaqueExpira?.toDate?.() || null,
+    [estab?.destaqueExpira]
+  );
+
+  const destaqueAtivo =
+    estab?.destaqueAtivo === true &&
+    !!destaqueExpira &&
+    destaqueExpira.getTime() > Date.now();
+
+  const destaquePertoDeVencer =
+    destaqueAtivo &&
+    destaqueExpira.getTime() - Date.now() <=
+      RENOVACAO_ANTECEDENCIA_MS;
+
+  const pacoteAtivoId = destaqueAtivo
+    ? String(estab?.destaquePacoteId || '')
+    : '';
+
+  const pacoteAtivo = PACOTES.find(
+    item => item.id === pacoteAtivoId
+  );
+
+  const pendenteExpira =
+    estab?.impulsionamentoPendente?.expiraEm?.toDate?.() || null;
+
+  const pacotePendenteId =
+    estab?.impulsionamentoPendente?.status === 'pending' &&
+    pendenteExpira &&
+    pendenteExpira.getTime() > Date.now()
+      ? String(estab.impulsionamentoPendente.pacoteId || '')
+      : '';
+
+  const pacoteSelecionadoAtivo =
+    destaqueAtivo &&
+    pacoteAtivoId === pacoteId;
+
+  const pacoteSelecionadoTravado =
+    pacoteSelecionadoAtivo &&
+    !destaquePertoDeVencer;
+
+  const pacoteSelecionadoPendente =
+    pacotePendenteId === pacoteId;
+
+  useEffect(() => {
+    if (pacoteAtivoId && !qr) {
+      setPacoteId(pacoteAtivoId);
+    }
+  }, [pacoteAtivoId, qr]);
+
   const destaqueAte = useMemo(() => {
-    const data = estab?.destaqueExpira?.toDate?.();
+    const data = destaqueExpira;
 
     if (!data) return null;
 
@@ -179,11 +230,27 @@ export default function ImpulsionarScreen() {
       hour: '2-digit',
       minute: '2-digit',
     });
-  }, [estab?.destaqueExpira]);
+  }, [destaqueExpira]);
 
   const gerarPix = async () => {
     if (!estab?.id) {
       Alert.alert('Erro', 'Cadastre um estabelecimento antes de impulsionar.');
+      return;
+    }
+
+    if (pacoteSelecionadoTravado) {
+      Alert.alert(
+        'Pacote ativo',
+        'Este impulsionamento ja esta ativo. Escolha outro pacote.'
+      );
+      return;
+    }
+
+    if (pacoteSelecionadoPendente) {
+      Alert.alert(
+        'PIX pendente',
+        'Ja existe um PIX valido para este pacote.'
+      );
       return;
     }
 
@@ -292,10 +359,20 @@ export default function ImpulsionarScreen() {
           </View>
         </View>
 
-        {estab?.destaqueAtivo && destaqueAte ? (
+        {destaqueAtivo && destaqueAte ? (
           <View style={s.ativoBox}>
             <Text style={s.ativoTitle}>Destaque ativo</Text>
+            <Text style={s.ativoSub}>
+              {pacoteAtivo?.nome ||
+                estab?.destaquePacoteNome ||
+                'Pacote impulsionado'}
+            </Text>
             <Text style={s.ativoSub}>Válido até {destaqueAte}</Text>
+            {destaquePertoDeVencer && (
+              <Text style={s.ativoAviso}>
+                Perto de vencer. Renove este pacote ou escolha outro.
+              </Text>
+            )}
           </View>
         ) : null}
 
@@ -303,6 +380,10 @@ export default function ImpulsionarScreen() {
 
         {PACOTES.map(pacote => {
           const ativo = pacote.id === pacoteId;
+          const pacoteEmUso =
+            destaqueAtivo && pacote.id === pacoteAtivoId;
+          const pacoteComPix =
+            pacote.id === pacotePendenteId;
 
           return (
             <TouchableOpacity
@@ -311,6 +392,7 @@ export default function ImpulsionarScreen() {
               style={[
                 s.pacoteCard,
                 ativo && s.pacoteAtivo,
+                pacoteEmUso && s.pacoteEmUso,
               ]}
               onPress={() => {
                 setPacoteId(pacote.id);
@@ -325,11 +407,43 @@ export default function ImpulsionarScreen() {
               <View style={s.valorPill}>
                 <Text style={s.valorText}>{pacote.valor}</Text>
               </View>
+
+              {pacoteEmUso && (
+                <View style={s.statusPillAtivo}>
+                  <Text style={s.statusPillAtivoText}>
+                    {destaquePertoDeVencer ? 'RENOVAR' : 'ATIVO'}
+                  </Text>
+                </View>
+              )}
+
+              {!pacoteEmUso && pacoteComPix && (
+                <View style={s.statusPillPendente}>
+                  <Text style={s.statusPillPendenteText}>PIX</Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
 
-        {!qr && (
+        {!qr && pacoteSelecionadoTravado && (
+          <View style={s.pacoteAvisoBox}>
+            <Text style={s.pacoteAvisoTitulo}>Pacote ja ativo</Text>
+            <Text style={s.pacoteAvisoTexto}>
+              Escolha outro impulsionamento para gerar um novo PIX.
+            </Text>
+          </View>
+        )}
+
+        {!qr && pacoteSelecionadoPendente && (
+          <View style={s.pacoteAvisoBox}>
+            <Text style={s.pacoteAvisoTitulo}>PIX pendente</Text>
+            <Text style={s.pacoteAvisoTexto}>
+              Este pacote ja tem um PIX valido. Aguarde o pagamento ou escolha outro.
+            </Text>
+          </View>
+        )}
+
+        {!qr && !pacoteSelecionadoTravado && !pacoteSelecionadoPendente && (
           <TouchableOpacity
             style={[
               s.gerarBtn,
@@ -342,7 +456,12 @@ export default function ImpulsionarScreen() {
               <ActivityIndicator color="#000" />
             ) : (
               <Text style={s.gerarBtnText}>
-                Gerar PIX - {pacoteSelecionado.valor}
+                {pacoteSelecionadoAtivo
+                  ? 'Renovar PIX'
+                  : destaqueAtivo
+                  ? 'Gerar PIX para trocar'
+                  : 'Gerar PIX'}{' '}
+                - {pacoteSelecionado.valor}
               </Text>
             )}
           </TouchableOpacity>
@@ -480,6 +599,17 @@ const s = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  ativoAviso: {
+    color: '#7A4A00',
+    backgroundColor: '#FFF3CD',
+    borderRadius: 10,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
   sectionTitle: {
     color: '#1A1A1A',
     fontSize: 15,
@@ -501,6 +631,9 @@ const s = StyleSheet.create({
     borderColor: GOLD,
     backgroundColor: '#FFFDF7',
   },
+  pacoteEmUso: {
+    borderColor: '#4CAF50',
+  },
   pacoteNome: {
     color: '#1A1A1A',
     fontSize: 14,
@@ -521,6 +654,47 @@ const s = StyleSheet.create({
     color: GOLD,
     fontWeight: '900',
     fontSize: 12,
+  },
+  statusPillAtivo: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  statusPillAtivoText: {
+    color: '#2E7D32',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  statusPillPendente: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  statusPillPendenteText: {
+    color: '#F57C00',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  pacoteAvisoBox: {
+    backgroundColor: '#FFF',
+    borderColor: '#E8E0D1',
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 8,
+    padding: 14,
+  },
+  pacoteAvisoTitulo: {
+    color: '#1A1A1A',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  pacoteAvisoTexto: {
+    color: '#777',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
   },
   gerarBtn: {
     backgroundColor: GOLD,

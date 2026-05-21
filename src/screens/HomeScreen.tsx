@@ -195,7 +195,13 @@ function estaAberto(horario?: string, diasFuncionamento?: string[]): boolean {
   return atual >= toMin(inicio) && atual < toMin(fim);
 }
 
-function VerificadosSection({ navigation, user }: { navigation: any; user: any }) {
+function VerificadosSection({
+  navigation,
+  usuarioLogado,
+}: {
+  navigation: any;
+  usuarioLogado: boolean;
+}) {
   const [verificados, setVerificados] = useState<any[]>([]);
   const scrollRef = useRef<ScrollView>(null);
   const [autoIdx, setAutoIdx] = useState(0);
@@ -319,7 +325,7 @@ function VerificadosSection({ navigation, user }: { navigation: any; user: any }
               style={sv.card}
               activeOpacity={0.85}
               onPress={() =>
-                navigation.navigate(user ? 'Detalhe' : 'ClienteLogin', {
+                navigation.navigate(usuarioLogado ? 'Detalhe' : 'ClienteLogin', {
                   estabelecimentoId: item.id,
                 })
               }
@@ -431,12 +437,15 @@ export default function HomeScreen() {
   const [user, setUser] = useState(auth().currentUser);
   const [localizacao, setLocalizacao] = useState<{ lat: number; lng: number } | null>(null);
   const [notificacoesNaoLidas, setNotificacoesNaoLidas] = useState(0);
+  const podeInteragir = !!user?.uid;
 
   useFocusEffect(
     React.useCallback(() => {
+      if (!user?.uid) return;
+
       const unsubscribe = escutarNotificacoes();
       return () => unsubscribe && unsubscribe();
-    }, [])
+    }, [user?.uid])
   );
 
   useEffect(() => {
@@ -459,6 +468,12 @@ export default function HomeScreen() {
   }, [user?.uid]);
 
   useEffect(() => {
+    if (!user?.uid) {
+      setBusca('');
+      setFiltro('Todos');
+      setLocalizacao(null);
+      return;
+    }
 
   const obterPosicao = async () => {
 
@@ -470,21 +485,12 @@ export default function HomeScreen() {
           PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
         );
 
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          console.log('Permissão negada');
-          return;
-        }
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
       }
 
       Geolocation.getCurrentPosition(
 
         pos => {
-
-          console.log(
-            'LOCALIZAÇÃO CLIENTE:',
-            pos.coords.latitude,
-            pos.coords.longitude
-          );
 
           setLocalizacao({
             lat: pos.coords.latitude,
@@ -492,25 +498,23 @@ export default function HomeScreen() {
           });
         },
 
-        err => {
-          console.log('Erro GPS:', err);
-        },
+        () => setLocalizacao(null),
 
         {
-          enableHighAccuracy: true,
-          timeout: 20000,
-          maximumAge: 10000,
+          enableHighAccuracy: false,
+          timeout: 15000,
+          maximumAge: 5 * 60 * 1000,
         }
       );
 
-    } catch (error) {
-      console.log('Erro localização:', error);
+    } catch {
+      setLocalizacao(null);
     }
   };
 
   obterPosicao();
 
-}, []);
+}, [user?.uid]);
 
   useEffect(() => {
     const unsub = auth().onAuthStateChanged(u => setUser(u));
@@ -640,7 +644,7 @@ export default function HomeScreen() {
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={() =>
-          navigation.navigate(user ? 'Detalhe' : 'ClienteLogin', {
+          navigation.navigate(podeInteragir ? 'Detalhe' : 'ClienteLogin', {
             estabelecimentoId: item.id,
           })
         }
@@ -805,7 +809,7 @@ export default function HomeScreen() {
         </LinearGradient>
       </TouchableOpacity>
     );
-  }, [navigation, user, renderStars]);
+  }, [navigation, podeInteragir, renderStars]);
 
   if (loading) {
     return (
@@ -865,12 +869,8 @@ export default function HomeScreen() {
                           await auth().signOut();
 
                           try {
-                            const isSignedIn = await GoogleSignin.isSignedIn();
-
-                            if (isSignedIn) {
-                              await GoogleSignin.revokeAccess();
-                              await GoogleSignin.signOut().catch(() => {});
-                            }
+                            await GoogleSignin.revokeAccess().catch(() => {});
+                            await GoogleSignin.signOut().catch(() => {});
                           } catch (googleError) {
                             console.log('Erro ao sair do Google:', googleError);
                           }
@@ -928,6 +928,7 @@ export default function HomeScreen() {
             style={s.buscaInput}
             placeholder="Buscar salão, serviço..."
             placeholderTextColor="#666"
+            editable={podeInteragir}
             value={busca}
             onChangeText={setBusca}
           />
@@ -963,6 +964,8 @@ export default function HomeScreen() {
                       style={{ borderRadius: 24, marginRight: 10 }}
                     >
                       <TouchableOpacity
+                        activeOpacity={podeInteragir ? 0.8 : 1}
+                        disabled={!podeInteragir}
                         onPress={() => setFiltro(t)}
                         style={[s.chip, { backgroundColor: 'transparent' }]}
                       >
@@ -986,6 +989,8 @@ export default function HomeScreen() {
                   ) : (
                     <TouchableOpacity
                       key={t}
+                      activeOpacity={podeInteragir ? 0.8 : 1}
+                      disabled={!podeInteragir}
                       onPress={() => setFiltro(t)}
                       style={s.chip}
                     >
@@ -1006,7 +1011,7 @@ export default function HomeScreen() {
 
             <VerificadosSection
               navigation={navigation}
-              user={user}
+              usuarioLogado={podeInteragir}
             />
           </>
         }

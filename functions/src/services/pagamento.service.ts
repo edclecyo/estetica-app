@@ -682,6 +682,51 @@ export const criarPagamentoPixImpulsionamento = onCall(
       );
     }
 
+    const agora = new Date();
+    const destaqueExpira =
+      est.destaqueExpira?.toDate?.() || null;
+
+    const destaqueAtivo =
+      est.destaqueAtivo === true &&
+      destaqueExpira instanceof Date &&
+      destaqueExpira > agora;
+
+    const destaqueRenovavel =
+      destaqueAtivo &&
+      destaqueExpira.getTime() - agora.getTime() <=
+        2 * 60 * 60 * 1000;
+
+    const pacoteAtivoId = String(
+      est.destaquePacoteId || ''
+    ).trim();
+
+    if (
+      destaqueAtivo &&
+      !destaqueRenovavel &&
+      pacoteAtivoId === pacoteId
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Este pacote de impulsionamento ja esta ativo.'
+      );
+    }
+
+    const pendente = est.impulsionamentoPendente || null;
+    const pendenteExpira =
+      pendente?.expiraEm?.toDate?.() || null;
+
+    if (
+      pendente?.status === 'pending' &&
+      pendente?.pacoteId === pacoteId &&
+      pendenteExpira instanceof Date &&
+      pendenteExpira > agora
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Ja existe um PIX valido para este pacote.'
+      );
+    }
+
     const lockRef = db
       .collection('locks')
       .doc(`pix_impulsionamento_${estabelecimentoId}`);

@@ -27,6 +27,9 @@ export * from './triggers/agendamento.trigger';
 // Funções que rodam em horários específicos (CRON) para enviar lembretes e limpar dados.
 export * from './schedules/lembretes.schedule';
 export * from './schedules/manutencao.schedule';
+export * from './schedules/autoConcluirAgendamentos';
+export * from './schedules/destaqueVencimento.schedule';
+
 
 // 4. API (Webhooks Externos)
 // Porta de entrada para o Mercado Pago avisar quando um pagamento foi aprovado.

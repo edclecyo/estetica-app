@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import {
+  FirebaseAuthTypes,
+  getAuth,
+  onIdTokenChanged,
+  signOut as firebaseSignOut,
+} from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
-import messaging from '@react-native-firebase/messaging';
-import { Alert } from 'react-native';
 import type { Admin } from '../types';
 
 interface AuthContextData {
@@ -39,7 +42,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // --- MONITORAMENTO DE AUTH ---
   useEffect(() => {
 
-  const unsubscribe = auth().onAuthStateChanged(
+  const unsubscribe = onIdTokenChanged(
+    getAuth(),
     async firebaseUser => {
 
       try {
@@ -59,6 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        await firebaseUser.getIdToken();
+
         setUser(firebaseUser);
 
         const snap = await firestore()
@@ -71,8 +77,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const dados = snap.data()!;
 
           setAdmin({
-            id: firebaseUser.uid,
             ...dados,
+            id: firebaseUser.uid,
           } as Admin);
 
           setIsSuperAdmin(
@@ -106,12 +112,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // --- LOGOUT ---
  const signOut = async () => {
-  const user = auth().currentUser;
+  const currentUser = getAuth().currentUser;
 
-  if (!user) return;
+  if (!currentUser) return;
 
   try {
-    await auth().signOut();
+    await firebaseSignOut(getAuth());
   } catch (e) {
     console.log('signOut error:', e);
   }

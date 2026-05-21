@@ -15,32 +15,19 @@ import { getApp } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
 
 export default function ContaBancariaScreen({ route, navigation }: any) {
-
   const estabelecimentoId = route?.params?.estabelecimentoId;
-
-  if (!estabelecimentoId) {
-    return (
-      <View style={s.center}>
-        <Text>Erro: estabelecimento não informado</Text>
-      </View>
-    );
-  }
 
   const [loading, setLoading] = useState(false);
   const [loadingFetch, setLoadingFetch] = useState(true);
 
-  // ===== DADOS IDENTIFICAÇÃO (PIX) =====
   const [responsavelNome, setResponsavelNome] = useState('');
   const [responsavelCpf, setResponsavelCpf] = useState('');
   const [responsavelTelefone, setResponsavelTelefone] = useState('');
   const [responsavelEmail, setResponsavelEmail] = useState('');
 
   const [pixChave, setPixChave] = useState('');
-  const [pixTipo, setPixTipo] = useState('');
+  const [, setPixTipo] = useState('');
 
-  // =========================
-  // 🔥 VALIDAÇÃO PIX INTELIGENTE
-  // =========================
   const validarPix = (pix: string) => {
     const v = pix.trim();
 
@@ -66,10 +53,12 @@ export default function ContaBancariaScreen({ route, navigation }: any) {
     return { valido: false, tipo: null };
   };
 
-  // =========================
-  // 🔥 CARREGAR DADOS FIREBASE
-  // =========================
   useEffect(() => {
+    if (!estabelecimentoId) {
+      setLoadingFetch(false);
+      return;
+    }
+
     const load = async () => {
       try {
         const doc = await firestore()
@@ -88,7 +77,6 @@ export default function ContaBancariaScreen({ route, navigation }: any) {
           setPixChave(data.pixChave || '');
           setPixTipo(data.pixTipo || '');
         }
-
       } catch (e) {
         console.log(e);
       } finally {
@@ -99,19 +87,16 @@ export default function ContaBancariaScreen({ route, navigation }: any) {
     load();
   }, [estabelecimentoId]);
 
-  // =========================
-  // 🔥 SALVAR
-  // =========================
   const salvar = async () => {
     const pixValidacao = validarPix(pixChave);
 
     if (!responsavelNome) {
-      Alert.alert('Erro', 'Nome é obrigatório');
+      Alert.alert('Erro', 'Nome e obrigatorio');
       return;
     }
 
     if (!pixValidacao.valido) {
-      Alert.alert('PIX inválido', 'Use CPF, telefone, email ou chave PIX válida');
+      Alert.alert('PIX invalido', 'Use CPF, telefone, email ou chave PIX valida');
       return;
     }
 
@@ -125,19 +110,16 @@ export default function ContaBancariaScreen({ route, navigation }: any) {
 
       await fn({
         estabelecimentoId,
-
         responsavelNome,
         responsavelCpf,
         responsavelTelefone,
         responsavelEmail,
-
         pixChave,
         pixTipo: pixValidacao.tipo,
       });
 
-      Alert.alert('Sucesso ✅', 'Dados PIX salvos!');
+      Alert.alert('Sucesso', 'Dados PIX salvos!');
       navigation.goBack();
-
     } catch (e: any) {
       Alert.alert('Erro', e?.message || 'Erro ao salvar');
     } finally {
@@ -153,15 +135,22 @@ export default function ContaBancariaScreen({ route, navigation }: any) {
     );
   }
 
+  if (!estabelecimentoId) {
+    return (
+      <View style={s.center}>
+        <Text>Erro: estabelecimento nao informado</Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={s.container} contentContainerStyle={{ padding: 20 }}>
-
       <Text style={s.title}>Dados para Recebimento PIX</Text>
 
-      <Text style={s.label}>Nome responsável</Text>
+      <Text style={s.label}>Nome responsavel</Text>
       <TextInput style={s.input} value={responsavelNome} onChangeText={setResponsavelNome} />
 
-      <Text style={s.label}>CPF (identificação)</Text>
+      <Text style={s.label}>CPF (identificacao)</Text>
       <TextInput style={s.input} value={responsavelCpf} onChangeText={setResponsavelCpf} />
 
       <Text style={s.label}>Telefone</Text>
@@ -175,7 +164,7 @@ export default function ContaBancariaScreen({ route, navigation }: any) {
         style={s.input}
         value={pixChave}
         onChangeText={setPixChave}
-        placeholder="CPF, email, telefone ou chave aleatória"
+        placeholder="CPF, email, telefone ou chave aleatoria"
       />
 
       <TouchableOpacity style={s.btn} onPress={salvar} disabled={loading}>
@@ -185,7 +174,6 @@ export default function ContaBancariaScreen({ route, navigation }: any) {
           <Text style={s.btnText}>Salvar PIX</Text>
         )}
       </TouchableOpacity>
-
     </ScrollView>
   );
 }
@@ -193,21 +181,18 @@ export default function ContaBancariaScreen({ route, navigation }: any) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
   title: {
     fontSize: 20,
     fontWeight: '800',
     marginBottom: 20,
     color: '#1A1A1A',
   },
-
   label: {
     fontSize: 12,
     color: '#777',
     marginTop: 12,
     marginBottom: 4,
   },
-
   input: {
     backgroundColor: '#FFF',
     padding: 12,
@@ -215,7 +200,6 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EEE',
   },
-
   btn: {
     marginTop: 25,
     backgroundColor: '#1A1A1A',
@@ -223,7 +207,6 @@ const s = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
   },
-
   btnText: {
     color: '#C9A96E',
     fontWeight: '800',

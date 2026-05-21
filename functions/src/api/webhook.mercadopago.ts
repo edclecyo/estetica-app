@@ -82,7 +82,7 @@ export const webhookMercadoPago = onRequest(
           );
 
           if (!ok) {
-            console.warn('⚠️ assinatura inválida, mas continuando');
+            console.warn('⚠️ assinatura inválida, consultando pagamento na API MP');
           }
         } catch (e) {
           console.warn('⚠️ erro assinatura:', e);
@@ -171,6 +171,13 @@ export const webhookMercadoPago = onRequest(
                 destaqueOrigem: 'impulsionamento',
                 destaqueEm: admin.firestore.FieldValue.serverTimestamp(),
                 destaqueExpira: admin.firestore.Timestamp.fromDate(expira),
+                destaquePacoteId: pagamentoData.pacoteId || null,
+                destaquePacoteNome: pagamentoData.pacoteNome || null,
+                destaquePacoteDias: dias,
+                destaqueAvisoVencimentoEm:
+                  admin.firestore.FieldValue.delete(),
+                destaqueAvisoVencimentoExpiraEm:
+                  admin.firestore.FieldValue.delete(),
 
                 impulsionamentoPendente:
                   admin.firestore.FieldValue.delete(),

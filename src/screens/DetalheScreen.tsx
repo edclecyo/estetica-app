@@ -251,7 +251,21 @@ const servicoObj = estab?.servicos?.find(
     }
 
     const user = auth().currentUser;
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      criandoAgendamentoRef.current = false;
+      Alert.alert(
+        'Faca login',
+        'Entre na sua conta para agendar este horario.',
+        [
+          { text: 'Agora nao', style: 'cancel' },
+          {
+            text: 'Entrar',
+            onPress: () => navigation.navigate('ClienteLogin'),
+          },
+        ]
+      );
+      return;
+    }
 
     try {
       setSalvando(true);

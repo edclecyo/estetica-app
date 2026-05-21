@@ -1,3 +1,13 @@
+export type PlanoId =
+  | 'free'
+  | 'trial'
+  | 'essencial'
+  | 'pro'
+  | 'elite'
+  | 'bronze'
+  | 'silver'
+  | 'gold';
+
 export interface Admin {
   id: string;
   nome: string;
@@ -5,9 +15,9 @@ export interface Admin {
   telefone: string;
   cargo: 'Super Admin' | 'Admin';
   ativo: boolean;
-  // Adicionado para controle de acesso que fizemos no Dash
-  plano?: 'bronze' | 'silver' | 'gold' | 'elite';
-  vencimentoPlano?: any; 
+  fotoPerfil?: string;
+  plano?: PlanoId;
+  vencimentoPlano?: any;
 }
 
 export interface Servico {
@@ -17,6 +27,7 @@ export interface Servico {
   duracao: number;
   ativo: boolean;
   descricao?: string;
+  foto?: string;
 }
 
 export interface Estabelecimento {
@@ -27,8 +38,12 @@ export interface Estabelecimento {
   totalAvaliacoes: number;
   img: string;
   fotoPerfil?: string;
+  fotoCapa?: string;
   cor: string;
   endereco: string;
+  bairro?: string;
+  numero?: string;
+  cep?: string;
   cidade: string;
   telefone: string;
   descricao: string;
@@ -46,12 +61,46 @@ export interface Estabelecimento {
   horarios: string[];
   adminId: string;
   ativo: boolean;
+  principal?: boolean;
   verificado?: boolean;
-  plano?: 'bronze' | 'silver' | 'gold' | 'elite';
-
-  // 🔥 AQUI QUE ENTRA
-  paymentStatus?: 'none' | 'pending' | 'approved' | 'failed';
-
+  verificadoManual?: boolean;
+  verificadoAutomatico?: boolean;
+  assinaturaAtiva?: boolean;
+  expiraEm?: any;
+  trialUsado?: boolean;
+  plano?: PlanoId;
+  planoPendente?: PlanoId;
+  planoAprovado?: PlanoId;
+  statusPlano?: 'ativo' | 'trial' | 'inativo' | string;
+  pagamentoAppAtivo?: boolean;
+  pixChave?: string;
+  pixTipo?: string;
+  responsavelNome?: string;
+  responsavelTelefone?: string;
+  responsavelEmail?: string;
+  responsavelCpf?: string;
+  avaliacoesNegativas?: number;
+  totalAtendimentos?: number;
+  destaqueAtivo?: boolean;
+  destaqueBasicoAtivo?: boolean;
+  destaqueExpira?: any;
+  destaquePacoteId?: string | null;
+  destaquePacoteNome?: string | null;
+  destaquePacoteDias?: number;
+  destaqueAvisoVencimentoEm?: any;
+  destaqueAvisoVencimentoExpiraEm?: any;
+  iaSimulacaoAtiva?: boolean;
+  iaSimulacaoLimiteMensal?: number;
+  iaSimulacaoPacote?: string | null;
+  paymentStatus?:
+    | 'idle'
+    | 'none'
+    | 'pending'
+    | 'approved'
+    | 'failed'
+    | 'rejected'
+    | 'cancelled'
+    | string;
   coords?: {
     lat: number;
     lng: number;
@@ -60,7 +109,12 @@ export interface Estabelecimento {
   lng?: number;
 }
 
-export type StatusAgendamento = 'confirmado' | 'cancelado' | 'concluido' | 'pendente';
+export type StatusAgendamento =
+  | 'confirmado'
+  | 'cancelado'
+  | 'concluido'
+  | 'pendente'
+  | 'aguardando_pagamento';
 
 export interface Avaliacao {
   estrelas: number;
@@ -74,14 +128,24 @@ export interface Agendamento {
   estabelecimentoNome: string;
   servicoNome: string;
   servicoPreco: number;
-  clienteId: string; // Importante para o cliente ver os dele
+  clienteId?: string;
+  clienteUid?: string;
   clienteNome: string;
   clienteTelefone?: string;
   data: string;
   horario: string;
   status: StatusAgendamento;
+  formaPagamento?: 'app' | 'local' | string;
+  statusPagamento?:
+    | 'aguardando_comprovante'
+    | 'approved'
+    | 'pending'
+    | 'rejected'
+    | string;
+  concluidoEm?: any;
+  canceladoEm?: any;
   avaliacao?: Avaliacao;
-  criadoEm: any; // Firestore Timestamp
+  criadoEm: any;
   notifLida?: boolean;
   notifApagada?: boolean;
 }
@@ -93,7 +157,11 @@ export type RootStackParamList = {
   AdminLogin: undefined;
   AdminDash: undefined;
   AdminEstab: { estabelecimentoId: string };
-  Avaliar: { agendamentoId: string; estabelecimentoNome: string; estabelecimentoId: string };
-  ClienteLogin: undefined; // Adicionado pois você usa na navegação da Home
-  NotificacoesCliente: undefined; // Adicionado
+  Avaliar: {
+    agendamentoId: string;
+    estabelecimentoNome: string;
+    estabelecimentoId: string;
+  };
+  ClienteLogin: undefined;
+  NotificacoesCliente: undefined;
 };

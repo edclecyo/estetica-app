@@ -1175,7 +1175,8 @@ await reference.putFile(uri);
       setCoordsOk(true);
       // O animateToRegion é seguro aqui pois é disparado por um evento de clique
       mapRef.current?.animateToRegion({
-        ...loc,
+        latitude: loc.lat,
+        longitude: loc.lng,
         latitudeDelta: 0.003,
         longitudeDelta: 0.003,
       }, 600);
@@ -1732,7 +1733,7 @@ const s = StyleSheet.create({
   
   colorGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 20, gap: 10 },
   colorCircle: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: 'transparent' },
-  colorActive: { borderColor: '#FFF', scale: 1.1 },
+  colorActive: { borderColor: '#FFF', transform: [{ scale: 1.1 }] },
   
   photoRow: { flexDirection: 'row', marginBottom: 10 },
   photoBox: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#111', borderWidth: 1, borderColor: '#333', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },

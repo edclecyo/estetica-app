@@ -1,34 +1,42 @@
 import React, { useEffect } from 'react';
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
+
 import { AuthProvider } from './src/contexts/AuthContext';
 import Navigation from './src/navigation';
-
 import {
   registrarTokenPush,
   escutarNotificacoes,
-  configurarAberturaPorNotificacao
 } from './src/services/notificacao.service';
 
 export default function App() {
-
   useEffect(() => {
-    initPush();
-  }, []);
+    const unsubscribeForeground = escutarNotificacoes();
 
-  async function initPush() {
-    const uid = "USER_ID_AQUI"; // 🔥 pega do auth depois
-    const tipo = "cliente";     // ou admin
+    const unsubscribeAuth = auth().onAuthStateChanged(async user => {
+      if (!user?.uid) return;
 
-    await registrarTokenPush(uid, tipo);
+      try {
+        const adminSnap = await firestore()
+          .collection('admins')
+          .doc(user.uid)
+          .get();
 
-    escutarNotificacoes();
+        const tipo = adminSnap.exists && adminSnap.data()?.ativo
+          ? 'admin'
+          : 'cliente';
 
-    configurarAberturaPorNotificacao((data) => {
-      console.log('Abriu notificação:', data);
-
-      // 👉 aqui você navega
-      // navigationRef.navigate(...)
+        await registrarTokenPush(user.uid, tipo);
+      } catch (e) {
+        console.log('Erro ao inicializar push:', e);
+      }
     });
-  }
+
+    return () => {
+      unsubscribeForeground?.();
+      unsubscribeAuth();
+    };
+  }, []);
 
   return (
     <AuthProvider>

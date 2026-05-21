@@ -69,7 +69,7 @@ export default function PostarStory() {
   const escolherMidias = async () => {
     const res = await launchImageLibrary({
       mediaType: "mixed",
-      quality: 0.85,
+      quality: 0.8,
       videoQuality: 'high',
       selectionLimit: 10,
     });
@@ -131,7 +131,7 @@ export default function PostarStory() {
       }
 
       setUploadProgress(100);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 500));
       Alert.alert("Publicado! 🎉", `${midias.length} story${midias.length > 1 ? 's' : ''} no ar!`);
       navigation.goBack();
     } catch (e) {

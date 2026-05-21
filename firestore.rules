@@ -1,0 +1,196 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function adminDoc(uid) {
+      return get(/databases/$(database)/documents/admins/$(uid));
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && adminDoc(request.auth.uid).data.ativo == true;
+    }
+
+    function isSuperAdmin() {
+      return isAdmin()
+        && adminDoc(request.auth.uid).data.cargo == 'Super Admin';
+    }
+
+    function ownsEstabelecimento(estabelecimentoId) {
+      return isAdmin()
+        && get(/databases/$(database)/documents/estabelecimentos/$(estabelecimentoId)).data.adminId == request.auth.uid;
+    }
+
+    function sameUser(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function protectedEstFields() {
+      return [
+        'assinaturaAtiva',
+        'statusPlano',
+        'plano',
+        'planoPendente',
+        'planoAprovado',
+        'paymentStatus',
+        'paymentType',
+        'pagamentoId',
+        'pagamentoAprovadoId',
+        'pixPagamentoId',
+        'pixStatus',
+        'pixProcessado',
+        'webhookProcessedPix',
+        'verificado',
+        'verificadoManual',
+        'verificadoAutomatico',
+        'verificadoEm',
+        'destaqueAtivo',
+        'destaqueBasicoAtivo',
+        'destaqueOrigem',
+        'destaqueEm',
+        'destaqueExpira',
+        'impulsionamentoPendente',
+        'iaSimulacaoAtiva',
+        'iaSimulacaoLimiteMensal',
+        'iaSimulacaoPacote',
+        'iaSimulacaoPendente',
+        'iaSimulacaoValor',
+        'expiraEm',
+        'trialUsado'
+      ];
+    }
+
+    match /admins/{uid} {
+      allow read: if sameUser(uid) || isSuperAdmin();
+      allow create: if sameUser(uid)
+        && request.resource.data.cargo == 'Admin'
+        && request.resource.data.ativo == true;
+      allow update: if sameUser(uid)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['cargo', 'ativo']);
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /clientes/{uid} {
+      allow read, create, update: if sameUser(uid) || isSuperAdmin();
+      allow delete: if sameUser(uid) || isSuperAdmin();
+    }
+
+    match /estabelecimentos/{id} {
+      allow read: if resource.data.ativo == true
+        || sameUser(resource.data.adminId)
+        || isSuperAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.adminId == request.auth.uid
+        && !request.resource.data.keys().hasAny(protectedEstFields());
+      allow update: if ownsEstabelecimento(id)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedEstFields());
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /agendamentos/{id} {
+      allow read: if sameUser(resource.data.clienteUid)
+        || sameUser(resource.data.clienteId)
+        || sameUser(resource.data.adminId)
+        || isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /horariosOcupados/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /notificacoes/{id} {
+      allow read: if sameUser(resource.data.userId)
+        || sameUser(resource.data.clienteId)
+        || sameUser(resource.data.adminId)
+        || isSuperAdmin();
+      allow update: if signedIn()
+        && (
+          sameUser(resource.data.userId)
+          || sameUser(resource.data.clienteId)
+          || sameUser(resource.data.adminId)
+          || isSuperAdmin()
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lida', 'apagada', 'lidaEm', 'apagadaEm']);
+      allow create, delete: if false;
+    }
+
+    match /stories/{id} {
+      allow read: if resource.data.ativo == true || (isAdmin() && resource.data.adminId == request.auth.uid) || isSuperAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.adminId == request.auth.uid;
+      allow update, delete: if (isAdmin() && resource.data.adminId == request.auth.uid) || isSuperAdmin();
+    }
+
+    match /storyViews/{id} {
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow read: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /storyLikes/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /storyShares/{id} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /avaliacoes/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /solicitacoesVerificacao/{id} {
+      allow read: if sameUser(resource.data.adminId) || isSuperAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.adminId == request.auth.uid
+        && request.resource.data.status == 'pendente';
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /pagamentos/{id} {
+      allow read: if sameUser(resource.data.clienteId)
+        || ownsEstabelecimento(resource.data.estabelecimentoId)
+        || isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /comunicados/{id} {
+      allow read: if isAdmin() || isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /simulacoesIA/{id} {
+      allow read: if sameUser(resource.data.clienteUid)
+        || ownsEstabelecimento(resource.data.estabelecimentoId)
+        || isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /limitesIA/{id} {
+      allow read: if signedIn() && id.matches(request.auth.uid + '_.*');
+      allow write: if false;
+    }
+
+    match /usuarios_online/{uid} {
+      allow read, write: if sameUser(uid);
+    }
+
+    match /{document=**} {
+      allow read, write: if isSuperAdmin();
+    }
+  }
+}

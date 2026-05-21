@@ -611,8 +611,7 @@ if (
 
       {pix &&
         pixDessePlano &&
-        !expirado &&
-        statusPix !== 'approved' && (
+        !expirado && (
 
         <View style={s.pixBox}>
 

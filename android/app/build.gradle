@@ -92,15 +92,22 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            def releaseStoreFile = System.getenv("ESTETICA_UPLOAD_STORE_FILE")
+            if (releaseStoreFile) {
+                storeFile file(releaseStoreFile)
+            }
+            storePassword System.getenv("ESTETICA_UPLOAD_STORE_PASSWORD")
+            keyAlias System.getenv("ESTETICA_UPLOAD_KEY_ALIAS")
+            keyPassword System.getenv("ESTETICA_UPLOAD_KEY_PASSWORD")
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

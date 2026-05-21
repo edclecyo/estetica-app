@@ -1,0 +1,29 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSafeMedia() {
+      return request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|video/.*');
+    }
+
+    match /estabelecimentos/{estabelecimentoId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() && isSafeMedia();
+    }
+
+    match /stories/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() && isSafeMedia();
+    }
+
+    match /{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

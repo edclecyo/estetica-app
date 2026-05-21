@@ -65,7 +65,9 @@ export default function StoryView() {
   const [isLiked, setIsLiked] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [quemCurtiu, setQuemCurtiu] = useState<any[]>([]);
+  const [quemCompartilhou, setQuemCompartilhou] = useState<any[]>([]);
   const [totalViews, setTotalViews] = useState(0);
+  const [totalShares, setTotalShares] = useState(0);
   const [loadingStats, setLoadingStats] = useState(false);
   const [videoDuration, setVideoDuration] = useState(5000);
 
@@ -188,7 +190,7 @@ function abrirAgendamento() {
 
       const docView = await getDoc(viewRef);
 
-      if (!docView.exists()) {
+      if (!docView.exists) {
         await setDoc(viewRef, {
           storyId: story.id,
           userId: user.uid,
@@ -211,7 +213,12 @@ function abrirAgendamento() {
  
 
  async function curtir() {
-  if (!story?.id || !user?.uid) return;
+  if (!user?.uid) {
+    navigation.navigate('ClienteLogin');
+    return;
+  }
+
+  if (!story?.id) return;
 
   const storyRef = doc(firestore(), 'stories', story.id);
   const likeRef = doc(
@@ -263,7 +270,12 @@ function abrirAgendamento() {
 }
 
   async function compartilhar() {
-    if (!story || !story.id) return;
+  if (!story || !story.id) return;
+
+    if (!user?.uid) {
+      navigation.navigate('ClienteLogin');
+      return;
+    }
 
     handlePressIn();
 
@@ -280,6 +292,19 @@ function abrirAgendamento() {
           compartilhamentos: increment(1),
         }
       );
+
+      if (user?.uid) {
+        await setDoc(
+          doc(firestore(), "storyShares", `${story.id}_${user.uid}`),
+          {
+            storyId: story.id,
+            userId: user.uid,
+            userName: user.displayName || "Cliente",
+            timestamp: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
     } catch (e) {
       // usuário cancelou ou erro silencioso
     }
@@ -315,6 +340,23 @@ function abrirAgendamento() {
         )
       );
 
+      let shares: any[] = [];
+      let sharesCount = 0;
+
+      try {
+        const sharesSnap = await getDocs(
+          query(
+            collection(firestore(), "storyShares"),
+            where("storyId", "==", story.id)
+          )
+        );
+
+        shares = sharesSnap.docs.map(d => d.data());
+        sharesCount = sharesSnap.size;
+      } catch (e) {
+        console.log("Erro compartilhamentos:", e);
+      }
+
       setTotalViews(
         Math.max(
           getStoryViews(storyData),
@@ -324,6 +366,17 @@ function abrirAgendamento() {
 
       setQuemCurtiu(
         likesSnap.docs.map(d => d.data())
+      );
+
+      setQuemCompartilhou(
+        shares
+      );
+
+      setTotalShares(
+        Math.max(
+          Number(storyData?.compartilhamentos || 0),
+          sharesCount
+        )
       );
 
       Animated.spring(statsAnim, {
@@ -604,6 +657,15 @@ function abrirAgendamento() {
                   Curtidas ❤️
                 </Text>
               </View>
+
+              <View style={s.statBox}>
+                <Text style={s.statValue}>
+                  {totalShares}
+                </Text>
+                <Text style={s.statLabel}>
+                  Compart.
+                </Text>
+              </View>
             </View>
 
             <ScrollView
@@ -632,6 +694,32 @@ function abrirAgendamento() {
 
                     <Text style={s.userName}>
                       {item.userName || "Usuário"}
+                    </Text>
+                  </View>
+                ))
+              )}
+
+              <Text style={s.sectionTitle}>
+                Compartilhamentos
+              </Text>
+
+              {loadingStats ? null : quemCompartilhou.length === 0 ? (
+                <Text style={s.emptyText}>
+                  Nenhum compartilhamento identificado.
+                </Text>
+              ) : (
+                quemCompartilhou.map((item, i) => (
+                  <View key={`${item.userId || "share"}_${i}`} style={s.userRow}>
+                    <View style={s.userAvatar}>
+                      <Feather
+                        name="send"
+                        size={16}
+                        color="#888"
+                      />
+                    </View>
+
+                    <Text style={s.userName}>
+                      {item.userName || "Usuario"}
                     </Text>
                   </View>
                 ))

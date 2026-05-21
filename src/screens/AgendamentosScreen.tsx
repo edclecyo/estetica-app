@@ -41,70 +41,33 @@ export default function AgendamentosScreen() {
 
   setLoading(true);
 
-  const aplicarDados = (listas: any[][]) => {
-    const map = new Map();
-
-    listas.flat().forEach((item: any) => {
-      if (item?.id) {
-        map.set(item.id, item);
-      }
-    });
-
-    const dados = Array.from(map.values())
-      .filter((a: any) => a.deletado !== true)
-      .sort((a: any, b: any) => {
-        const aTime = a.criadoEm?.toMillis?.() || 0;
-        const bTime = b.criadoEm?.toMillis?.() || 0;
-        return bTime - aTime;
-      });
-
-    setAgendamentos(dados as Agendamento[]);
-    setLoading(false);
-  };
-
-  let listaUid: any[] = [];
-  let listaId: any[] = [];
-
-  const unsubUid = firestore()
+  const unsub = firestore()
     .collection('agendamentos')
     .where('clienteUid', '==', user.uid)
     .onSnapshot(
       snap => {
-        listaUid = snap?.docs.map(d => ({
-          id: d.id,
-          ...d.data(),
-        })) || [];
+        const dados = snap.docs
+          .map(d => ({
+            id: d.id,
+            ...d.data(),
+          }))
+          .filter((a: any) => a.deletado !== true)
+          .sort((a: any, b: any) => {
+            const aTime = a.criadoEm?.toMillis?.() || 0;
+            const bTime = b.criadoEm?.toMillis?.() || 0;
+            return bTime - aTime;
+          });
 
-        aplicarDados([listaUid, listaId]);
+        setAgendamentos(dados as Agendamento[]);
+        setLoading(false);
       },
       error => {
-        console.log('Erro clienteUid:', error);
+        console.log('Erro agendamentos cliente:', error);
         setLoading(false);
       }
     );
 
-  const unsubId = firestore()
-    .collection('agendamentos')
-    .where('clienteId', '==', user.uid)
-    .onSnapshot(
-      snap => {
-        listaId = snap?.docs.map(d => ({
-          id: d.id,
-          ...d.data(),
-        })) || [];
-
-        aplicarDados([listaUid, listaId]);
-      },
-      error => {
-        console.log('Erro clienteId:', error);
-        setLoading(false);
-      }
-    );
-
-  return () => {
-    unsubUid();
-    unsubId();
-  };
+  return () => unsub();
 }, [user?.uid]);
 
   const handleLogout = () => {

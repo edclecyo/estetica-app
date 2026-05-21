@@ -7,19 +7,13 @@ import {
 } from "react-native";
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 import storage from "@react-native-firebase/storage";
-import {
-  getFunctions,
-  httpsCallable,
-} from '@react-native-firebase/functions';
-
-import { getApp } from '@react-native-firebase/app';
 import firestore from "@react-native-firebase/firestore";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useAuth } from "../contexts/AuthContext";
 import Video from 'react-native-video';
-
+import RNFS from 'react-native-fs';
 const { width } = Dimensions.get("window");
-
+import auth from '@react-native-firebase/auth';
 type MediaItem = {
   uri: string;
   type: 'image' | 'video';
@@ -145,49 +139,106 @@ const permiteVideo =
     setUploading(true);
     try {
       const nome = admin.nome || "Empresa";
-      const avatar = admin.fotoPerfil || "";
-      const adminId = admin.id;
-      const estId = estabId || adminId;
+const avatar = admin.fotoPerfil || "";
+const adminId = admin.id;
+
+if (!estabId) {
+  Alert.alert(
+    'Estabelecimento não encontrado',
+    'Selecione um estabelecimento.'
+  );
+  return;
+}
+
+const estId = estabId;
 
       for (let i = 0; i < midias.length; i++) {
         const m = midias[i];
         setUploadProgress(Math.round(((i + 0.5) / midias.length) * 95));
 // 🔒 VALIDA PLANO
-const functionsInstance = getFunctions(
-  getApp(),
-  'southamerica-east1'
-);
 
-const validarStory = httpsCallable(
-  functionsInstance,
-  'validarPostagemStory'
-);
+const user = auth().currentUser;
 
-const response = await fetch(m.uri);
-const blob = await response.blob();
+console.log('AUTH UID:', user?.uid);
+console.log('ADMIN ID:', adminId);
+console.log('ESTAB ID:', estId);
 
-const sizeMB =
-  Number(blob.size) / 1024 / 1024;
+if (!user) {
+  Alert.alert(
+    'Sessão expirada',
+    'Faça login novamente.'
+  );
+  return;
+}
 
+if (user.uid !== adminId) {
+  Alert.alert(
+    'Conta diferente',
+    'Saia e entre novamente na conta admin correta.'
+  );
+  return;
+}
+
+const token = await user.getIdToken(true);
+
+console.log('TOKEN OK:', !!token);
+
+// tamanho arquivo MB
+let sizeMB = 0;
+
+try {
+  const stat = await RNFS.stat(m.uri);
+
+  sizeMB =
+    Number(stat.size || 0) /
+    1024 /
+    1024;
+
+} catch (e) {
+  console.log('ERRO SIZE:', e);
+}
+
+// duração vídeo
 const duration =
-  m.type === 'video'
-    ? Number(m.duration || 0)
-    : 0;
+  Number(m.duration || 0);
 
-await validarStory({
-  estabelecimentoId: estId,
+const validacao = await fetch(
+  'https://southamerica-east1-agenda-beleza-75106.cloudfunctions.net/validarPostagemStoryHttp',
+  {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      estabelecimentoId: estId,
+      type: m.type,
+      duration,
+      sizeMB,
+    }),
+  }
+);
 
-  type: m.type,
+const validacaoData = await validacao.json().catch(() => null);
 
-  duration,
+if (!validacao.ok) {
+  throw new Error(
+    validacaoData?.message ||
+    'Nao foi possivel validar este story.'
+  );
+}
+const ext = m.type === 'video' ? 'mp4' : 'jpg';
 
-  sizeMB,
-});
+const filename =
+  `stories/${adminId}_${Date.now()}_${i}.${ext}`;
 
-        const ext = m.type === 'video' ? 'mp4' : 'jpg';
-        const filename = `stories/${adminId}_${Date.now()}_${i}.${ext}`;
-        const ref = storage().ref(filename);
-        await ref.putFile(m.uri);
+const ref = storage().ref(filename);
+
+const uploadUri = m.uri.startsWith('file://')
+  ? m.uri.replace('file://', '')
+  : m.uri;
+
+await ref.putFile(uploadUri);
         const url = await ref.getDownloadURL();
 
        await firestore().collection('stories').add({

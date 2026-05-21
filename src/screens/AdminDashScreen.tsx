@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, Dimensions,
@@ -7,10 +7,10 @@ import {
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
 import firestore from '@react-native-firebase/firestore';
-import auth from '@react-native-firebase/auth';
+import { getAuth } from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-import { BarChart, LineChart } from 'react-native-chart-kit';
+import { BarChart } from 'react-native-chart-kit';
 import Share from 'react-native-share';
 
 
@@ -47,7 +47,22 @@ const EstabImage = ({ item }: { item: Estabelecimento }) => {
 export default function AdminDashScreen() {
   const navigation = useNavigation<any>();
 
-  const { admin, signOut } = useAuth();
+  const { admin, user, signOut } = useAuth();
+  const authUser = getAuth().currentUser;
+  const adminUid = authUser?.uid;
+  const adminAuthPronto =
+    !!adminUid && user?.uid === adminUid && admin?.id === adminUid;
+
+  const logErroPermissaoAdmin = useCallback((label: string, err: unknown) => {
+    console.log(label, {
+      adminUid,
+      authUid: authUser?.uid || null,
+      contextUserUid: user?.uid || null,
+      adminId: admin?.id || null,
+      code: (err as any)?.code || null,
+      message: (err as any)?.message || null,
+    });
+  }, [admin?.id, adminUid, authUser?.uid, user?.uid]);
 
   const [aba, setAba] = useState<
     'dash' | 'agends' | 'estabs' | 'stories'
@@ -91,6 +106,9 @@ export default function AdminDashScreen() {
   const [loading, setLoading] =
     useState(true);
 
+  const [agoraAgendamentos, setAgoraAgendamentos] =
+    useState(() => Date.now());
+
  const [loadingAcao, setLoadingAcao] =
   useState<{ id: string; acao: 'concluido' | 'cancelado' } | null>(null);
   
@@ -106,8 +124,6 @@ const principal = useMemo(() => {
   return estabs.find(e => e.principal) || estabs[0];
 }, [estabs]);
 // 👉 NOVA REGRA CENTRAL
-const agora = new Date();
-
 const planoFree = planoAtual === 'free';
 const semPlano = !planoAtual;
 
@@ -123,6 +139,11 @@ const trialExpirado =
   diasRestantes <= 0;
 
 const planoPagoAtivo = assinaturaAtiva === true;
+const planoPagoExpirado =
+  !semPlano &&
+  !planoFree &&
+  planoAtual !== 'trial' &&
+  !planoPagoAtivo;
 
 // 🔥 REGRA FINAL
 const isBloqueado = useMemo(() => {
@@ -135,6 +156,12 @@ const isBloqueado = useMemo(() => {
 
   return true;
 }, [loading, temEstabelecimento, planoPagoAtivo, trialAtivo]);
+
+useEffect(() => {
+  if (isBloqueado && (aba === 'agends' || aba === 'stories')) {
+    setAba('dash');
+  }
+}, [aba, isBloqueado]);
 
   // ===== ABA CONTROLE =====
   const mudarAba = (novaAba: any) => {
@@ -156,6 +183,8 @@ const isBloqueado = useMemo(() => {
     } 
     else if (trialExpirado) {
       mensagem = 'Seu trial expirou. Ative um plano.';
+    } else if (planoPagoExpirado) {
+      mensagem = 'Sua assinatura expirou. Renove seu plano.';
     }
 
     Alert.alert('Acesso bloqueado 🔒', mensagem);
@@ -180,6 +209,8 @@ const checarBloqueio = () => {
   else if (trialExpirado) {
     // 🔥 TRIAL ACABOU
     mensagem = 'Seu trial expirou. Ative um plano para continuar.';
+  } else if (planoPagoExpirado) {
+    mensagem = 'Sua assinatura expirou. Renove seu plano para continuar.';
   } 
   else {
     mensagem = 'Ative um plano para continuar.';
@@ -188,15 +219,38 @@ const checarBloqueio = () => {
   Alert.alert('Função bloqueada 🔒', mensagem);
   return true;
 };
+const abrirStoryAdmin = (storyId: string) => {
+  const startIndex = meusStories.findIndex(story => story.id === storyId);
+
+  if (startIndex < 0) return;
+
+  navigation.navigate('StoryView', {
+    stories: meusStories,
+    startIndex,
+  });
+};
+
   // ===== LISTENERS =====
   useEffect(() => {
-    if (!admin?.id) return;
+    if (!adminAuthPronto || !adminUid || !authUser) return;
+
+    let ativo = true;
+    let unsubEstabs: undefined | (() => void);
+    let unsubAgends: undefined | (() => void);
+    let unsubStories: undefined | (() => void);
+    let unsubSelo: undefined | (() => void);
+
+    const iniciarListenersAdmin = async () => {
+      try {
+        await authUser.getIdToken();
+
+        if (!ativo) return;
 
     setLoading(true);
 
-    const unsubEstabs = firestore()
+    unsubEstabs = firestore()
       .collection('estabelecimentos')
-      .where('adminId', '==', admin.id)
+      .where('adminId', '==', adminUid)
       .onSnapshot(
         snap => {
           const lista = snap.docs.map(d => ({
@@ -214,7 +268,6 @@ const checarBloqueio = () => {
             const principal = lista.find(e => e.principal) || lista[0];
 
             setPlanoAtual(principal?.plano ?? null);
-            setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
             setVerificado(Boolean((principal as any)?.verificado));
 
             if (principal?.expiraEm?.toDate) {
@@ -222,8 +275,13 @@ const checarBloqueio = () => {
               const expira = principal.expiraEm.toDate();
               const diff = expira.getTime() - agora.getTime();
               const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+
+              setAssinaturaAtiva(
+                Boolean(principal?.assinaturaAtiva) && expira > agora
+              );
               setDiasRestantes(Math.max(0, dias));
             } else {
+              setAssinaturaAtiva(Boolean(principal?.assinaturaAtiva));
               setDiasRestantes(null);
             }
           }
@@ -231,76 +289,110 @@ const checarBloqueio = () => {
           setLoading(false);
         },
         err => {
-          console.error('Erro Firestore:', err);
+          logErroPermissaoAdmin('Erro Firestore:', err);
           setLoading(false);
         }
       );
 
-    const unsubAgends = firestore()
-      .collection('agendamentos')
-      .where('adminId', '==', admin.id)
-      .orderBy('criadoEm', 'desc')
-      .limit(100)
-      .onSnapshot(snap => {
-  if (!snap) return;
+    unsubAgends = firestore()
+  .collection('agendamentos')
+  .where('adminId', '==', adminUid)
+  .orderBy('criadoEm', 'desc')
+  .limit(100)
+  .onSnapshot(
+    snap => {
+      if (!snap) return;
 
-  setAgends(
-    snap.docs.map(d => ({
-      id: d.id,
-      ...d.data()
-    })) as Agendamento[]
-  );
-});
-
-    const unsubStories = firestore()
-      .collection('stories')
-      .where('adminId', '==', admin.id)
-      .onSnapshot(snap => {
-        const storiesData = snap.docs.map(d => ({
+      setAgends(
+        snap.docs.map(d => ({
           id: d.id,
           ...d.data()
-        })) as any[];
+        })) as Agendamento[]
+      );
+    },
+    err => {
+      logErroPermissaoAdmin('ERRO AGENDAMENTOS ADMIN:', err);
+    }
+  );
 
-        setMeusStories(storiesData);
+    unsubStories = firestore()
+  .collection('stories')
+  .where('adminId', '==', adminUid)
+  .where('ativo', '==', true)
+  .onSnapshot(
+    snap => {
+      const storiesData = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })) as any[];
 
-        const likes = storiesData.reduce(
-          (acc, curr) => acc + (curr.likesCount || 0),
-          0
-        );
+      setMeusStories(storiesData);
 
-        setTotalLikes(likes);
-      });
+      const likes = storiesData.reduce(
+        (acc, curr) => acc + (curr.likesCount || 0),
+        0
+      );
+
+      setTotalLikes(likes);
+    },
+    err => {
+      console.log('ERRO STORIES ADMIN:', err);
+    }
+  );
 
     // ✅ Busca status da solicitação de selo
-    const unsubSelo = firestore()
-      .collection('solicitacoesVerificacao')
-      .where('adminId', '==', admin.id)
-      .orderBy('criadoEm', 'desc')
-      .limit(1)
-      .onSnapshot(snap => {
-        if (snap && snap.docs.length > 0) {
-          setSolicitacaoStatus(snap.docs[0].data().status || null);
-        } else {
-          setSolicitacaoStatus(null);
-        }
-      });
+    unsubSelo = firestore()
+  .collection('solicitacoesVerificacao')
+  .where('adminId', '==', adminUid)
+  .orderBy('criadoEm', 'desc')
+  .limit(1)
+  .onSnapshot(
+    snap => {
+      if (snap && snap.docs.length > 0) {
+        setSolicitacaoStatus(snap.docs[0].data().status || null);
+      } else {
+        setSolicitacaoStatus(null);
+      }
+    },
+    err => {
+      logErroPermissaoAdmin('ERRO SELO:', err);
+    }
+  );
 
-   return () => {
-  unsubEstabs?.();
-  unsubAgends?.();
-  unsubStories?.();
-  unsubSelo?.();
-};
-  }, [admin?.id]);
+      } catch (err) {
+        logErroPermissaoAdmin('ERRO TOKEN DASH ADMIN:', err);
+        setLoading(false);
+      }
+    };
+
+    iniciarListenersAdmin();
+
+    return () => {
+      ativo = false;
+      unsubEstabs?.();
+      unsubAgends?.();
+      unsubStories?.();
+      unsubSelo?.();
+    };
+  }, [adminAuthPronto, adminUid, authUser, logErroPermissaoAdmin]);
 
   useEffect(() => {
-  if (!admin?.id) return;
+  if (!adminAuthPronto || !adminUid || !authUser) return;
 
-  console.log('🔔 ESCUTANDO NOTIFICAÇÕES ADMIN:', admin.id);
+  let ativo = true;
+  let unsubNotif: undefined | (() => void);
 
-  const unsubNotif = firestore()
+  const iniciarNotifAdmin = async () => {
+    try {
+      await authUser.getIdToken();
+
+      if (!ativo) return;
+
+  console.log('🔔 ESCUTANDO NOTIFICAÇÕES ADMIN:', adminUid);
+
+  unsubNotif = firestore()
   .collection('notificacoes')
-  .where('adminId', '==', admin.id)
+  .where('adminId', '==', adminUid)
   .where('tipo', '==', 'admin')
   .where('lida', '==', false)
   .where('apagada', '==', false)
@@ -309,35 +401,111 @@ const checarBloqueio = () => {
       setNotifNaoLidas(snap?.size || 0);
     },
     err => {
-      console.log('ERRO NOTIF:', err);
+      logErroPermissaoAdmin('ERRO NOTIF:', err);
     }
   );
 
-  return () => unsubNotif();
+    } catch (err) {
+      logErroPermissaoAdmin('ERRO TOKEN NOTIF ADMIN:', err);
+    }
+  };
 
-}, [admin?.id]);
+  iniciarNotifAdmin();
 
-useEffect(() => {
-  console.log('ADMIN.ID:', admin?.id);
-  console.log('AUTH UID:', auth().currentUser?.uid);
-}, [admin]);
+  return () => {
+    ativo = false;
+    unsubNotif?.();
+  };
+
+}, [adminAuthPronto, adminUid, authUser, logErroPermissaoAdmin]);
   // ===== HELPERS =====
   // ✅ formatDate declarado ANTES do chartData
-  const formatDate = (date: any) => {
+ const parseDataBR = (data: any): Date | null => {
   try {
-    if (!date) return '';
+    if (!data) return null;
 
-    if (typeof date === 'string') {
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('pt-BR');
-}
+    if (data?.toDate) {
+      return data.toDate();
+    }
 
-    return '';
+    if (typeof data === 'string') {
+      const [dia, mes, ano] = data.split('/').map(Number);
+
+      if (!dia || !mes || !ano) return null;
+
+      const d = new Date(ano, mes - 1, dia);
+
+      if (isNaN(d.getTime())) return null;
+
+      return d;
+    }
+
+    return null;
   } catch {
-    return '';
+    return null;
   }
 };
+
+const formatDate = (date: any): string => {
+  const d = parseDataBR(date);
+
+  if (!d) return '';
+
+  return d.toLocaleDateString('pt-BR');
+};
+
+const fimAgendamento = (agendamento: Agendamento): Date | null => {
+  const inicio = parseDataBR(agendamento.data);
+
+  if (!inicio || typeof agendamento.horario !== 'string') {
+    return null;
+  }
+
+  const [hora, minuto] = agendamento.horario.split(':').map(Number);
+
+  if (
+    !Number.isInteger(hora) ||
+    !Number.isInteger(minuto) ||
+    hora < 0 ||
+    hora > 23 ||
+    minuto < 0 ||
+    minuto > 59
+  ) {
+    return null;
+  }
+
+  inicio.setHours(hora, minuto, 0, 0);
+
+  const duracao = Number(
+    (agendamento as any).servicoDuracaoMin ||
+    (agendamento as any).duracao ||
+    60
+  );
+
+  return new Date(
+    inicio.getTime() +
+      (duracao > 0 ? duracao : 60) * 60 * 1000
+  );
+};
+
+  useEffect(() => {
+    const timer = setInterval(
+      () => setAgoraAgendamentos(Date.now()),
+      60 * 1000
+    );
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const agendamentosVisiveis = agends.filter(a => {
+    if (a.status === 'concluido' || a.status === 'cancelado') {
+      return false;
+    }
+
+    const fim = fimAgendamento(a);
+
+    return !fim || fim.getTime() > agoraAgendamentos;
+  });
 
   const compartilharRelatorio = async () => {
     try {
@@ -406,6 +574,10 @@ Gerado pelo BeautyHub`;
     const res = await fn({
       agendamentoId: id,
     });
+
+    setAgends(lista =>
+      lista.filter(agendamento => agendamento.id !== id)
+    );
 
     console.log('Resposta função:', res.data);
 
@@ -508,10 +680,7 @@ const [saindo, setSaindo] = useState(false);
             setMeusStories([]);
             setNotifNaoLidas(0);
 
-            // firebase logout
-            await auth().signOut();
-
-            // se usa context:
+            // AuthContext limpa o Firebase Auth e atualiza a navegacao.
             await signOut();
 
           } catch (e) {
@@ -531,11 +700,6 @@ const [saindo, setSaindo] = useState(false);
   );
 };
 
-  const receitaTotal = useMemo(() =>
-    agends.filter(a => a.status === 'confirmado' || a.status === 'concluido')
-      .reduce((acc, a) => acc + (a.servicoPreco || 0), 0)
-  , [agends]);
-
   // ✅ chartData usa formatDate que agora está declarado antes
  const chartData = useMemo(() => {
   const labels: string[] = [];
@@ -552,17 +716,24 @@ const [saindo, setSaindo] = useState(false);
       const d = new Date();
       d.setDate(hoje.getDate() - i);
 
-      const label = d.toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-      });
-
-      const dataBusca = d.toLocaleDateString('pt-BR');
-
-      labels.push(label);
+      labels.push(
+        d.toLocaleDateString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+        })
+      );
 
       const total = agendamentosValidos
-        .filter(a => formatDate(a.data) === dataBusca)
+        .filter(a => {
+          const dataAg = parseDataBR(a.data);
+          if (!dataAg) return false;
+
+          return (
+            dataAg.getDate() === d.getDate() &&
+            dataAg.getMonth() === d.getMonth() &&
+            dataAg.getFullYear() === d.getFullYear()
+          );
+        })
         .reduce((acc, a) => acc + Number(a.servicoPreco || 0), 0);
 
       valores.push(total);
@@ -574,9 +745,6 @@ const [saindo, setSaindo] = useState(false);
       const d = new Date();
       d.setMonth(hoje.getMonth() - i);
 
-      const mes = d.getMonth();
-      const ano = d.getFullYear();
-
       labels.push(
         d.toLocaleDateString('pt-BR', {
           month: 'short',
@@ -585,15 +753,12 @@ const [saindo, setSaindo] = useState(false);
 
       const total = agendamentosValidos
         .filter(a => {
-          const dataAg = formatDate(a.data);
+          const dataAg = parseDataBR(a.data);
           if (!dataAg) return false;
 
-          const [dia, mesAg, anoAg] = dataAg.split('/').map(Number);
-          const dAg = new Date(anoAg, mesAg - 1, dia);
-
           return (
-            dAg.getMonth() === mes &&
-            dAg.getFullYear() === ano
+            dataAg.getMonth() === d.getMonth() &&
+            dataAg.getFullYear() === d.getFullYear()
           );
         })
         .reduce((acc, a) => acc + Number(a.servicoPreco || 0), 0);
@@ -610,12 +775,10 @@ const [saindo, setSaindo] = useState(false);
 
       const total = agendamentosValidos
         .filter(a => {
-          const dataAg = formatDate(a.data);
+          const dataAg = parseDataBR(a.data);
           if (!dataAg) return false;
 
-          const [, , anoAg] = dataAg.split('/').map(Number);
-
-          return anoAg === ano;
+          return dataAg.getFullYear() === ano;
         })
         .reduce((acc, a) => acc + Number(a.servicoPreco || 0), 0);
 
@@ -625,17 +788,25 @@ const [saindo, setSaindo] = useState(false);
 
   return {
     labels,
-    datasets: [{ data: valores }],
+    datasets: [
+      {
+        data: valores.length ? valores : [0],
+      },
+    ],
+    total: valores.reduce((acc, valor) => acc + valor, 0),
   };
 }, [agends, periodoGrafico]);
 
   const safeChartData = useMemo(() => {
-  if (!chartData?.datasets?.length) {
+  const dados = chartData?.datasets?.[0]?.data || [];
+
+  if (!dados.length) {
     return {
       labels: ['-'],
       datasets: [{ data: [0] }],
     };
   }
+
   return chartData;
 }, [chartData]);
 
@@ -848,6 +1019,26 @@ const temSelo =
            <Text style={{ color: badge.cor, fontSize: 18, fontWeight: 'bold' }}>→</Text>
 </TouchableOpacity>
 
+{isBloqueado ? (
+  <View style={s.dashBloqueadoCard}>
+    <Text style={s.dashBloqueadoTitulo}>Painel bloqueado</Text>
+    <Text style={s.dashBloqueadoTexto}>
+      {trialExpirado
+        ? 'Seu periodo de teste terminou. Ative um plano para liberar o painel.'
+        : planoPagoExpirado
+        ? 'Sua assinatura expirou. Renove o plano para liberar o painel.'
+        : 'Ative seu periodo de teste ou plano para liberar o painel.'}
+    </Text>
+    <TouchableOpacity
+      style={s.dashBloqueadoBtn}
+      activeOpacity={0.86}
+      onPress={() => navigation.navigate('Assinatura')}
+    >
+      <Text style={s.dashBloqueadoBtnText}>Ver planos</Text>
+    </TouchableOpacity>
+  </View>
+) : (
+  <>
 {/* BOTÃO SELO VERIFICADO */}
 {temEstabelecimento && (
   <TouchableOpacity
@@ -982,7 +1173,7 @@ const temSelo =
     </View>
 
     <Text style={s.chartTotal}>
-      R$ {receitaTotal.toLocaleString('pt-BR')}
+      R$ {chartData.total.toLocaleString('pt-BR')}
     </Text>
   </View>
 
@@ -1012,18 +1203,18 @@ const temSelo =
     ))}
   </View>
 
-  <LineChart
+  <BarChart
     data={safeChartData}
     width={width - 40}
-    height={210}
+    height={230}
     yAxisLabel="R$"
+    yAxisSuffix=""
     chartConfig={chartConfig}
-    bezier
     fromZero
-    withInnerLines={false}
-    withOuterLines={false}
-    withDots
-    withShadow
+    showBarTops={false}
+    showValuesOnTopOfBars
+    withInnerLines
+    segments={4}
     style={s.chartStyle}
   />
 </View>
@@ -1110,6 +1301,8 @@ const temSelo =
 
   <Text style={s.contaBancariaArrow}>→</Text>
 </TouchableOpacity>
+  </>
+)}
 
 {/* CARD SUPORTE */}
 <View style={s.suporteCard}>
@@ -1159,7 +1352,12 @@ const temSelo =
           ListHeaderComponent={<Text style={s.secTitulo}>Gerenciar Postagens</Text>}
           renderItem={({ item }) => (
             <View style={s.storyManageCard}>
-              <Image source={{ uri: item.url }} style={s.storyMiniatura} />
+              <TouchableOpacity
+                style={s.storyPreviewAction}
+                activeOpacity={0.86}
+                onPress={() => abrirStoryAdmin(item.id)}
+              >
+              <Image source={{ uri: item.url || item.imagem }} style={s.storyMiniatura} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={s.storyInfoText}>
   {item?.timestamp?.seconds
@@ -1167,7 +1365,9 @@ const temSelo =
     : 'Sem data'}
 </Text>
                 <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas  •  👁️ {item.views || 0} views</Text>
+                <Text style={s.storyInfoHint}>Toque para ver o story</Text>
               </View>
+              </TouchableOpacity>
               <TouchableOpacity style={s.btnLixo} onPress={() => deletarStory(item.id)}>
                 <Text style={{ fontSize: 18 }}>🗑️</Text>
               </TouchableOpacity>
@@ -1178,21 +1378,32 @@ const temSelo =
       )}
 
       {/* ─── ABA AGENDAMENTOS ─── */}
-      {aba === 'agends' && (
-        <FlatList
-          data={agends}
-          keyExtractor={a => a.id}
-          contentContainerStyle={s.lista}
-          ListHeaderComponent={
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
-              <Text style={[s.secTitulo, { marginBottom: 0 }]}>Gerenciar Agendamentos</Text>
-              <TouchableOpacity style={s.btnPdf} onPress={compartilharRelatorio}>
-                <Text style={s.btnPdfText}>📄 PDF</Text>
-              </TouchableOpacity>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <View style={s.agendCard}>
+    {aba === 'agends' && (
+  <FlatList
+    data={agendamentosVisiveis}
+    keyExtractor={a => a.id}
+    contentContainerStyle={s.lista}
+    ListHeaderComponent={
+      <View style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 15
+      }}>
+        <Text style={[s.secTitulo, { marginBottom: 0 }]}>
+          Gerenciar Agendamentos
+        </Text>
+
+        <TouchableOpacity
+          style={s.btnPdf}
+          onPress={compartilharRelatorio}
+        >
+          <Text style={s.btnPdfText}>📄 PDF</Text>
+        </TouchableOpacity>
+      </View>
+    }
+    renderItem={({ item }) => (
+      <View style={s.agendCard}>
               <View style={s.agendTop}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.agendNome}>{item.clienteNome}</Text>
@@ -1387,6 +1598,11 @@ const chartConfig = {
   propsForBackgroundLines: {
     stroke: 'rgba(255,255,255,0.06)',
   },
+
+  formatTopBarValue: (valor: number) =>
+    Number(valor || 0).toLocaleString('pt-BR'),
+
+  barPercentage: 0.65,
 };
 
 const s = StyleSheet.create({
@@ -1537,6 +1753,11 @@ seloVerificacaoArrow: {
   planoBadgeText: { color: '#FFF', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   planoCardTitulo: { color: '#1A1A1A', fontSize: 13, fontWeight: '700' },
   planoCardSub: { color: '#888', fontSize: 11, marginTop: 2, maxWidth: 180 },
+  dashBloqueadoCard: { backgroundColor: '#FFF', borderRadius: 18, borderWidth: 1, borderColor: '#FFE0E0', padding: 18, marginBottom: 16 },
+  dashBloqueadoTitulo: { color: '#1A1A1A', fontSize: 16, fontWeight: '800' },
+  dashBloqueadoTexto: { color: '#777', fontSize: 13, lineHeight: 19, marginTop: 6 },
+  dashBloqueadoBtn: { alignSelf: 'flex-start', backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 11, marginTop: 14 },
+  dashBloqueadoBtnText: { color: GOLD, fontSize: 13, fontWeight: '800' },
   upgradePill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
   upgradePillText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
   seloCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16, elevation: 2, borderLeftWidth: 4 },
@@ -1583,9 +1804,11 @@ financeiroCardDash: {
   statL: { color: '#AAA', fontSize: 9, fontWeight: '600' },
   secTitulo: { color: '#1A1A1A', fontSize: 18, fontWeight: '800', marginBottom: 15 },
   storyManageCard: { backgroundColor: '#FFF', borderRadius: 18, padding: 12, flexDirection: 'row', alignItems: 'center', marginBottom: 10, elevation: 1 },
+  storyPreviewAction: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   storyMiniatura: { width: 50, height: 70, borderRadius: 10, backgroundColor: '#EEE' },
   storyInfoText: { color: '#1A1A1A', fontSize: 14, fontWeight: '700' },
   storyInfoSub: { color: GOLD, fontSize: 12, fontWeight: '600', marginTop: 4 },
+  storyInfoHint: { color: '#666', fontSize: 11, fontWeight: '600', marginTop: 4 },
   btnLixo: { backgroundColor: '#FFF0F0', width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   emptyText: { textAlign: 'center', color: '#AAA', marginTop: 30, fontSize: 14 },
   agendCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 16, marginBottom: 12 },

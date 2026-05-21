@@ -1,6 +1,11 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import {
+  onCall,
+  onRequest,
+  HttpsError,
+  Request,
+} from 'firebase-functions/v2/https';
 
-import { db } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 import { REGION } from '../config/region';
 
 type Plano = 'free' | 'trial' | 'essencial' | 'pro' | 'elite';
@@ -63,8 +68,35 @@ function getLimites(plano: Plano) {
   }
 }
 
+function getBearerToken(req: Request) {
+  const authorization = req.get('authorization') || '';
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+
+  return match?.[1] || '';
+}
+
+function getHttpsStatus(code: string) {
+  switch (code) {
+    case 'invalid-argument':
+      return 400;
+    case 'unauthenticated':
+      return 401;
+    case 'permission-denied':
+      return 403;
+    case 'not-found':
+      return 404;
+    case 'failed-precondition':
+      return 412;
+    default:
+      return 500;
+  }
+}
+
 export const validarPostagemStory = onCall(
-  { region: REGION },
+  {
+    region: REGION,
+    invoker: 'public',
+  },
 
   async (req) => {
     if (!req.auth) {
@@ -147,5 +179,56 @@ export const validarPostagemStory = onCall(
       plano,
       limites,
     };
+  }
+);
+
+export const validarPostagemStoryHttp = onRequest(
+  {
+    cors: true,
+    invoker: 'public',
+    region: REGION,
+  },
+
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({
+        code: 'invalid-argument',
+        message: 'Use POST',
+      });
+      return;
+    }
+
+    try {
+      const token = getBearerToken(req);
+
+      if (!token) {
+        throw new HttpsError('unauthenticated', 'Faca login');
+      }
+
+      const decodedToken = await auth.verifyIdToken(token);
+      const result = await validarPostagemStory.run({
+        auth: {
+          uid: decodedToken.uid,
+          token: decodedToken,
+        },
+        data: req.body,
+        rawRequest: req,
+      } as any);
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      const code =
+        error instanceof HttpsError
+          ? error.code
+          : 'unauthenticated';
+
+      res.status(getHttpsStatus(code)).json({
+        code,
+        message:
+          error instanceof HttpsError
+            ? error.message
+            : 'Token invalido. Faca login novamente.',
+      });
+    }
   }
 );

@@ -309,6 +309,14 @@ case 'IMPULSIONAMENTO_ATIVO':
     bg: '#FFF3E0',
   };
 
+case 'IMPULSIONAMENTO_VENCENDO':
+  return {
+    emoji: '!',
+    cor: '#F57C00',
+    label: 'Destaque',
+    bg: '#FFF3E0',
+  };
+
       default:
         return {
           emoji: '📋',
@@ -495,7 +503,10 @@ case 'IMPULSIONAMENTO_ATIVO':
                   return;
                 }
 
-                if (item.type === 'IMPULSIONAMENTO_ATIVO') {
+                if (
+                  item.type === 'IMPULSIONAMENTO_ATIVO' ||
+                  item.type === 'IMPULSIONAMENTO_VENCENDO'
+                ) {
                   navigation.navigate('ImpulsionarScreen', {
                     estabelecimentoId: item.estabelecimentoId,
                   });

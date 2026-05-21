@@ -43,14 +43,14 @@ export function validarAssinaturaMercadoPago(
       return false;
     }
 
-    const timestamp = Number(ts);
-    if (!Number.isFinite(timestamp)) {
+    const timestampMs = Number(ts);
+    if (!Number.isFinite(timestampMs)) {
       return false;
     }
 
     // ⏱️ TIME WINDOW
-    const now = Math.floor(Date.now() / 1000);
-    if (Math.abs(now - timestamp) > tolerance) {
+    const now = Date.now();
+    if (Math.abs(now - timestampMs) > tolerance * 1000) {
       return false;
     }
 

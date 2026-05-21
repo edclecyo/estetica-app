@@ -1,8 +1,8 @@
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
-import functions from '@react-native-firebase/functions';
-import app from '@react-native-firebase/app';
+import { getFunctions } from '@react-native-firebase/functions';
+import { getApp } from '@react-native-firebase/app';
 
-const fn = functions(app(), 'southamerica-east1');
+const fn = getFunctions(getApp(), 'southamerica-east1');
 
 export { auth, firestore, fn };

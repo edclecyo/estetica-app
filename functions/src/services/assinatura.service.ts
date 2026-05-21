@@ -310,6 +310,9 @@ export const concluirAgendamento = onCall({ region: REGION }, async (req) => {
       const ag = snap.data();
 
       if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
+      if (!ag || ag.adminId !== req.auth.uid) {
+        throw new HttpsError('permission-denied', 'Sem permissao');
+      }
       if (ag.status === 'concluido') return { ok: true };
 
       const estRef = db.collection('estabelecimentos').doc(ag.estabelecimentoId);
@@ -352,6 +355,9 @@ export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
       const ag = snap.data();
 
       if (!snap.exists) throw new HttpsError('not-found', 'Não existe');
+    if (!ag || ag.adminId !== req.auth.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissao');
+    }
     if (!['pendente', 'confirmado'].includes(ag.status)) {
   throw new HttpsError(
     'failed-precondition',

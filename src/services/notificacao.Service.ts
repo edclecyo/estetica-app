@@ -1,6 +1,6 @@
 import auth from '@react-native-firebase/auth';
 import messaging from '@react-native-firebase/messaging';
-import firestore, { FieldValue } from '@react-native-firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 
 // 🔥 CRIAR CANAL (ANDROID)
@@ -45,7 +45,7 @@ export async function registrarTokenPush(uid: string, tipo: 'cliente' | 'admin')
     await firestore().collection(colecao).doc(uid).set(
       {
         fcmToken: token,
-        tokenAtualizadoEm: FieldValue.serverTimestamp(),
+        tokenAtualizadoEm: firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );

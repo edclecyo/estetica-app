@@ -96,7 +96,7 @@ export default function IADemoScreen({ navigation }: any) {
         </Text>
 
        <Text style={s.priceSub}>
-  Gere até 100 prévias IA mensais para seus clientes
+  Gere até 2 prévias IA mensais para seus clientes
 </Text>
       </View>
 

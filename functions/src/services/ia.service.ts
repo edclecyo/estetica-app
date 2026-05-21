@@ -88,6 +88,15 @@ export const gerarSimulacaoIA = onCall(
       );
     }
 
+    if (!['cabelo', 'maquiagem', 'sobrancelha'].includes(
+      String(categoria)
+    )) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Categoria de Previa IA invalida.'
+      );
+    }
+
     if (!String(imagemUrl).includes('firebasestorage.googleapis.com')) {
       throw new HttpsError(
         'permission-denied',
@@ -128,10 +137,15 @@ export const gerarSimulacaoIA = onCall(
     }
 
     const est = estSnap.data() as any;
+    const agora = new Date();
+    const assinaturaExpira = est.expiraEm?.toDate?.() || null;
+    const assinaturaValida =
+      est.assinaturaAtiva === true &&
+      (!assinaturaExpira || assinaturaExpira > agora);
 
     if (
       est.plano !== 'elite' ||
-      est.assinaturaAtiva !== true ||
+      !assinaturaValida ||
       est.iaSimulacaoAtiva !== true
     ) {
       throw new HttpsError(
@@ -140,19 +154,27 @@ export const gerarSimulacaoIA = onCall(
       );
     }
 
-    const agora = new Date();
-
     const mesKey = `${agora.getFullYear()}-${String(
       agora.getMonth() + 1
     ).padStart(2, '0')}`;
 
-    const limite = Number(est.iaSimulacaoLimiteMensal || 100);
+    const limite = Number(est.iaSimulacaoLimiteMensal || 0);
+
+    if (limite <= 0) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Limite de Previa IA indisponivel para este estabelecimento.'
+      );
+    }
 
     const limiteRef = db
       .collection('limitesIA')
       .doc(`${estabelecimentoId}_${mesKey}`);
 
-    const limiteSnap = await limiteRef.get();
+    let totalUsado = 0;
+
+    await db.runTransaction(async t => {
+      const limiteSnap = await t.get(limiteRef);
     const totalAtual = limiteSnap.exists
       ? Number(limiteSnap.data()?.total || 0)
       : 0;
@@ -164,18 +186,40 @@ export const gerarSimulacaoIA = onCall(
       );
     }
 
+      totalUsado = totalAtual + 1;
+
+      t.set(
+        limiteRef,
+        {
+          estabelecimentoId,
+          mes: mesKey,
+          total: totalUsado,
+          limite,
+          atualizadoEm: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    });
+
     try {
       const openai = new OpenAI({
         apiKey: OPENAI_API_KEY.value(),
       });
 
-      const { buffer } = await baixarImagem(String(imagemUrl));
+      const { buffer, contentType } =
+        await baixarImagem(String(imagemUrl));
+
+      const extensaoOriginal = contentType.includes('png')
+        ? 'png'
+        : 'jpg';
 
       const resposta = await openai.images.edit({
         model: 'gpt-image-1',
-        image: await toFile(buffer, 'imagem-original.png', {
-          type: 'image/png',
-        }),
+        image: await toFile(
+          buffer,
+          `imagem-original.${extensaoOriginal}`,
+          { type: contentType }
+        ),
         prompt: gerarPromptIA(String(categoria)),
         size: '1024x1024',
         quality: 'low',
@@ -223,24 +267,24 @@ export const gerarSimulacaoIA = onCall(
         criadoEm: FieldValue.serverTimestamp(),
       });
 
+      return {
+        ok: true,
+        simulacaoId: simRef.id,
+        imagemGerada,
+        limiteMensal: limite,
+        totalUsado,
+      };
+    } catch (error: any) {
       await db.runTransaction(async t => {
         const snap = await t.get(limiteRef);
-
         const atual = snap.exists ? Number(snap.data()?.total || 0) : 0;
-
-        if (atual >= limite) {
-          throw new HttpsError(
-            'resource-exhausted',
-            `Este estabelecimento atingiu o limite mensal de ${limite} simulações IA.`
-          );
-        }
 
         t.set(
           limiteRef,
           {
             estabelecimentoId,
             mes: mesKey,
-            total: atual + 1,
+            total: Math.max(0, atual - 1),
             limite,
             atualizadoEm: FieldValue.serverTimestamp(),
           },
@@ -248,14 +292,6 @@ export const gerarSimulacaoIA = onCall(
         );
       });
 
-      return {
-        ok: true,
-        simulacaoId: simRef.id,
-        imagemGerada,
-        limiteMensal: limite,
-        totalUsado: totalAtual + 1,
-      };
-    } catch (error: any) {
       console.error('Erro gerarSimulacaoIA:', error);
 
       throw new HttpsError(

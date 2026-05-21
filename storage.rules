@@ -21,8 +21,15 @@ service firebase.storage {
       allow write: if signedIn() && isSafeMedia();
     }
 
+    match /simulacoesIA/originais/{uid}/{allPaths=**} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if signedIn()
+        && request.auth.uid == uid
+        && isSafeMedia();
+    }
+
     match /{allPaths=**} {
-      allow read: if true;
+      allow read: if !resource.name.matches('.*simulacoesIA/originais/.*');
       allow write: if false;
     }
   }

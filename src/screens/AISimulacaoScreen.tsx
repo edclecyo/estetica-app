@@ -13,6 +13,8 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
+import { getAuth } from '@react-native-firebase/auth';
+import storage from '@react-native-firebase/storage';
 
 const GOLD = '#C9A96E';
 
@@ -49,6 +51,29 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
     try {
       setLoading(true);
 
+      const user = getAuth().currentUser;
+
+      if (!user?.uid) {
+        Alert.alert('Sessao expirada', 'Faca login novamente.');
+        return;
+      }
+
+      if (!estabelecimentoId) {
+        Alert.alert('Erro', 'Estabelecimento invalido.');
+        return;
+      }
+
+      const uploadUri = imagem.startsWith('file://')
+        ? imagem.replace('file://', '')
+        : imagem;
+
+      const ref = storage().ref(
+        `simulacoesIA/originais/${user.uid}/${estabelecimentoId}_${Date.now()}.jpg`
+      );
+
+      await ref.putFile(uploadUri);
+      const imagemUrl = await ref.getDownloadURL();
+
       const fn = httpsCallable(
         getFunctions(getApp(), 'southamerica-east1'),
         'gerarSimulacaoIA'
@@ -57,7 +82,7 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
       const res: any = await fn({
         estabelecimentoId,
         categoria,
-        imagemUrl: imagem,
+        imagemUrl,
       });
 
       setResultado(res.data?.imagemGerada || imagem);

@@ -117,7 +117,9 @@ if (!titulo && !mensagem) {
       const pushData = {
         type: String(data.type || 'notification'),
         docId: String(docId),
+        tela: String(data.tela || ''),
         agendamentoId: String(data.agendamentoId || ''),
+        estabelecimentoId: String(data.estabelecimentoId || ''),
         clienteNome: String(data.clienteNome || ''),
         servicoNome: String(data.servicoNome || ''),
         formaPagamento: String(data.formaPagamento || ''),

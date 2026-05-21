@@ -41,9 +41,9 @@ export default function IADemoScreen({ navigation }: any) {
 
       <Text style={s.title}>Prévia IA para clientes</Text>
 
-      <Text style={s.sub}>
-        Mostre ao cliente uma simulação visual antes do agendamento.
-      </Text>
+     <Text style={s.sub}>
+  Gere prévias realistas com IA antes do atendimento e aumente a confiança do cliente.
+</Text>
 
       <View style={s.chips}>
         {Object.keys(demos).map(k => (
@@ -95,20 +95,20 @@ export default function IADemoScreen({ navigation }: any) {
           + R$ 19,90/mês
         </Text>
 
-        <Text style={s.priceSub}>
-          Inclui 2 simulações por cliente/mês
-        </Text>
+       <Text style={s.priceSub}>
+  Gere até 100 prévias IA mensais para seus clientes
+</Text>
       </View>
 
       <TouchableOpacity
         style={s.btn}
         onPress={() => navigation.navigate('Assinatura')}
       >
-        <Text style={s.btnText}>Adicionar Prévia IA</Text>
+       <Text style={s.btnText}>Ativar Prévia IA</Text>
       </TouchableOpacity>
 
       <Text style={s.aviso}>
-        Imagens demonstrativas. O resultado real pode variar conforme foto, técnica, pele, cabelo e avaliação profissional.
+       As prévias IA são apenas simulações visuais e não substituem avaliação profissional.
       </Text>
     </ScrollView>
   );

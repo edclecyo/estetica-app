@@ -58,13 +58,8 @@ export const avisarDestaqueVencendo = onSchedule(
         continue;
       }
 
-      const horasRestantes = Math.max(
-        1,
-        Math.ceil(
-          (destaqueExpira.getTime() - agora.getTime()) /
-            (60 * 60 * 1000)
-        )
-      );
+      const nomeEstabelecimento =
+        String(est.nome || 'Seu estabelecimento').trim();
 
       batch.set(db.collection('notificacoes').doc(), {
         tipo: 'admin',
@@ -72,14 +67,16 @@ export const avisarDestaqueVencendo = onSchedule(
         userId: est.adminId,
         clienteId: null,
 
-        titulo: 'Destaque perto de vencer',
+        titulo: 'Seu destaque esta chegando ao fim',
         mensagem:
-          `O impulsionamento de ${est.nome || 'seu estabelecimento'} ` +
-          `vence em ate ${horasRestantes}h. Renove ou escolha outro pacote.`,
+          `${nomeEstabelecimento} segue em evidencia no BeautyHub. ` +
+          'Renove seu impulsionamento para continuar aparecendo ' +
+          'com prioridade para novos clientes.',
 
         estabelecimentoId: doc.id,
-        estabelecimentoNome: est.nome || '',
+        estabelecimentoNome: nomeEstabelecimento,
         pacoteId: est.destaquePacoteId || '',
+        tela: 'impulsionar',
         type: 'IMPULSIONAMENTO_VENCENDO',
 
         lida: false,

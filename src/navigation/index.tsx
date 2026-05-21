@@ -109,7 +109,11 @@ export default function Navigation() {
           if (isAdmin) navigationRef.current.navigate('SeloVerificacaoScreen');
           break;
         case 'impulsionar':
-          if (isAdmin) navigationRef.current.navigate('ImpulsionarScreen');
+          if (isAdmin) {
+            navigationRef.current.navigate('ImpulsionarScreen', {
+              estabelecimentoId: data.estabelecimentoId,
+            });
+          }
           break;
         default:
           break;

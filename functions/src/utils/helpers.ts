@@ -57,19 +57,18 @@ export function parseDataHoraBR(data: string, horario: string): Date {
     throw new HttpsError('invalid-argument', 'Data ou horário inválido');
   }
 
-  // ✅ cria data local corretamente (Brasil)
-  const date = new Date(a, m - 1, d, h, min, 0, 0);
+  const dataBase = new Date(Date.UTC(a, m - 1, d, 0, 0, 0, 0));
 
-  // valida se data é real
   if (
-    date.getFullYear() !== a ||
-    date.getMonth() !== m - 1 ||
-    date.getDate() !== d
+    dataBase.getUTCFullYear() !== a ||
+    dataBase.getUTCMonth() !== m - 1 ||
+    dataBase.getUTCDate() !== d
   ) {
     throw new HttpsError('invalid-argument', 'Data inexistente');
   }
 
-  return date;
+  // Appointment dates are entered in Brazilian time (UTC-3).
+  return new Date(Date.UTC(a, m - 1, d, h + 3, min, 0, 0));
 }
 export function dataKey(data: string) {
   const [d, m, a] = data.split('/');

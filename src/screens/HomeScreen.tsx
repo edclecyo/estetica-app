@@ -198,34 +198,18 @@ function estaAberto(horario?: string, diasFuncionamento?: string[]): boolean {
 function VerificadosSection({
   navigation,
   usuarioLogado,
+  estabelecimentos,
 }: {
   navigation: any;
   usuarioLogado: boolean;
+  estabelecimentos: Estabelecimento[];
 }) {
-  const [verificados, setVerificados] = useState<any[]>([]);
   const scrollRef = useRef<ScrollView>(null);
   const [autoIdx, setAutoIdx] = useState(0);
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function carregarVerificados() {
-  try {
+  const verificados = useMemo(() => {
     const agora = new Date();
-
-    const snap = await firestore()
-      .collection('estabelecimentos')
-      .where('ativo', '==', true)
-      .limit(80)
-      .get();
-
-    if (!mounted) return;
-
-    const dados = snap.docs
-      .map(d => ({
-        id: d.id,
-        ...d.data(),
-      }))
+    return estabelecimentos
       .filter((e: any) => {
         const expira = e.destaqueExpira?.toDate?.();
 
@@ -255,19 +239,7 @@ function VerificadosSection({
         return 0;
       })
       .slice(0, 20);
-
-    setVerificados(dados);
-  } catch (e) {
-    console.log('Erro destaques:', e);
-  }
-}
-
-    carregarVerificados();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  }, [estabelecimentos]);
 
   useEffect(() => {
     if (verificados.length === 0) return;
@@ -1012,6 +984,7 @@ export default function HomeScreen() {
             <VerificadosSection
               navigation={navigation}
               usuarioLogado={podeInteragir}
+              estabelecimentos={estabelecimentos}
             />
           </>
         }

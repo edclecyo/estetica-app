@@ -37,6 +37,7 @@ import IADemoScreen from '../screens/IADemoScreen';
 import SuperAdminDashScreen from '../screens/SuperAdminDashScreen';
 import SuperAdminEstabsScreen from '../screens/SuperAdminEstabsScreen';
 import SuperAdminNotifScreen from '../screens/SuperAdminNotifScreen';
+import SuperAdminFinanceScreen from '../screens/SuperAdminFinanceScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -139,6 +140,7 @@ export default function Navigation() {
             <Stack.Screen name="SuperAdminDash" component={SuperAdminDashScreen} />
             <Stack.Screen name="SuperAdminEstabs" component={SuperAdminEstabsScreen} />
             <Stack.Screen name="SuperAdminNotif" component={SuperAdminNotifScreen} />
+            <Stack.Screen name="SuperAdminFinance" component={SuperAdminFinanceScreen} />
             {/* ✅ Acesso ao login caso precise trocar de conta */}
             <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
           </Stack.Group>

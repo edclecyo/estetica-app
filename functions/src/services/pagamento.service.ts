@@ -507,6 +507,8 @@ export const criarPagamentoPixAssinatura = onCall(
 
       await db.collection('pagamentos').add({
 
+        tipo: 'assinatura',
+
         estabelecimentoId,
         plano,
 
@@ -1071,6 +1073,27 @@ export const criarAssinaturaCartao = onCall(
       const aprovado =
         data.status === 'approved' ||
         data.status === 'authorized';
+
+      await db.collection('pagamentos').add({
+        tipo: 'assinatura',
+        estabelecimentoId,
+        plano,
+        valor: valorFinal,
+        clienteId: req.auth.uid,
+        clienteEmail: req.auth.token.email || email,
+        clienteNome:
+          est.nome ||
+          est.responsavelNome ||
+          'Estabelecimento',
+        status: data.status || 'pending',
+        statusDetail: data.status_detail || null,
+        metodo: 'credit_card',
+        mercadoPagoId: String(data.id),
+        criadoEm: FieldValue.serverTimestamp(),
+        ...(aprovado && {
+          aprovadoEm: FieldValue.serverTimestamp(),
+        }),
+      });
 
       // =====================================================
       // FIRESTORE

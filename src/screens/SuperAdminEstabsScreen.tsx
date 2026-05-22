@@ -12,6 +12,35 @@ import auth from '@react-native-firebase/auth';
 const GOLD = '#C9A96E';
 const DARK = '#0A0A0A';
 
+const getDataFirestore = (valor: any): Date | null => {
+  const data = valor?.toDate?.() || valor;
+
+  return data instanceof Date && !Number.isNaN(data.getTime())
+    ? data
+    : null;
+};
+
+const destaquePagoValido = (estab: any) => {
+  const expira = getDataFirestore(estab?.destaqueExpira);
+
+  return estab?.destaqueAtivo === true &&
+    !!expira &&
+    expira.getTime() > Date.now();
+};
+
+const destaquePagoVencido = (estab: any) => {
+  const expira = getDataFirestore(estab?.destaqueExpira);
+
+  return estab?.destaqueAtivo === true &&
+    !!expira &&
+    expira.getTime() <= Date.now();
+};
+
+const destaqueBasicoValido = (estab: any) =>
+  estab?.destaqueBasicoAtivo === true &&
+  estab?.plano === 'elite' &&
+  estab?.assinaturaAtiva === true;
+
 export default function SuperAdminEstabsScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -102,8 +131,8 @@ export default function SuperAdminEstabsScreen() {
 
    if (filtro === 'destaque') {
   return buscaOk && (
-    e.destaqueAtivo === true ||
-    e.destaqueBasicoAtivo === true
+    destaquePagoValido(e) ||
+    destaqueBasicoValido(e)
   );
 }
     if (filtro === 'verificar') return buscaOk && !e.verificado && e.plano !== 'elite';
@@ -438,9 +467,10 @@ export default function SuperAdminEstabsScreen() {
                       <Text style={s.verificadoBadge}>✅</Text>
                     )}
 
-                    {(item.destaqueAtivo || item.destaqueBasicoAtivo) && (
+                    {(destaquePagoValido(item) ||
+                      destaqueBasicoValido(item)) && (
   <Text style={s.verificadoBadge}>
-    {item.destaqueAtivo ? '⭐' : '👑'}
+    {destaquePagoValido(item) ? '⭐' : '👑'}
   </Text>
 )}
                   </View>
@@ -552,16 +582,18 @@ export default function SuperAdminEstabsScreen() {
                       s.statusPillText,
                       {
                         color:
-  item.destaqueAtivo || item.destaqueBasicoAtivo
+  destaquePagoValido(item) || destaqueBasicoValido(item)
     ? '#FF9800'
     : '#777',
                       },
                     ]}
                   >
-{item.destaqueAtivo
+{destaquePagoValido(item)
   ? '⭐ Pago'
-  : item.destaqueBasicoAtivo
+  : destaqueBasicoValido(item)
     ? '👑 Elite'
+    : destaquePagoVencido(item)
+      ? '⌛ Vencido'
     : '— Inativo'}
                   </Text>
                 </View>

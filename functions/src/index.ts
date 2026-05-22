@@ -22,6 +22,7 @@ export * from './services/ia.service';
 // Funções que rodam sozinhas quando algo muda no Firestore (onDocumentCreated, etc).
 export * from './triggers/notificacao.trigger';
 export * from './triggers/agendamento.trigger';
+export * from './triggers/superAdminEstabelecimento.trigger';
 
 // 3. SCHEDULES (Tarefas Agendadas)
 // Funções que rodam em horários específicos (CRON) para enviar lembretes e limpar dados.

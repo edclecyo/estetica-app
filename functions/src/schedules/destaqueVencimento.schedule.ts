@@ -37,14 +37,24 @@ export const avisarDestaqueVencendo = onSchedule(
     );
 
     let total = 0;
+    let expirados = 0;
 
     for (const doc of snap.docs) {
       const est = doc.data() as any;
       const destaqueExpira = est.destaqueExpira?.toDate?.();
 
+      if (destaqueExpira && destaqueExpira <= agora) {
+        batch.update(doc.ref, {
+          destaqueAtivo: false,
+          atualizadoEm: FieldValue.serverTimestamp(),
+        });
+
+        expirados++;
+        continue;
+      }
+
       if (
         !destaqueExpira ||
-        destaqueExpira <= agora ||
         destaqueExpira > limiteAviso ||
         !est.adminId
       ) {
@@ -98,10 +108,13 @@ export const avisarDestaqueVencendo = onSchedule(
       total++;
     }
 
-    if (total > 0) {
+    if (total > 0 || expirados > 0) {
       await batch.commit();
     }
 
-    console.log(`${total} avisos de vencimento de destaque criados`);
+    console.log(
+      `${total} avisos de vencimento de destaque criados; ` +
+      `${expirados} destaques expirados desativados`
+    );
   }
 );

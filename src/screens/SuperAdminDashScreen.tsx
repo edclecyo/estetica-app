@@ -326,6 +326,7 @@ if (!acessoLiberado) {
           <View style={s.acoesGrid}>
             {[
               { ic: '🏪', l: 'Estabelecimentos', onPress: () => navigation.navigate('SuperAdminEstabs') },
+              { ic: 'R$', l: 'Financeiro', onPress: () => navigation.navigate('SuperAdminFinance') },
               { ic: '📢', l: 'Comunicados', onPress: () => navigation.navigate('SuperAdminNotif') },
               { ic: '⭐', l: 'Destaques', onPress: () => navigation.navigate('SuperAdminEstabs', { filtro: 'destaque' }) },
               { ic: '✅', l: 'Verificações', onPress: () => navigation.navigate('SuperAdminEstabs', { filtro: 'verificar' }) },

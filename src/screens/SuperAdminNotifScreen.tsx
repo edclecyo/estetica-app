@@ -4,6 +4,7 @@ import {
   ScrollView, Alert, ActivityIndicator, StatusBar, Platform, FlatList,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
 import { useNavigation } from '@react-navigation/native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
@@ -26,7 +27,8 @@ export default function SuperAdminNotifScreen() {
   const [planoFiltro, setPlanoFiltro] = useState('pro');
   const [enviando, setEnviando] = useState(false);
   const [historico, setHistorico] = useState<any[]>([]);
-  const [aba, setAba] = useState<'novo' | 'historico'>('novo');
+  const [eventos, setEventos] = useState<any[]>([]);
+  const [aba, setAba] = useState<'novo' | 'historico' | 'eventos'>('novo');
 
   useEffect(() => {
     const unsub = firestore()
@@ -39,6 +41,50 @@ export default function SuperAdminNotifScreen() {
       );
     return unsub;
   }, []);
+
+  useEffect(() => {
+    const uid = auth().currentUser?.uid;
+
+    if (!uid) return;
+
+    const unsub = firestore()
+      .collection('notificacoes')
+      .where('adminId', '==', uid)
+      .orderBy('criadoEm', 'desc')
+      .limit(80)
+      .onSnapshot(
+        snap => {
+          const agora = new Date();
+
+          setEventos(
+            snap.docs
+              .map(d => ({ id: d.id, ...d.data() }))
+              .filter((item: any) =>
+                item.eventoSuperAdmin === true &&
+                item.apagada !== true &&
+                (!item.expiraEm?.toDate ||
+                  item.expiraEm.toDate() > agora)
+              )
+              .slice(0, 50)
+          );
+        },
+        () => {}
+      );
+
+    return unsub;
+  }, []);
+
+  const marcarEventoLido = async (evento: any) => {
+    if (evento.lida === true) return;
+
+    await firestore()
+      .collection('notificacoes')
+      .doc(evento.id)
+      .update({
+        lida: true,
+        lidaEm: firestore.FieldValue.serverTimestamp(),
+      });
+  };
 
   const enviar = async () => {
   if (!titulo.trim() || !msg.trim()) {
@@ -136,13 +182,17 @@ export default function SuperAdminNotifScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
           <Text style={s.backIcon}>←</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitulo}>📢 Comunicados</Text>
+        <Text style={s.headerTitulo}>📢 Central Super Admin</Text>
         <View style={{ width: 40 }} />
       </View>
 
       {/* ABAS */}
       <View style={s.abas}>
-        {([['novo', '✍️ Novo'], ['historico', '📋 Histórico']] as [string, string][]).map(([k, l]) => (
+        {([
+          ['novo', '✍️ Novo'],
+          ['historico', '📋 Histórico'],
+          ['eventos', `🔔 Eventos${eventos.some(e => !e.lida) ? ' •' : ''}`],
+        ] as [string, string][]).map(([k, l]) => (
           <TouchableOpacity
             key={k}
             onPress={() => setAba(k as any)}
@@ -264,7 +314,7 @@ export default function SuperAdminNotifScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
 
-      ) : (
+      ) : aba === 'historico' ? (
         <FlatList
           data={historico}
           keyExtractor={item => item.id}
@@ -300,6 +350,63 @@ export default function SuperAdminNotifScreen() {
                 </View>
               </View>
             </View>
+          )}
+        />
+      ) : (
+        <FlatList
+          data={eventos}
+          keyExtractor={item => item.id}
+          contentContainerStyle={s.scroll}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={s.vazio}>
+              <Text style={s.vazioEmoji}>🔔</Text>
+              <Text style={s.vazioTitulo}>Nenhum evento recente</Text>
+              <Text style={s.vazioSub}>
+                Ativações, planos e impulsionamentos aparecerão aqui.
+              </Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[
+                s.eventoCard,
+                item.lida !== true && s.eventoCardNaoLido,
+              ]}
+              activeOpacity={0.85}
+              onPress={() => marcarEventoLido(item)}
+            >
+              <View style={s.eventoTop}>
+                <Text style={s.eventoTitulo}>{item.titulo}</Text>
+                {item.lida !== true && (
+                  <View style={s.eventoNovoBadge}>
+                    <Text style={s.eventoNovoText}>Novo</Text>
+                  </View>
+                )}
+              </View>
+
+              <Text style={s.eventoMsg}>{item.mensagem}</Text>
+
+              <View style={s.historicoRodape}>
+                <Text style={s.historicoData}>
+                  {item.criadoEm?.toDate?.()?.toLocaleString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }) || 'Processando...'}
+                </Text>
+
+                <View style={s.destinoBadge}>
+                  <Text style={s.destinoBadgeText}>
+                    {item.plano
+                      ? String(item.plano).toUpperCase()
+                      : 'APP'}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
           )}
         />
       )}
@@ -399,6 +506,43 @@ const s = StyleSheet.create({
   },
   historicoBadgeText: { color: GOLD, fontSize: 10, fontWeight: '700' },
   historicoMsg: { color: '#666', fontSize: 12, lineHeight: 18, marginBottom: 10 },
+  eventoCard: {
+    backgroundColor: '#111',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#1A1A1A',
+  },
+  eventoCardNaoLido: {
+    borderColor: 'rgba(201,169,110,0.55)',
+  },
+  eventoTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  eventoTitulo: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '800',
+    flex: 1,
+  },
+  eventoMsg: {
+    color: '#888',
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  eventoNovoBadge: {
+    backgroundColor: GOLD,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  eventoNovoText: { color: '#000', fontSize: 10, fontWeight: '900' },
   historicoRodape: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   historicoData: { color: '#333', fontSize: 10 },
   destinoBadge: {

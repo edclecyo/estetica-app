@@ -150,6 +150,62 @@ function formatarDistancia(km: number): string {
   return `${Math.round(km * 1000)} m`;
 }
 
+function normalizarHorarioCard(valor: unknown): string {
+  const [hora, minuto] = String(valor || '').trim().split(':').map(Number);
+
+  if (
+    !Number.isInteger(hora) ||
+    !Number.isInteger(minuto) ||
+    hora < 0 ||
+    hora > 23 ||
+    minuto < 0 ||
+    minuto > 59
+  ) {
+    return '';
+  }
+
+  return `${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
+}
+
+function horarioEmMinutos(valor: string): number {
+  const horario = normalizarHorarioCard(valor);
+
+  if (!horario) return -1;
+
+  const [hora, minuto] = horario.split(':').map(Number);
+  return hora * 60 + minuto;
+}
+
+function horarioPorMinutos(total: number): string {
+  const seguro = Math.min(Math.max(total, 0), 24 * 60);
+  const hora = Math.floor(seguro / 60);
+  const minuto = seguro % 60;
+
+  return `${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
+}
+
+function getHorarioReal(estab: Partial<Estabelecimento>): string {
+  const horarios = Array.isArray(estab.horarios)
+    ? estab.horarios
+        .map(normalizarHorarioCard)
+        .filter(Boolean)
+        .sort((a, b) => horarioEmMinutos(a) - horarioEmMinutos(b))
+    : [];
+
+  if (horarios.length > 0) {
+    const inicio = horarios[0];
+    const ultimoInicio = horarioEmMinutos(horarios[horarios.length - 1]);
+    const intervalo = Number(estab.intervaloMin || 30);
+    const fim = horarioPorMinutos(
+      ultimoInicio + (intervalo > 0 ? intervalo : 30)
+    );
+
+    return `${inicio} - ${fim}`;
+  }
+
+  return String(estab.horarioFuncionamento || '').trim();
+}
+
 function estaAberto(horario?: string, diasFuncionamento?: string[]): boolean {
   if (!horario || !horario.includes('-')) return false;
 
@@ -287,7 +343,7 @@ function VerificadosSection({
             (item.img?.startsWith('http') ? item.img : null);
 
           const aberto = estaAberto(
-            item.horarioFuncionamento,
+            getHorarioReal(item),
             item.diasFuncionamento
           );
 
@@ -573,8 +629,9 @@ export default function HomeScreen() {
         return {
           ...e,
           _dist: isNaN(dist) ? 9999 : dist,
+          _horarioReal: getHorarioReal(e),
           _aberto: estaAberto(
-            (e as any).horarioFuncionamento,
+            getHorarioReal(e),
             (e as any).diasFuncionamento
           ),
         };
@@ -738,9 +795,9 @@ export default function HomeScreen() {
         : 'Fechado no momento'}
     </Text>
 
-    {item.horarioFuncionamento && (
+    {item._horarioReal && (
       <Text style={s.horarioTexto}>
-        {' '}• {item.horarioFuncionamento}
+        {' '}• {item._horarioReal}
       </Text>
     )}
   </View>

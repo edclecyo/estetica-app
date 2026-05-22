@@ -448,7 +448,7 @@ const s = StyleSheet.create({
     borderColor: '#1A1A1A',
     gap: 8,
   },
-  acaoIc: { fontSize: 28 },
+  acaoIc: { color: GOLD, fontSize: 28, fontWeight: '900' },
   acaoLabel: { color: '#AAA', fontSize: 13, fontWeight: '600' },
 
   estabRow: {

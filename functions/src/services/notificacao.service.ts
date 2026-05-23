@@ -69,27 +69,23 @@ export async function enviarPush(
     let totalSuccess = 0;
 
     for (const chunk of chunks) {
-      const message: admin.messaging.MulticastMessage = {
-        tokens: chunk,
-
-        notification: {
-          title,
-          body,
-        },
-
-        data: data
+      const payloadData = {
+        ...(data
           ? Object.fromEntries(
               Object.entries(data).map(([k, v]) => [k, String(v)])
             )
-          : {},
+          : {}),
+        title: String(title || ''),
+        body: String(body || ''),
+      };
+
+      const message: admin.messaging.MulticastMessage = {
+        tokens: chunk,
+
+        data: payloadData,
 
         android: {
           priority: 'high',
-          notification: {
-            sound: 'default',
-            channelId: 'default_channel',
-            visibility: 'public',
-          },
         },
 
         apns: {

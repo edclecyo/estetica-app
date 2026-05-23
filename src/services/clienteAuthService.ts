@@ -1,80 +1,73 @@
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { registrarTokenPush } from './notificacao.service';
-
-GoogleSignin.configure({
-  webClientId: '1043439367326-jp6d5smhkvjtnpnusj59g7c7hv33v2o7.apps.googleusercontent.com',
-});
+import { entrarComGoogle, sairGoogle } from './googleAuthService';
 
 export async function loginClienteEmail(email: string, senha: string) {
   const { user } = await auth().signInWithEmailAndPassword(email, senha);
-  await registrarTokenPush(user.uid, 'cliente'); // ✅ era credential.user.uid (e estava após o return)
+  await registrarTokenPush(user.uid, 'cliente');
   return user;
 }
 
-export async function cadastrarClienteEmail(nome: string, email: string, senha: string) {
+export async function cadastrarClienteEmail(
+  nome: string,
+  email: string,
+  senha: string
+) {
+  const { user } = await auth().createUserWithEmailAndPassword(email, senha);
+  await registrarTokenPush(user.uid, 'cliente');
+
+  await user.updateProfile({ displayName: nome });
+
   try {
-    const { user } = await auth().createUserWithEmailAndPassword(email, senha);
-    await registrarTokenPush(user.uid, 'cliente'); // ✅ era credential.user.uid
-
-    await user.updateProfile({ displayName: nome });
-
-    try {
-      await firestore().collection('clientes').doc(user.uid).set({
-        nome,
-        email,
-        criadoEm: firestore.FieldValue.serverTimestamp(),
-      });
-    } catch (firestoreError) {
-      console.log('Firestore erro (não crítico):', firestoreError);
-    }
-
-    return user;
-  } catch (e) {
-    throw e;
+    await firestore().collection('clientes').doc(user.uid).set({
+      nome,
+      email,
+      criadoEm: firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (firestoreError) {
+    console.log('Firestore erro cliente:', firestoreError);
   }
+
+  return user;
 }
 
 export async function loginClienteGoogle() {
   try {
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    await GoogleSignin.signOut();
+    const user = await entrarComGoogle();
+    const adminSnap = await firestore().collection('admins').doc(user.uid).get();
 
-    const signInResult = await GoogleSignin.signIn();
-    const idToken = signInResult.data?.idToken;
-    if (!idToken) throw new Error('Token não encontrado.');
+    if (adminSnap.exists && adminSnap.data()?.ativo) {
+      await auth().signOut();
+      await sairGoogle();
+      throw new Error('admin-account');
+    }
 
-    const googleCredential = auth.GoogleAuthProvider.credential(idToken); // ✅ renomeado para evitar conflito
-    const { user } = await auth().signInWithCredential(googleCredential);
-
-    await registrarTokenPush(user.uid, 'cliente'); // ✅ movido para após ter o user
+    await registrarTokenPush(user.uid, 'cliente');
 
     try {
       const doc = await firestore().collection('clientes').doc(user.uid).get();
       if (!doc.exists) {
-        await firestore().collection('clientes').doc(user.uid).set({
-          nome: user.displayName || '',
-          email: user.email || '',
-          foto: user.photoURL || '',
-          criadoEm: firestore.FieldValue.serverTimestamp(),
-        });
+        await firestore().collection('clientes').doc(user.uid).set(
+          {
+            nome: user.displayName || '',
+            email: user.email || '',
+            foto: user.photoURL || '',
+            criadoEm: firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
       }
     } catch (firestoreError) {
-      console.log('Firestore erro (não crítico):', firestoreError);
+      console.log('Firestore erro cliente Google:', firestoreError);
     }
 
     return user;
   } catch (e: any) {
-    console.log('Google erro completo:', JSON.stringify(e));
+    console.log('Google erro completo:', e);
     throw e;
   }
 }
-
-
-
-
-
 
 export async function logoutCliente() {
   try {
@@ -83,9 +76,8 @@ export async function logoutCliente() {
   } catch (e) {
     console.log('Logout erro:', e);
   }
-  try {
-    await GoogleSignin.signOut();
-  } catch {}
+
+  await sairGoogle();
 }
 
 export async function getClienteAtual() {

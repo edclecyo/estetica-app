@@ -28,6 +28,13 @@ export async function cadastrarAdmin(dados: {
 
 export async function loginAdmin(email: string, senha: string) {
   const { user } = await auth().signInWithEmailAndPassword(email, senha);
+  const adminSnap = await firestore().collection('admins').doc(user.uid).get();
+
+  if (!adminSnap.exists || !adminSnap.data()?.ativo) {
+    await auth().signOut();
+    throw new Error('admin-access-denied');
+  }
+
   await registrarTokenPush(user.uid, 'admin');
 }
 

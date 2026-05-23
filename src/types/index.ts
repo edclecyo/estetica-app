@@ -157,6 +157,10 @@ export type RootStackParamList = {
   AdminLogin: undefined;
   AdminDash: undefined;
   AdminEstab: { estabelecimentoId: string };
+  SimulacaoDivulgacaoScreen: {
+    estabelecimentoId?: string;
+    estabelecimentoNome?: string;
+  };
   Avaliar: {
     agendamentoId: string;
     estabelecimentoNome: string;

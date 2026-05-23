@@ -7,7 +7,9 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { loginAdmin, recuperarSenha } from '../services/authService';
+import { entrarComGoogle, sairGoogle } from '../services/googleAuthService';
 
 type Tela = 'login' | 'cadastro' | 'recuperar';
 
@@ -29,18 +31,18 @@ export default function AdminLoginScreen() {
   const forcaSenha = (s: string) => {
     if (s.length === 0) return { label: '', color: 'transparent', nivel: 0 };
     if (s.length < 4) return { label: 'Fraca', color: '#FF5252', nivel: 1 };
-    if (s.length < 6) return { label: 'Razoável', color: '#FF9800', nivel: 2 };
+    if (s.length < 6) return { label: 'Razoavel', color: '#FF9800', nivel: 2 };
     if (s.length < 10) return { label: 'Boa', color: '#C9A96E', nivel: 3 };
     return { label: 'Forte', color: '#4CAF50', nivel: 4 };
   };
 
   const fazerLogin = async () => {
-  if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
+  if (!email || !senha) { Alert.alert('Atencao', 'Preencha email e senha.'); return; }
   try {
     setLoading(true);
    
-    // ✅ AuthContext vai redirecionar automaticamente
-    // Timeout de segurança — se não redirecionar em 5s, para o loading
+    // AuthContext redireciona automaticamente para o painel.
+
    await loginAdmin(email, senha);
   } catch (e: any) {
     setLoading(false);
@@ -48,24 +50,67 @@ export default function AdminLoginScreen() {
   }
 };
 
+  const fazerGoogleAdmin = async () => {
+    try {
+      setLoading(true);
+
+      const user = await entrarComGoogle();
+      const snap = await firestore().collection('admins').doc(user.uid).get();
+
+      if (snap.exists && snap.data()?.ativo) {
+        return;
+      }
+
+      if (snap.exists && !snap.data()?.ativo) {
+        await auth().signOut();
+        await sairGoogle();
+        Alert.alert('Acesso negado', 'Esta conta profissional esta desativada.');
+        return;
+      }
+
+      await firestore().collection('admins').doc(user.uid).set({
+        uid: user.uid,
+        nome: user.displayName || user.email?.split('@')[0] || 'Profissional',
+        email: user.email || '',
+        telefone: '',
+        cargo: 'Admin',
+        ativo: true,
+        criadoEm: firestore.FieldValue.serverTimestamp(),
+      });
+
+      await auth().signOut();
+      await sairGoogle();
+
+      Alert.alert(
+        'Conta criada!',
+        'Sua conta profissional Google foi criada. Toque em Entrar com Google novamente para acessar o painel.'
+      );
+    } catch (e) {
+      console.log('Erro Google admin:', e);
+      Alert.alert('Erro', 'Nao foi possivel entrar ou criar conta com Google.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fazerCadastro = async () => {
   if (!cNome.trim() || !cEmail.trim() || !cSenha) {
-    Alert.alert('Atenção', 'Preencha todos os campos.');
+    Alert.alert('Atencao', 'Preencha todos os campos.');
     return;
   }
 
   if (!cEmail.includes('@')) {
-    Alert.alert('Atenção', 'Email inválido.');
+    Alert.alert('Atencao', 'Email invalido.');
     return;
   }
 
   if (cSenha.length < 6) {
-    Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.');
+    Alert.alert('Atencao', 'Senha deve ter pelo menos 6 caracteres.');
     return;
   }
 
   if (cSenha !== cConfirm) {
-    Alert.alert('Atenção', 'As senhas não coincidem.');
+    Alert.alert('Atencao', 'As senhas nao coincidem.');
     return;
   }
 
@@ -74,7 +119,7 @@ export default function AdminLoginScreen() {
     const { user } = await auth().createUserWithEmailAndPassword(cEmail, cSenha);
     await user.updateProfile({ displayName: cNome });
 
-    // ✅ Aguarda o Firestore salvar antes de continuar
+    // Aguarda o Firestore salvar antes de continuar.
     await firestore().collection('admins').doc(user.uid).set({
 		uid: user.uid,
       nome: cNome,
@@ -85,16 +130,16 @@ export default function AdminLoginScreen() {
       criadoEm: firestore.FieldValue.serverTimestamp(),
     });
 
-    // ✅ Faz logout imediatamente após criar
+    // Faz logout imediatamente apos criar.
     // Isso evita o onAuthStateChanged pegar o user antes do doc existir
     await auth().signOut();
 
-    Alert.alert('Conta criada! 🎉', 'Agora faça login com suas credenciais.', [
+    Alert.alert('Conta criada!', 'Agora faca login com suas credenciais.', [
       {
         text: 'Fazer Login',
         onPress: () => {
           setTela('login');
-          setEmail(cEmail); // ✅ Preenche o email automaticamente
+          setEmail(cEmail);
           setSenha('');
           setCNome('');
           setCEmail('');
@@ -106,7 +151,7 @@ export default function AdminLoginScreen() {
     ]);
   } catch (e: any) {
     const msg = e.code === 'auth/email-already-in-use'
-      ? 'Este email já está cadastrado.'
+      ? 'Este email ja esta cadastrado.'
       : 'Erro ao criar conta. Tente novamente.';
     Alert.alert('Erro', msg);
   } finally {
@@ -115,14 +160,14 @@ export default function AdminLoginScreen() {
 };
 
   const fazerRecuperar = async () => {
-    if (!rEmail) { Alert.alert('Atenção', 'Informe seu email.'); return; }
+    if (!rEmail) { Alert.alert('Atencao', 'Informe seu email.'); return; }
     try {
       setLoading(true);
       await recuperarSenha(rEmail);
-      Alert.alert('Email enviado! 📬', 'Verifique sua caixa de entrada.');
+      Alert.alert('Email enviado!', 'Verifique sua caixa de entrada.');
       setTela('login');
     } catch {
-      Alert.alert('Erro', 'Email não encontrado.');
+      Alert.alert('Erro', 'Email nao encontrado.');
     } finally {
       setLoading(false);
     }
@@ -140,7 +185,7 @@ export default function AdminLoginScreen() {
         {/* Topo Premium */}
         <View style={s.topo}>
           <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
-            <Text style={s.voltarBtnText}>←</Text>
+            <Icon name="chevron-left" size={30} color="#C9A96E" />
           </TouchableOpacity>
           
           <View style={s.logoContainer}>
@@ -186,14 +231,14 @@ export default function AdminLoginScreen() {
                 <View style={s.passwordWrap}>
                   <TextInput
                     style={[s.input, { flex: 1, borderWidth: 0 }]}
-                    placeholder="••••••••"
+                    placeholder="********"
                     placeholderTextColor="#555"
                     value={senha}
                     onChangeText={setSenha}
                     secureTextEntry={!mostrarSenha}
                   />
                   <TouchableOpacity onPress={() => setMostrarSenha(!mostrarSenha)} style={s.olho}>
-                    <Text>{mostrarSenha ? '🙈' : '👁️'}</Text>
+                    <Icon name={mostrarSenha ? 'eye-off-outline' : 'eye-outline'} size={22} color="#C9A96E" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -203,7 +248,24 @@ export default function AdminLoginScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity style={s.btnPrimario} onPress={fazerLogin} disabled={loading}>
-                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Acessar Painel →</Text>}
+                {loading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <>
+                    <Icon name="view-dashboard-outline" size={20} color="#000" />
+                    <Text style={s.btnPrimarioText}>Acessar Painel</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity style={s.googleBtn} onPress={fazerGoogleAdmin} disabled={loading}>
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Icon name="google" size={20} color="#FFF" />
+                    <Text style={s.googleText}>Entrar com Google</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -213,7 +275,7 @@ export default function AdminLoginScreen() {
             <View style={s.form}>
               <View style={s.inputGroup}>
                 <Text style={s.label}>NOME DO ESTABELECIMENTO / PROFISSIONAL</Text>
-                <TextInput style={s.input} placeholder="Ex: Barbearia do João" placeholderTextColor="#555" value={cNome} onChangeText={setCNome} />
+                <TextInput style={s.input} placeholder="Ex: Barbearia do Joao" placeholderTextColor="#555" value={cNome} onChangeText={setCNome} />
               </View>
 
               <View style={s.inputGroup}>
@@ -228,7 +290,7 @@ export default function AdminLoginScreen() {
 
               <View style={s.inputGroup}>
                 <Text style={s.label}>SENHA DE ACESSO</Text>
-                <TextInput style={s.input} placeholder="Mín. 6 caracteres" placeholderTextColor="#555" value={cSenha} onChangeText={setCSenha} secureTextEntry />
+                <TextInput style={s.input} placeholder="Min. 6 caracteres" placeholderTextColor="#555" value={cSenha} onChangeText={setCSenha} secureTextEntry />
                 
                 {cSenha.length > 0 && (
                   <View style={s.forcaWrap}>
@@ -248,7 +310,24 @@ export default function AdminLoginScreen() {
               </View>
 
               <TouchableOpacity style={s.btnPrimario} onPress={fazerCadastro} disabled={loading}>
-                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Criar Painel Profissional ✨</Text>}
+                {loading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <>
+                    <Icon name="store-plus-outline" size={20} color="#000" />
+                    <Text style={s.btnPrimarioText}>Criar Painel Profissional</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity style={s.googleBtn} onPress={fazerGoogleAdmin} disabled={loading}>
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Icon name="google" size={20} color="#FFF" />
+                    <Text style={s.googleText}>Criar com Google</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -257,14 +336,21 @@ export default function AdminLoginScreen() {
           {tela === 'recuperar' && (
             <View style={s.form}>
               <Text style={s.recuperarDesc}>
-                Enviaremos um e-mail com as instruções para você definir uma nova senha de acesso ao painel.
+                Enviaremos um e-mail com as instrucoes para voce definir uma nova senha de acesso ao painel.
               </Text>
               <View style={s.inputGroup}>
                 <Text style={s.label}>SEU EMAIL CADASTRADO</Text>
                 <TextInput style={s.input} placeholder="email@exemplo.com" placeholderTextColor="#555" value={rEmail} onChangeText={setREmail} keyboardType="email-address" autoCapitalize="none" />
               </View>
               <TouchableOpacity style={s.btnPrimario} onPress={fazerRecuperar} disabled={loading}>
-                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Enviar Instruções →</Text>}
+                {loading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <>
+                    <Icon name="email-arrow-right-outline" size={20} color="#000" />
+                    <Text style={s.btnPrimarioText}>Enviar Instrucoes</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -272,7 +358,7 @@ export default function AdminLoginScreen() {
           {/* Links de Troca de Tela */}
           <View style={s.linksWrap}>
             <Text style={s.linkText}>
-              {tela === 'login' ? 'Quer ser um parceiro?' : 'Já possui acesso?'} {' '}
+              {tela === 'login' ? 'Quer ser um parceiro?' : 'Ja possui acesso?'} {' '}
               <Text 
                 style={s.linkBtn} 
                 onPress={() => setTela(tela === 'login' ? 'cadastro' : 'login')}
@@ -283,7 +369,7 @@ export default function AdminLoginScreen() {
             
             {tela !== 'login' && (
                <TouchableOpacity onPress={() => setTela('login')} style={{marginTop: 15}}>
-                  <Text style={{color: '#666', fontSize: 12}}>Voltar ao início</Text>
+                  <Text style={{color: '#666', fontSize: 12}}>Voltar ao inicio</Text>
                </TouchableOpacity>
             )}
           </View>
@@ -311,11 +397,25 @@ const s = StyleSheet.create({
   input: { backgroundColor: '#111', borderRadius: 14, padding: 16, fontSize: 15, color: '#FFF', borderWidth: 1, borderColor: '#222' },
   passwordWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111', borderRadius: 14, borderWidth: 1, borderColor: '#222' },
   olho: { paddingHorizontal: 15 },
+  olhoText: { color: '#C9A96E', fontSize: 12, fontWeight: '700' },
   btnPrimario: { 
-    backgroundColor: '#C9A96E', borderRadius: 16, padding: 18, alignItems: 'center', marginTop: 10,
+    backgroundColor: '#C9A96E', borderRadius: 16, padding: 18, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, marginTop: 10,
     shadowColor: '#C9A96E', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5
   },
   btnPrimarioText: { color: '#000', fontSize: 16, fontWeight: '800' },
+  googleBtn: {
+    backgroundColor: '#111',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: '#333',
+    gap: 10,
+  },
+  googleIc: { color: '#FFF', fontSize: 17, fontWeight: '900' },
+  googleText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
   esqueceuBtn: { alignSelf: 'flex-end' },
   esqueceuText: { color: '#C9A96E', fontSize: 12, fontWeight: '600' },
   recuperarDesc: { color: '#666', fontSize: 14, lineHeight: 22, marginBottom: 10 },

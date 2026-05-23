@@ -1102,6 +1102,34 @@ const temSelo =
     <Text style={s.impulsionarArrow}>→</Text>
   </TouchableOpacity>
 )}
+{temEstabelecimento && (
+  <TouchableOpacity
+    style={s.simulacaoBtn}
+    activeOpacity={0.85}
+    onPress={() =>
+      navigation.navigate('SimulacaoDivulgacaoScreen', {
+        estabelecimentoId: principal?.id,
+        estabelecimentoNome: principal?.nome,
+      })
+    }
+  >
+    <View style={s.simulacaoIcon}>
+      <Text style={{ fontSize: 24, color: GOLD, fontWeight: '900' }}>Play</Text>
+    </View>
+
+    <View style={{ flex: 1 }}>
+      <Text style={s.simulacaoTitulo}>
+        Simular divulgacao e agendamento
+      </Text>
+
+      <Text style={s.simulacaoSub}>
+        Veja como o cliente encontra seu espaco e marca horario
+      </Text>
+    </View>
+
+    <Text style={s.simulacaoArrow}>{'>'}</Text>
+  </TouchableOpacity>
+)}
           {/* FATURAMENTO */}
           <View style={s.financeiroCardDash}>
             <Text style={s.financeiroTitulo}>RESUMO DE FATURAMENTO</Text>
@@ -1700,6 +1728,45 @@ impulsionarSub: {
 
 impulsionarArrow: {
   color: GOLD,
+  fontSize: 22,
+  fontWeight: '800',
+},
+simulacaoBtn: {
+  backgroundColor: '#101010',
+  borderRadius: 22,
+  padding: 18,
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 20,
+  borderWidth: 1,
+  borderColor: 'rgba(76,175,80,0.28)',
+},
+
+simulacaoIcon: {
+  width: 58,
+  height: 58,
+  borderRadius: 18,
+  backgroundColor: 'rgba(76,175,80,0.12)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 16,
+},
+
+simulacaoTitulo: {
+  color: '#FFF',
+  fontSize: 15,
+  fontWeight: '800',
+},
+
+simulacaoSub: {
+  color: '#AAA',
+  fontSize: 12,
+  marginTop: 4,
+  lineHeight: 18,
+},
+
+simulacaoArrow: {
+  color: '#8BE28F',
   fontSize: 22,
   fontWeight: '800',
 },

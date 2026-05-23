@@ -33,6 +33,7 @@ local.properties
 .cxx/
 *.keystore
 !debug.keystore
+android/release-signing.local.ps1
 .kotlin/
 
 # node.js

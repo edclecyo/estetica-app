@@ -32,6 +32,7 @@ import SeloPagamentoScreen from '../screens/SeloPagamentoScreen';
 import ImpulsionarScreen from '../screens/ImpulsionarScreen';
 import RelatorioFinanceiroScreen from '../screens/RelatorioFinanceiroScreen';
 import IADemoScreen from '../screens/IADemoScreen';
+import SimulacaoDivulgacaoScreen from '../screens/SimulacaoDivulgacaoScreen';
 
 // Telas Super Admin
 import SuperAdminDashScreen from '../screens/SuperAdminDashScreen';
@@ -170,6 +171,11 @@ export default function Navigation() {
 <Stack.Screen
   name="IADemoScreen"
   component={IADemoScreen}
+  options={{ headerShown: false }}
+/>
+<Stack.Screen
+  name="SimulacaoDivulgacaoScreen"
+  component={SimulacaoDivulgacaoScreen}
   options={{ headerShown: false }}
 />
           </Stack.Group>

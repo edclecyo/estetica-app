@@ -81,11 +81,17 @@ export async function removerTokenPush(uid: string, tipo: 'cliente' | 'admin') {
 export function escutarNotificacoes() {
   return messaging().onMessage(async remoteMessage => {
 
-    const titulo =
-      remoteMessage.notification?.title || 'Nova mensagem';
+    const titulo = String(
+      remoteMessage.notification?.title ||
+      remoteMessage.data?.title ||
+      'Nova mensagem'
+    );
 
-    const corpo =
-      remoteMessage.notification?.body || '';
+    const corpo = String(
+      remoteMessage.notification?.body ||
+      remoteMessage.data?.body ||
+      ''
+    );
 
     // 🔥 MOSTRA PUSH
     await notifee.displayNotification({

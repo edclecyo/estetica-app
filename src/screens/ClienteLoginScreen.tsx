@@ -5,6 +5,7 @@ import {
   StatusBar, KeyboardAvoidingView, Platform, Image
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   loginClienteEmail,
   cadastrarClienteEmail,
@@ -12,7 +13,6 @@ import {
 } from '../services/clienteAuthService';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { registrarTokenPush } from '../services/notificacao.service';
 type Tela = 'login' | 'cadastro';
 
@@ -41,28 +41,26 @@ export default function ClienteLoginScreen() {
   };
 
   const fazerLogin = async () => {
-  if (!email || !senha) { Alert.alert('Atenção', 'Preencha email e senha.'); return; }
+  if (!email || !senha) { Alert.alert('Atencao', 'Preencha email e senha.'); return; }
   try {
     setLoading(true);
 
-    // ✅ Faz login temporário para verificar
+    // Faz login temporario para verificar o tipo de conta.
     const { user } = await auth().signInWithEmailAndPassword(email, senha);
 
-    // ✅ Verifica se é admin ANTES do AuthContext reagir
+    // Verifica se e admin ANTES do AuthContext reagir.
     const snap = await firestore().collection('admins').doc(user.uid).get();
 
     if (snap.exists && snap.data()?.ativo) {
-      // ❌ É admin — faz logout imediato sem deixar o AuthContext reagir
       await auth().signOut();
       setLoading(false);
       Alert.alert(
         'Acesso Negado',
-        'Esta é uma conta de estabelecimento.\n\nUse o botão "Acesso Profissional 🔧" abaixo.'
+        'Esta e uma conta de estabelecimento.\n\nUse o botao "Acesso Profissional" abaixo.'
       );
       return;
     }
 
-    // ✅ É cliente — salva token e segue
     await registrarTokenPush(user.uid, 'cliente');
     sucessoAuth();
 
@@ -72,7 +70,7 @@ export default function ClienteLoginScreen() {
       e?.code === 'auth/wrong-password' ||
       e?.code === 'auth/invalid-credential'
         ? 'Email ou senha incorretos.'
-        : 'Não foi possível realizar o login.';
+        : 'Nao foi possivel realizar o login.';
     Alert.alert('Erro', msg);
   } finally {
     setLoading(false);
@@ -80,19 +78,19 @@ export default function ClienteLoginScreen() {
 };
 
   const fazerCadastro = async () => {
-    if (!nome || !cEmail || !cSenha) { Alert.alert('Atenção', 'Preencha todos os campos.'); return; }
-    if (cSenha.length < 6) { Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.'); return; }
-    if (cSenha !== cConfirm) { Alert.alert('Atenção', 'As senhas não coincidem.'); return; }
+    if (!nome || !cEmail || !cSenha) { Alert.alert('Atencao', 'Preencha todos os campos.'); return; }
+    if (cSenha.length < 6) { Alert.alert('Atencao', 'Senha deve ter pelo menos 6 caracteres.'); return; }
+    if (cSenha !== cConfirm) { Alert.alert('Atencao', 'As senhas nao coincidem.'); return; }
     
     try {
       setLoading(true);
       await cadastrarClienteEmail(nome, cEmail, cSenha);
       sucessoAuth();
     } catch (e: any) {
-      let msg = 'Não foi possível criar a conta.';
-      if (e?.code === 'auth/email-already-in-use') msg = 'Este email já está cadastrado.';
-      else if (e?.code === 'auth/invalid-email') msg = 'Email inválido.';
-      else if (e?.code === 'auth/weak-password') msg = 'A senha é muito fraca.';
+      let msg = 'Nao foi possivel criar a conta.';
+      if (e?.code === 'auth/email-already-in-use') msg = 'Este email ja esta cadastrado.';
+      else if (e?.code === 'auth/invalid-email') msg = 'Email invalido.';
+      else if (e?.code === 'auth/weak-password') msg = 'A senha e muito fraca.';
       else if (e?.message) msg = e.message;
       Alert.alert('Erro', msg);
     } finally {
@@ -101,56 +99,24 @@ export default function ClienteLoginScreen() {
   };
 
   const fazerLoginGoogle = async () => {
-  try {
-    setLoadingGoogle(true);
-
-    // ✅ Faz login Google
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    await GoogleSignin.signOut();
-    const signInResult = await GoogleSignin.signIn();
-    const idToken = signInResult.data?.idToken;
-    if (!idToken) throw new Error('Token não encontrado.');
-
-    const googleCredential = auth.GoogleAuthProvider.credential(idToken);
-    const { user } = await auth().signInWithCredential(googleCredential);
-
-    // ✅ Verifica se é admin antes do AuthContext reagir
-    const snap = await firestore().collection('admins').doc(user.uid).get();
-
-    if (snap.exists && snap.data()?.ativo) {
-      await auth().signOut();
-      try { await GoogleSignin.signOut(); } catch {}
-      setLoadingGoogle(false);
-      Alert.alert(
-        'Acesso Negado',
-        'Esta é uma conta de estabelecimento.\n\nUse o botão "Acesso Profissional 🔧" abaixo.'
-      );
-      return;
-    }
-
-    // ✅ É cliente — salva dados e segue
     try {
-      const doc = await firestore().collection('clientes').doc(user.uid).get();
-      if (!doc.exists) {
-        await firestore().collection('clientes').doc(user.uid).set({
-          nome: user.displayName || '',
-          email: user.email || '',
-          foto: user.photoURL || '',
-          criadoEm: firestore.FieldValue.serverTimestamp(),
-        }, { merge: true });
+      setLoadingGoogle(true);
+      await loginClienteGoogle();
+      sucessoAuth();
+    } catch (e: any) {
+      console.log('Erro Google:', e);
+      if (e?.message === 'admin-account') {
+        Alert.alert(
+          'Acesso Negado',
+          'Esta e uma conta de estabelecimento.\n\nUse o botao "Acesso Profissional" abaixo.'
+        );
+      } else {
+        Alert.alert('Erro', 'Nao foi possivel entrar com Google.');
       }
-    } catch {}
-
-    await registrarTokenPush(user.uid, 'cliente');
-    sucessoAuth();
-
-  } catch (e: any) {
-    console.log('Erro Google:', e);
-    Alert.alert('Erro', 'Não foi possível entrar com Google.');
-  } finally {
-    setLoadingGoogle(false);
-  }
-};
+    } finally {
+      setLoadingGoogle(false);
+    }
+  };
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -162,10 +128,10 @@ export default function ClienteLoginScreen() {
         {/* Topo Premium */}
         <View style={s.topo}>
           <TouchableOpacity style={s.voltarBtn} onPress={() => navigation.goBack()}>
-            <Text style={s.voltarBtnText}>←</Text>
+            <Icon name="chevron-left" size={30} color="#C9A96E" />
           </TouchableOpacity>
           
-          {/* Logo BeautyHub Substituindo o Círculo com Emoji */}
+          {/* Logo BeautyHub */}
           <View style={s.logoContainer}>
             <Image 
               source={require('../assets/logo.png')} 
@@ -175,7 +141,7 @@ export default function ClienteLoginScreen() {
           </View>
           
           <Text style={s.topoTitulo}>
-            {tela === 'login' ? 'Bem-vindo de volta' : 'Crie sua conta'}
+            {tela === 'login' ? 'Bem-vindo' : 'Crie sua conta'}
           </Text>
           <Text style={s.topoSub}>
             {tela === 'login'
@@ -219,7 +185,7 @@ export default function ClienteLoginScreen() {
                 <Text style={s.label}>SENHA</Text>
                 <TextInput
                   style={s.input}
-                  placeholder="••••••••"
+                  placeholder="********"
                   placeholderTextColor="#555"
                   value={senha}
                   onChangeText={setSenha}
@@ -228,7 +194,14 @@ export default function ClienteLoginScreen() {
               </View>
 
               <TouchableOpacity style={s.btnPrimario} onPress={fazerLogin} disabled={loading}>
-                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Entrar →</Text>}
+                {loading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <>
+                    <Icon name="login" size={20} color="#000" />
+                    <Text style={s.btnPrimarioText}>Entrar</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -264,7 +237,7 @@ export default function ClienteLoginScreen() {
                 <Text style={s.label}>SENHA</Text>
                 <TextInput
                   style={s.input}
-                  placeholder="Mín. 6 caracteres"
+                  placeholder="Min. 6 caracteres"
                   placeholderTextColor="#555"
                   value={cSenha}
                   onChangeText={setCSenha}
@@ -285,7 +258,14 @@ export default function ClienteLoginScreen() {
               </View>
 
               <TouchableOpacity style={s.btnPrimario} onPress={fazerCadastro} disabled={loading}>
-                {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPrimarioText}>Criar Conta ✨</Text>}
+                {loading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <>
+                    <Icon name="account-plus-outline" size={20} color="#000" />
+                    <Text style={s.btnPrimarioText}>Criar Conta</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -301,21 +281,22 @@ export default function ClienteLoginScreen() {
             {loadingGoogle
               ? <ActivityIndicator color="#fff" />
               : <>
-                  <Text style={s.googleIc}>G</Text>
+                  <Icon name="google" size={20} color="#FFF" />
                   <Text style={s.googleText}>Conta do Google</Text>
                 </>
             }
           </TouchableOpacity>
 
           <Text style={s.termos}>
-            Ao acessar, você concorda com nossos{'\n'}
+            Ao acessar, voce concorda com nossos{'\n'}
             <Text style={{ color: '#C9A96E' }}>Termos de Uso</Text> e <Text style={{ color: '#C9A96E' }}>Privacidade</Text>.
           </Text>
 
           <TouchableOpacity
             onPress={() => navigation.navigate('AdminLogin')}
             style={s.adminBtn}>
-            <Text style={s.adminBtnText}>Acesso Profissional 🔧</Text>
+            <Icon name="storefront-outline" size={18} color="#666" />
+            <Text style={s.adminBtnText}>Acesso Profissional</Text>
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
@@ -391,6 +372,9 @@ const s = StyleSheet.create({
     borderRadius: 16, 
     padding: 18, 
     alignItems: 'center', 
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
     marginTop: 10,
     shadowColor: '#C9A96E',
     shadowOffset: { width: 0, height: 4 },
@@ -418,6 +402,9 @@ const s = StyleSheet.create({
   termos: { color: '#444', fontSize: 12, textAlign: 'center', marginTop: 24, lineHeight: 18 },
   adminBtn: { 
     alignItems: 'center', 
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
     marginTop: 32, 
     padding: 16, 
     borderRadius: 16, 

@@ -10,6 +10,7 @@ import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { loginAdmin, recuperarSenha } from '../services/authService';
 import { entrarComGoogle, sairGoogle } from '../services/googleAuthService';
+import { registrarTokenPush } from '../services/notificacao.service';
 
 type Tela = 'login' | 'cadastro' | 'recuperar';
 
@@ -58,6 +59,7 @@ export default function AdminLoginScreen() {
       const snap = await firestore().collection('admins').doc(user.uid).get();
 
       if (snap.exists && snap.data()?.ativo) {
+        await registrarTokenPush(user.uid, 'admin');
         return;
       }
 

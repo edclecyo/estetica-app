@@ -428,8 +428,24 @@ const abrirStoryAdmin = (storyId: string) => {
       return data.toDate();
     }
 
+    if (data instanceof Date) {
+      return isNaN(data.getTime()) ? null : data;
+    }
+
+    if (typeof data?.seconds === 'number') {
+      const d = new Date(data.seconds * 1000);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
     if (typeof data === 'string') {
-      const [dia, mes, ano] = data.split('/').map(Number);
+      const texto = data.trim();
+
+      if (/^\d{4}-\d{2}-\d{2}/.test(texto)) {
+        const d = new Date(texto);
+        return isNaN(d.getTime()) ? null : d;
+      }
+
+      const [dia, mes, ano] = texto.split('/').map(Number);
 
       if (!dia || !mes || !ano) return null;
 

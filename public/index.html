@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#090909" />
-    <title>BeautyHub - Download Android</title>
+    <title>BeautyHub - Instalar App</title>
     <style>
       :root {
         color-scheme: dark;
@@ -102,6 +102,28 @@
         font-weight: 900;
       }
 
+      .download.secondary {
+        margin-top: 12px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+      }
+
+      .install-options {
+        display: grid;
+        gap: 12px;
+      }
+
+      .device-panel {
+        display: none;
+      }
+
+      body.is-android .android-panel,
+      body.is-ios .ios-panel,
+      body.is-other .other-panel {
+        display: block;
+      }
+
       .meta {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -147,6 +169,60 @@
         line-height: 1.45;
       }
 
+      .tutorial {
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+
+      .tutorial h2 {
+        margin: 0 0 12px;
+        color: var(--text);
+        font-size: 17px;
+        line-height: 1.25;
+      }
+
+      .steps {
+        display: grid;
+        gap: 10px;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 10px;
+        align-items: center;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.035);
+      }
+
+      .stepNumber {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #ffe39a, var(--gold-strong));
+        color: #161006;
+        font-weight: 900;
+      }
+
+      .step strong {
+        display: block;
+        color: var(--text);
+        font-size: 14px;
+      }
+
+      .step span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
       @media (max-width: 560px) {
         main {
           padding-top: 18px;
@@ -171,7 +247,7 @@
       <section class="wrap" aria-labelledby="title">
         <div class="hero">
           <img class="logo" src="/assets/logo.png" alt="BeautyHub" />
-          <p class="eyebrow">App Android</p>
+          <p class="eyebrow">App BeautyHub</p>
           <h1 id="title">BeautyHub</h1>
           <p class="lead">
             Baixe o aplicativo para agendar servicos de beleza, acompanhar seus horarios e receber notificacoes.
@@ -179,37 +255,116 @@
         </div>
 
         <div class="panel">
-          <a class="download" href="/downloads/BeautyHub-v1.0.2-arm64-release.apk" download>
-            Baixar BeautyHub para Android
-          </a>
+          <div class="device-panel android-panel">
+            <div class="install-options">
+            <a class="download" href="/downloads/BeautyHub-v1.0.2-arm64-release.apk" download>
+              Baixar BeautyHub para Android
+            </a>
+            </div>
 
-          <div class="meta" aria-label="Informacoes do arquivo">
-            <div class="item">
-              <span class="label">Versao</span>
-              <span class="value">1.0.2</span>
+            <div class="meta" aria-label="Informacoes do app Android">
+              <div class="item">
+                <span class="label">Sistema</span>
+                <span class="value">Android</span>
+              </div>
+              <div class="item">
+                <span class="label">Arquivo</span>
+                <span class="value">APK 1.0.2</span>
+              </div>
+              <div class="item">
+                <span class="label">Compatibilidade</span>
+                <span class="value">Android 7+ arm64</span>
+              </div>
             </div>
-            <div class="item">
-              <span class="label">Tamanho</span>
-              <span class="value">50,2 MB</span>
+
+            <p class="note">
+              Este download e apenas para Android. No iPhone, abra este mesmo link pelo Safari.
+            </p>
+          </div>
+
+          <div class="device-panel ios-panel">
+            <div class="install-options">
+              <a class="download" href="/app-iphone/" aria-label="Instalar BeautyHub no iPhone">
+                Instalar BeautyHub no iPhone
+              </a>
             </div>
-            <div class="item">
-              <span class="label">Compatibilidade</span>
-              <span class="value">Android 7+ arm64</span>
+
+            <div class="meta" aria-label="Informacoes do app para iPhone">
+              <div class="item">
+                <span class="label">Sistema</span>
+                <span class="value">iPhone</span>
+              </div>
+              <div class="item">
+                <span class="label">Formato</span>
+                <span class="value">Web App</span>
+              </div>
+              <div class="item">
+                <span class="label">Compatibilidade</span>
+                <span class="value">Safari</span>
+              </div>
+            </div>
+
+            <p class="note">
+              Esta versao e exclusiva para iPhone. Use o Safari para adicionar o BeautyHub na tela inicial.
+            </p>
+
+            <div class="tutorial" aria-label="Como instalar no iPhone">
+              <h2>Como colocar no iPhone igual app</h2>
+              <div class="steps">
+                <div class="step">
+                  <span class="stepNumber">1</span>
+                  <div>
+                    <strong>Abra pelo Safari</strong>
+                    <span>Toque em Instalar BeautyHub no iPhone e, se abrir fora do Safari, escolha abrir no Safari.</span>
+                  </div>
+                </div>
+                <div class="step">
+                  <span class="stepNumber">2</span>
+                  <div>
+                    <strong>Toque em compartilhar</strong>
+                    <span>No rodape do Safari, toque no icone de compartilhar.</span>
+                  </div>
+                </div>
+                <div class="step">
+                  <span class="stepNumber">3</span>
+                  <div>
+                    <strong>Adicionar a Tela de Inicio</strong>
+                    <span>Escolha essa opcao e confirme em Adicionar. O BeautyHub aparece como app na tela inicial.</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <ol>
-            <li>Toque em Baixar BeautyHub para Android.</li>
-            <li>Abra o arquivo baixado quando o download terminar.</li>
-            <li>Se o Android pedir permissao, libere a instalacao pelo navegador.</li>
-            <li>Depois de instalar, abra o BeautyHub normalmente.</li>
-          </ol>
+          <div class="device-panel other-panel">
+            <div class="meta" aria-label="Escolha pelo aparelho correto">
+              <div class="item">
+                <span class="label">Android</span>
+                <span class="value">Abra este link no celular Android para baixar o APK.</span>
+              </div>
+              <div class="item">
+                <span class="label">iPhone</span>
+                <span class="value">Abra este link no Safari do iPhone para instalar na tela inicial.</span>
+              </div>
+              <div class="item">
+                <span class="label">Organizacao</span>
+                <span class="value">Cada aparelho recebe apenas a opcao correta.</span>
+              </div>
+            </div>
 
-          <p class="note">
-            Este link instala o app diretamente fora da Play Store. O Android pode mostrar um aviso antes da instalacao.
-          </p>
+            <p class="note">
+              Para evitar instalacao errada, o download Android e a versao iPhone so aparecem no aparelho compativel.
+            </p>
+          </div>
         </div>
       </section>
     </main>
+    <script>
+      const ua = navigator.userAgent || '';
+      const platform = navigator.platform || '';
+      const isIOS = /iPad|iPhone|iPod/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isAndroid = /Android/i.test(ua);
+      document.body.classList.add(isIOS ? 'is-ios' : isAndroid ? 'is-android' : 'is-other');
+    </script>
   </body>
 </html>

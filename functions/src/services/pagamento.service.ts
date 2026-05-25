@@ -552,7 +552,7 @@ export const criarPagamentoPixAssinatura = onCall(
 
   paymentStatus: 'pending',
 
-  assinaturaAtiva: false,
+  paymentType: 'pix',
 
   iaSimulacaoPendente:
     plano === 'elite' && addIA === true,
@@ -917,6 +917,178 @@ export const criarPagamentoPixImpulsionamento = onCall(
   }
 );
 // =====================================================
+// 5. PIX TAXA SELO VERIFICADO
+// =====================================================
+
+export const criarPagamentoPixSelo = onCall(
+  {
+    region: REGION,
+    secrets: [MP_ACCESS_TOKEN],
+  },
+
+  async (req) => {
+    if (!req.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
+
+    const { solicitacaoId } = req.data || {};
+
+    if (!solicitacaoId) {
+      throw new HttpsError('invalid-argument', 'Solicitacao obrigatoria');
+    }
+
+    const solicitacaoRef = db
+      .collection('solicitacoesVerificacao')
+      .doc(solicitacaoId);
+
+    const solicitacaoSnap = await solicitacaoRef.get();
+
+    if (!solicitacaoSnap.exists) {
+      throw new HttpsError('not-found', 'Solicitacao nao encontrada');
+    }
+
+    const solicitacao = solicitacaoSnap.data()!;
+
+    if (solicitacao.adminId !== req.auth.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissao');
+    }
+
+    if (solicitacao.status !== 'aprovado') {
+      throw new HttpsError('failed-precondition', 'Solicitacao ainda nao aprovada');
+    }
+
+    if (solicitacao.pago === true) {
+      throw new HttpsError('failed-precondition', 'Taxa ja paga');
+    }
+
+    const estabelecimentoId = solicitacao.estabelecimentoId;
+
+    if (!estabelecimentoId) {
+      throw new HttpsError('invalid-argument', 'Estabelecimento invalido');
+    }
+
+    const estRef = db
+      .collection('estabelecimentos')
+      .doc(estabelecimentoId);
+
+    const estSnap = await estRef.get();
+
+    if (!estSnap.exists) {
+      throw new HttpsError('not-found', 'Estabelecimento nao encontrado');
+    }
+
+    const est = estSnap.data()!;
+
+    if (est.adminId !== req.auth.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissao');
+    }
+
+    const pendenteExpira =
+      solicitacao.pixExpiraEm?.toDate?.() || null;
+
+    if (
+      solicitacao.pagamentoStatus === 'pending' &&
+      solicitacao.pixQrCode &&
+      pendenteExpira instanceof Date &&
+      pendenteExpira > new Date()
+    ) {
+      return {
+        qr_code: solicitacao.pixQrCode,
+        qr_code_base64: solicitacao.pixQrCodeBase64 || null,
+      };
+    }
+
+    const accessToken = String(MP_ACCESS_TOKEN.value() || '').trim();
+
+    if (!accessToken) {
+      throw new HttpsError('internal', 'MP nao configurado');
+    }
+
+    try {
+      const response = await axiosInstance.post(
+        'https://api.mercadopago.com/v1/payments',
+        {
+          transaction_amount: 14.9,
+          payment_method_id: 'pix',
+          description: `Taxa selo verificado - ${est.nome || 'BeautyHub'}`,
+          external_reference: solicitacaoId,
+          notification_url:
+            'https://webhookmercadopago-eoqa32y7ca-rj.a.run.app',
+          payer: {
+            email:
+              req.auth.token.email ||
+              est.responsavelEmail ||
+              'cliente@app.com',
+            first_name:
+              est.responsavelNome ||
+              est.nome ||
+              'Cliente',
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'X-Idempotency-Key': `selo_${solicitacaoId}_${Date.now()}`,
+          },
+        }
+      );
+
+      const data: any = response.data;
+      const qr = data?.point_of_interaction?.transaction_data;
+      const qrBase64 = qr?.qr_code_base64 || null;
+      const qrText = qr?.qr_code || null;
+
+      if (!qrBase64 && !qrText) {
+        throw new HttpsError('internal', 'PIX invalido');
+      }
+
+      const expira = new Date();
+      expira.setMinutes(expira.getMinutes() + 30);
+
+      const pagamentoRef = await db
+        .collection('pagamentos')
+        .add({
+          tipo: 'selo',
+          solicitacaoId,
+          estabelecimentoId,
+          estabelecimentoNome:
+            est.nome || solicitacao.estabelecimentoNome || '',
+          valor: 14.9,
+          clienteId: req.auth.uid,
+          clienteEmail: req.auth.token.email || null,
+          status: 'pending',
+          metodo: 'pix',
+          mercadoPagoId: String(data.id),
+          qrCode: qrText,
+          qrCodeBase64: qrBase64,
+          criadoEm: FieldValue.serverTimestamp(),
+          expiraEm: Timestamp.fromDate(expira),
+        });
+
+      await solicitacaoRef.update({
+        pagamentoDocId: pagamentoRef.id,
+        pagamentoStatus: 'pending',
+        pixPagamentoId: String(data.id),
+        pixQrCode: qrText,
+        pixQrCodeBase64: qrBase64,
+        pixCriadoEm: FieldValue.serverTimestamp(),
+        pixExpiraEm: Timestamp.fromDate(expira),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+
+      return {
+        qr_code: qrText,
+        qr_code_base64: qrBase64,
+      };
+    } catch (error: any) {
+      console.error('ERRO PIX SELO:', error?.response?.data || error);
+
+      throw new HttpsError('internal', 'Erro ao criar PIX do selo');
+    }
+  }
+);
+
+// =====================================================
 // 3. CARTÃO ASSINATURA
 // =====================================================
 
@@ -1117,13 +1289,6 @@ export const criarAssinaturaCartao = onCall(
   statusDetail:
     data.status_detail || null,
 
-  assinaturaAtiva: aprovado,
-
-  statusPlano:
-    aprovado
-      ? 'ativo'
-      : est.statusPlano || 'trial',
-
   iaSimulacaoPendente:
     plano === 'elite' && addIA === true,
 
@@ -1135,6 +1300,16 @@ export const criarAssinaturaCartao = onCall(
   ...(aprovado && {
 
     plano,
+
+    planoAprovado: plano,
+
+    planoPendente: FieldValue.delete(),
+
+    assinaturaAtiva: true,
+
+    statusPlano: 'ativo',
+
+    paymentStatus: 'approved',
 
     iaSimulacaoAtiva:
       plano === 'elite' &&
@@ -1151,6 +1326,10 @@ export const criarAssinaturaCartao = onCall(
       addIA === true
         ? 'elite_ia_2'
         : null,
+
+    expiraEm: Timestamp.fromDate(
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    ),
   }),
 });
 

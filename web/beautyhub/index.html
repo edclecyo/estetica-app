@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#050505" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="BeautyHub" />
+    <link rel="apple-touch-icon" href="./assets/logo.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css?v=4" />
+    <title>BeautyHub Web</title>
+  </head>
+  <body>
+    <div id="app">
+      <main class="boot">
+        <img src="./assets/logo.png" alt="BeautyHub" />
+        <p>Carregando BeautyHub...</p>
+      </main>
+    </div>
+    <script type="module" src="./src/app.js?v=4"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(function () {});
+      }
+    </script>
+  </body>
+</html>

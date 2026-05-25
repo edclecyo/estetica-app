@@ -45,6 +45,7 @@ export async function registrarTokenPush(uid: string, tipo: 'cliente' | 'admin')
     await firestore().collection(colecao).doc(uid).set(
       {
         fcmToken: token,
+        fcmTokens: firestore.FieldValue.arrayUnion(token),
         tokenAtualizadoEm: firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -66,7 +67,10 @@ export async function removerTokenPush(uid: string, tipo: 'cliente' | 'admin') {
     const colecao = tipo === 'admin' ? 'admins' : 'clientes';
 
     await firestore().collection(colecao).doc(uid).set(
-      { fcmToken: null },
+      {
+        fcmToken: null,
+        tokenAtualizadoEm: firestore.FieldValue.serverTimestamp(),
+      },
       { merge: true }
     );
 

@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "android": "react-native run-android",
+    "web:rn": "vite --config web/native/vite.config.ts",
+    "web:rn:build": "vite build --config web/native/vite.config.ts",
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
@@ -66,11 +68,15 @@
     "@types/jest": "^29.5.13",
     "@types/react": "^19.1.1",
     "@types/react-test-renderer": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
     "prettier": "2.8.8",
+    "react-dom": "^19.2.3",
+    "react-native-web": "^0.21.2",
     "react-test-renderer": "19.2.3",
-    "typescript": "^5.0.4"
+    "typescript": "^5.0.4",
+    "vite": "^8.0.14"
   },
   "engines": {
     "node": ">= 22.11.0"

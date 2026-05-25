@@ -18,6 +18,7 @@ const GOLD_GRADIENT = ['#D4AF37', '#F9E29B', '#B8860B'];
 const GOLD_TXT_GRADIENT = ['#C9A96E', '#F9E29B', '#B8860B'];
 const DARK_GRADIENT = ['#1A1A1A', '#0D0D0D', '#000'];
 const GOLD = '#D4AF37';
+const IS_WEB = Platform.OS === 'web';
 
 const GradientText = (props) => (
   <MaskedView maskElement={<Text {...props} />}>
@@ -404,8 +405,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   titleBlock: { marginTop: 15 },
-  headerTitle: { fontSize: 32, fontWeight: '900', letterSpacing: 2 },
-  headerSubtitle: { fontSize: 13, fontWeight: '700', marginTop: 3 },
+  headerTitle: { fontSize: IS_WEB ? 26 : 32, fontWeight: '900', letterSpacing: IS_WEB ? 1 : 2 },
+  headerSubtitle: { fontSize: IS_WEB ? 12 : 13, fontWeight: '700', marginTop: 3 },
   backBtn: { alignSelf: 'flex-start', marginLeft: -5 },
   
 limitBox: {
@@ -436,10 +437,10 @@ limitText: {
   marginBottom: 4,
 },
   // Trial Card Reformado (ZONA DE CONVERSÃO)
-  trialWrapper: { marginHorizontal: 20, marginBottom: 30 },
+  trialWrapper: { marginHorizontal: IS_WEB ? 14 : 20, marginBottom: IS_WEB ? 18 : 30 },
   trialCard: { 
-    padding: 22, 
-    borderRadius: 20, 
+    padding: IS_WEB ? 16 : 22, 
+    borderRadius: IS_WEB ? 14 : 20, 
     flexDirection: 'row', 
     alignItems: 'center', 
     justifyContent: 'space-between',
@@ -451,16 +452,16 @@ limitText: {
   },
   trialTextCol: { flex: 1, marginRight: 15 },
   trialIconCol: { width: 50, alignItems: 'flex-end' },
-  trialTitle: { color: '#000', fontWeight: '900', fontSize: 22 },
-  trialSub: { color: 'rgba(0,0,0,0.7)', fontSize: 13, fontWeight: '700', marginTop: 2 },
+  trialTitle: { color: '#000', fontWeight: '900', fontSize: IS_WEB ? 18 : 22 },
+  trialSub: { color: 'rgba(0,0,0,0.7)', fontSize: IS_WEB ? 12 : 13, fontWeight: '700', marginTop: 2 },
 
   // Listagem de Planos
-  listContainer: { paddingHorizontal: 20 },
+  listContainer: { paddingHorizontal: IS_WEB ? 14 : 20 },
   planCard: { 
-    padding: 25, 
-    paddingTop: 30,
-    borderRadius: 25, 
-    marginBottom: 25, 
+    padding: IS_WEB ? 16 : 25, 
+    paddingTop: IS_WEB ? 24 : 30,
+    borderRadius: IS_WEB ? 14 : 25, 
+    marginBottom: IS_WEB ? 16 : 25, 
     borderWidth: 1, 
     borderColor: '#222', 
     backgroundColor: 'rgba(255, 255, 255, 0.02)', // Efeito leve de vidro
@@ -483,19 +484,19 @@ limitText: {
   popularBadgeText: { color: '#000', fontSize: 11, fontWeight: '900' },
 
   planName: { fontSize: 14, fontWeight: '900', letterSpacing: 2, marginBottom: 8 },
-  planResumo: { color: '#AAA', fontSize: 13, lineHeight: 19, marginBottom: 14 },
+  planResumo: { color: '#AAA', fontSize: IS_WEB ? 12 : 13, lineHeight: IS_WEB ? 18 : 19, marginBottom: 14 },
   priceRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 20 },
   currency: { color: '#FFF', fontSize: 18, marginTop: 12, marginRight: 5 },
-  priceVal: { color: '#FFF', fontSize: 55, fontWeight: 'bold' },
+  priceVal: { color: '#FFF', fontSize: IS_WEB ? 38 : 55, fontWeight: 'bold' },
   priceCents: { color: '#FFF', fontSize: 24, marginTop: 15 },
   pricePeriod: { color: '#888', fontSize: 12, marginTop: 26, marginLeft: 3 },
 
   featureList: { marginBottom: 35 },
-  featureItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  featureText: { color: '#EEE', marginLeft: 15, fontSize: 15, fontWeight: '500' },
+  featureItem: { flexDirection: 'row', alignItems: 'center', marginBottom: IS_WEB ? 10 : 14 },
+  featureText: { color: '#EEE', marginLeft: IS_WEB ? 10 : 15, fontSize: IS_WEB ? 13 : 15, fontWeight: '500', flex: 1, lineHeight: IS_WEB ? 18 : undefined },
 
-  mainBtn: { height: 58, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
-  mainBtnText: { color: '#000', fontWeight: 'bold', fontSize: 16, letterSpacing: 1 },
+  mainBtn: { minHeight: IS_WEB ? 50 : 58, borderRadius: IS_WEB ? 12 : 18, justifyContent: 'center', alignItems: 'center', marginTop: 10, paddingHorizontal: 10 },
+  mainBtnText: { color: '#000', fontWeight: 'bold', fontSize: IS_WEB ? 13 : 16, letterSpacing: IS_WEB ? 0 : 1, textAlign: 'center' },
   noticeCard: {
     backgroundColor: 'rgba(212,175,55,0.08)',
     borderWidth: 1,
@@ -520,9 +521,9 @@ iaAddonBox: {
   backgroundColor: 'rgba(212,175,55,0.08)',
   borderWidth: 1,
   borderColor: 'rgba(212,175,55,0.28)',
-  borderRadius: 16,
-  padding: 14,
-  marginBottom: 16,
+  borderRadius: IS_WEB ? 12 : 16,
+  padding: IS_WEB ? 12 : 14,
+  marginBottom: IS_WEB ? 12 : 16,
 },
 
 iaCheck: {

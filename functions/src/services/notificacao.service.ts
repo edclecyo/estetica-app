@@ -25,8 +25,9 @@ export async function getTokenUsuario(
     return [];
   }
 
+  const data = snap.data() || {};
   const token =
-    snap.data()?.fcmToken;
+    data.fcmTokens || data.fcmToken;
 
   if (!token) {
     return [];
@@ -98,6 +99,18 @@ export async function enviarPush(
               badge: badgeCount ?? 1,
               contentAvailable: true,
             },
+          },
+        },
+
+        webpush: {
+          notification: {
+            title: String(title || 'BeautyHub'),
+            body: String(body || ''),
+            icon: '/assets/logo.png',
+            badge: '/assets/logo.png',
+          },
+          fcmOptions: {
+            link: 'https://agenda-beleza-75106.web.app/app-iphone/',
           },
         },
       };

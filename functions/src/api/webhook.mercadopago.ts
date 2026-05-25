@@ -138,6 +138,80 @@ export const webhookMercadoPago = onRequest(
           const pagamentoRef = pagamentoSnap.docs[0].ref;
           const pagamentoData = pagamentoSnap.docs[0].data() as any;
 
+          if (pagamentoData?.tipo === 'selo') {
+            if (!isApproved) {
+              await pagamentoRef.update({
+                status,
+                atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              if (pagamentoData.solicitacaoId) {
+                await db
+                  .collection('solicitacoesVerificacao')
+                  .doc(pagamentoData.solicitacaoId)
+                  .update({
+                    pagamentoStatus: status,
+                    atualizadoEm:
+                      admin.firestore.FieldValue.serverTimestamp(),
+                  });
+              }
+
+              console.log('⚠️ SELO STATUS:', status);
+              res.sendStatus(200);
+              return;
+            }
+
+            const {
+              solicitacaoId,
+              estabelecimentoId,
+            } = pagamentoData;
+
+            if (!solicitacaoId || !estabelecimentoId) {
+              console.log('❌ SELO SEM REFERENCIAS');
+              res.sendStatus(200);
+              return;
+            }
+
+            const batch = db.batch();
+
+            batch.update(
+              db.collection('solicitacoesVerificacao').doc(solicitacaoId),
+              {
+                pago: true,
+                pagamentoStatus: 'approved',
+                pagoEm: admin.firestore.FieldValue.serverTimestamp(),
+                atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+              }
+            );
+
+            batch.update(
+              db.collection('estabelecimentos').doc(estabelecimentoId),
+              {
+                verificado: true,
+                verificadoManual: true,
+                verificadoAutomatico: false,
+                verificadoEm: admin.firestore.FieldValue.serverTimestamp(),
+                seloTaxaPaga: true,
+                solicitacaoSeloStatus: 'pago',
+                atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+              }
+            );
+
+            batch.update(pagamentoRef, {
+              status: 'approved',
+              aprovadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+              atualizadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            await batch.commit();
+
+            console.log('✅ SELO ATIVADO:', estabelecimentoId);
+            res.sendStatus(200);
+            return;
+          }
+
           if (pagamentoData?.tipo === 'impulsionamento') {
             if (!isApproved) {
               await pagamentoRef.update({

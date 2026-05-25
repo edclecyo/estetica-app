@@ -319,6 +319,7 @@ const abrirStoryAdmin = (storyId: string) => {
   .collection('stories')
   .where('adminId', '==', adminUid)
   .where('ativo', '==', true)
+  .limit(30)
   .onSnapshot(
     snap => {
       const storiesData = snap.docs.map(d => ({

@@ -4,6 +4,8 @@ import {
   ActivityIndicator, StatusBar, Platform, RefreshControl, Alert,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import { getApp } from '@react-native-firebase/app';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import auth from '@react-native-firebase/auth';
@@ -30,8 +32,28 @@ export default function SuperAdminDashScreen() {
   });
   const [estabsRecentes, setEstabsRecentes] = useState<any[]>([]);
 const [acessoLiberado, setAcessoLiberado] = useState(false);
-  const carregar = async () => {
+  const carregar = async (force = false) => {
     try {
+      const functionsInstance = getFunctions(getApp(), 'southamerica-east1');
+      const obterMetricas = httpsCallable(functionsInstance, 'obterMetricasSuperAdmin');
+      const { data }: any = await obterMetricas({ force });
+      const planosMetricas = data?.planos || { free: 0, trial: 0, essencial: 0, pro: 0, elite: 0 };
+
+      setStats({
+        totalEstabs: Number(data?.totalEstabs || 0),
+        estabsAtivos: Number(data?.estabsAtivos || 0),
+        totalAdmins: Number(data?.totalAdmins || 0),
+        totalClientes: Number(data?.totalClientes || 0),
+        totalAgendamentos: Number(data?.totalAgendamentos || 0),
+        agendamentosHoje: Number(data?.agendamentosHoje || 0),
+        receitaEstimada: Number(data?.receitaEstimada || 0),
+        planos: planosMetricas,
+        destaques: Number(data?.destaques || 0),
+        verificados: Number(data?.verificados || 0),
+      });
+      setEstabsRecentes(Array.isArray(data?.estabsRecentes) ? data.estabsRecentes : []);
+      return;
+
       const [estabsSnap, adminsSnap, clientesSnap, agendSnap] = await Promise.all([
         firestore().collection('estabelecimentos').get(),
         firestore().collection('admins').get(),
@@ -182,7 +204,7 @@ estabs.forEach(e => {
 
 }, []);
 
-  const onRefresh = () => { setRefreshing(true); carregar(); };
+  const onRefresh = () => { setRefreshing(true); carregar(true); };
 
   const handleLogout = () => {
     Alert.alert('Sair', 'Sair do painel master?', [

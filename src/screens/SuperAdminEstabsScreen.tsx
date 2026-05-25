@@ -11,6 +11,7 @@ import auth from '@react-native-firebase/auth';
 
 const GOLD = '#C9A96E';
 const DARK = '#0A0A0A';
+const ESTABS_PAGE_LIMIT = 120;
 
 const getDataFirestore = (valor: any): Date | null => {
   const data = valor?.toDate?.() || valor;
@@ -80,20 +81,15 @@ export default function SuperAdminEstabsScreen() {
 
         setAcessoLiberado(true);
 
-        const unsub = firestore()
+        const snap = await firestore()
           .collection('estabelecimentos')
-          .onSnapshot(
-            snap => {
-              setEstabs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-              setLoading(false);
-            },
-            err => {
-              console.log('Erro estabelecimentos:', err);
-              setLoading(false);
-            }
-          );
+          .orderBy('criadoEm', 'desc')
+          .limit(ESTABS_PAGE_LIMIT)
+          .get();
 
-        return unsub;
+        setEstabs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+        return undefined;
       } catch (e) {
         console.log('Erro permissão Super Admin:', e);
         setLoading(false);
@@ -116,6 +112,7 @@ export default function SuperAdminEstabsScreen() {
     const unsub = firestore()
       .collection('solicitacoesVerificacao')
       .where('status', '==', 'pendente')
+      .limit(50)
       .onSnapshot(
         snap => setSolicitacoes(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
         err => console.log('Erro solicitações:', err)
@@ -160,6 +157,11 @@ export default function SuperAdminEstabsScreen() {
                 ativo: !atual,
                 atualizadoEm: firestore.FieldValue.serverTimestamp(),
               });
+            setEstabs(lista =>
+              lista.map(item =>
+                item.id === id ? { ...item, ativo: !atual } : item
+              )
+            );
           },
         },
       ]

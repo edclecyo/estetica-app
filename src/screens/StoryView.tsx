@@ -24,6 +24,7 @@ import firestore, {
   collection,
   query,
   where,
+  limit,
   getDocs,
   deleteDoc,
   increment,
@@ -329,14 +330,16 @@ function abrirAgendamento() {
       const viewsSnap = await getDocs(
         query(
           collection(firestore(), "storyViews"),
-          where("storyId", "==", story.id)
+          where("storyId", "==", story.id),
+          limit(200)
         )
       );
 
       const likesSnap = await getDocs(
         query(
           collection(firestore(), "storyLikes"),
-          where("storyId", "==", story.id)
+          where("storyId", "==", story.id),
+          limit(200)
         )
       );
 
@@ -347,7 +350,8 @@ function abrirAgendamento() {
         const sharesSnap = await getDocs(
           query(
             collection(firestore(), "storyShares"),
-            where("storyId", "==", story.id)
+            where("storyId", "==", story.id),
+            limit(200)
           )
         );
 

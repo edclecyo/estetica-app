@@ -19,6 +19,8 @@ type MediaItem = {
   type: 'image' | 'video';
   caption: string;
   duration?: number;
+  file?: any;
+  fileSize?: number;
 };
 
 const DICAS = [
@@ -72,7 +74,7 @@ const permiteVideo =
   const abrirCamera = async () => {
     const res = await launchCamera({
       mediaType: permiteVideo ? 'mixed' : 'photo',
-      quality: 0.85,
+      quality: 0.85 as any,
       videoQuality: 'high',
       saveToPhotos: true,
     });
@@ -90,6 +92,10 @@ const permiteVideo =
   // ✅ duração real
   duration:
     res.assets[0].duration || 0,
+  file:
+    (res.assets[0] as any).file,
+  fileSize:
+    res.assets[0].fileSize || 0,
 };
       setMidias(prev => [...prev, nova].slice(0, 10));
       if (midias.length === 0) setIndexAtivo(0);
@@ -99,7 +105,7 @@ const permiteVideo =
   const escolherMidias = async () => {
     const res = await launchImageLibrary({
       mediaType: permiteVideo ? 'mixed' : 'photo',
-      quality: 0.85,
+      quality: 0.85 as any,
       videoQuality: 'high',
       selectionLimit: 10,
     });
@@ -117,6 +123,10 @@ const permiteVideo =
   // ✅ duração real
   duration:
     a.duration || 0,
+  file:
+    (a as any).file,
+  fileSize:
+    a.fileSize || 0,
 }));
       setMidias(prev => [...prev, ...novas].slice(0, 10));
       if (midias.length === 0) setIndexAtivo(0);
@@ -184,9 +194,12 @@ const token = await user.getIdToken(true);
 console.log('TOKEN OK:', !!token);
 
 // tamanho arquivo MB
-let sizeMB = 0;
+let sizeMB =
+  Number(m.fileSize || 0) /
+  1024 /
+  1024;
 
-try {
+if (!sizeMB) try {
   const stat = await RNFS.stat(m.uri);
 
   sizeMB =
@@ -238,7 +251,11 @@ const uploadUri = m.uri.startsWith('file://')
   ? m.uri.replace('file://', '')
   : m.uri;
 
-await ref.putFile(uploadUri);
+(await (ref as any).putFile(
+  Platform.OS === 'web' && m.file
+    ? { file: m.file }
+    : uploadUri
+));
         const url = await ref.getDownloadURL();
 
        await firestore().collection('stories').add({
@@ -289,7 +306,7 @@ await ref.putFile(uploadUri);
       }
 
       setUploadProgress(100);
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 400));
       Alert.alert("Publicado! 🎉", `${midias.length} story${midias.length > 1 ? 's' : ''} no ar!`);
       navigation.goBack();
     } catch (e) {

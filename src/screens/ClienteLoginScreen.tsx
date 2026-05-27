@@ -56,7 +56,7 @@ export default function ClienteLoginScreen() {
       setLoading(false);
       Alert.alert(
         'Acesso Negado',
-        'Esta e uma conta de estabelecimento.\n\nUse o botao "Acesso Profissional" abaixo.'
+        'Esta e uma conta de estabelecimento.\n\nEscolha a opcao Profissional no topo para acessar o painel.'
       );
       return;
     }
@@ -108,7 +108,7 @@ export default function ClienteLoginScreen() {
       if (e?.message === 'admin-account') {
         Alert.alert(
           'Acesso Negado',
-          'Esta e uma conta de estabelecimento.\n\nUse o botao "Acesso Profissional" abaixo.'
+          'Esta e uma conta de estabelecimento.\n\nEscolha a opcao Profissional no topo para acessar o painel.'
         );
       } else {
         Alert.alert('Erro', 'Nao foi possivel entrar com Google.');
@@ -151,6 +151,26 @@ export default function ClienteLoginScreen() {
         </View>
 
         <View style={s.body}>
+          <View style={s.tipoBox}>
+            <Text style={s.tipoTitulo}>Como voce quer acessar?</Text>
+            <Text style={s.tipoDesc}>
+              Use Cliente para agendar. Use Profissional somente para gerenciar estabelecimento.
+            </Text>
+            <View style={s.tipoSwitch}>
+              <TouchableOpacity style={[s.tipoOpcao, s.tipoOpcaoAtiva]} activeOpacity={0.9}>
+                <Icon name="account-heart-outline" size={19} color="#000" />
+                <Text style={[s.tipoText, s.tipoTextAtivo]}>Cliente</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.tipoOpcao}
+                onPress={() => navigation.navigate('AdminLogin')}
+                activeOpacity={0.9}>
+                <Icon name="storefront-outline" size={19} color="#777" />
+                <Text style={s.tipoText}>Profissional</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           {/* Abas Estilo Switch */}
           <View style={s.abas}>
             <TouchableOpacity
@@ -296,7 +316,7 @@ export default function ClienteLoginScreen() {
             onPress={() => navigation.navigate('AdminLogin')}
             style={s.adminBtn}>
             <Icon name="storefront-outline" size={18} color="#666" />
-            <Text style={s.adminBtnText}>Acesso Profissional</Text>
+            <Text style={s.adminBtnText}>Trocar para acesso profissional</Text>
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
@@ -342,6 +362,29 @@ const s = StyleSheet.create({
   topoTitulo: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8, marginTop: 10 },
   topoSub: { color: '#666', fontSize: 14, textAlign: 'center', paddingHorizontal: 20 },
   body: { padding: 24 },
+  tipoBox: {
+    backgroundColor: '#080808',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#222',
+    marginBottom: 18,
+  },
+  tipoTitulo: { color: '#FFF', fontSize: 15, fontWeight: '800', textAlign: 'center' },
+  tipoDesc: { color: '#777', fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 6, marginBottom: 12 },
+  tipoSwitch: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 14, padding: 5 },
+  tipoOpcao: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  tipoOpcaoAtiva: { backgroundColor: '#C9A96E' },
+  tipoText: { color: '#777', fontSize: 13, fontWeight: '800' },
+  tipoTextAtivo: { color: '#000' },
   abas: { 
     flexDirection: 'row', 
     backgroundColor: '#111', 

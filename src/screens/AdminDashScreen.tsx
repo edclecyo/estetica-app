@@ -219,13 +219,45 @@ const checarBloqueio = () => {
   Alert.alert('Função bloqueada 🔒', mensagem);
   return true;
 };
+const getStoryMediaUriAdmin = (story: any) =>
+  story?.url ||
+  story?.imagem ||
+  story?.mediaUrl ||
+  story?.imageUrl ||
+  story?.videoUrl ||
+  story?.fotoUrl ||
+  '';
+
+const normalizarStoryAdmin = (story: any) => {
+  const mediaUri = getStoryMediaUriAdmin(story);
+  const uriSemQuery = mediaUri.split('?')[0].toLowerCase();
+  const type =
+    story?.type === 'video' ||
+    story?.tipo === 'video' ||
+    /\.(mp4|mov|m4v|webm)$/i.test(uriSemQuery)
+      ? 'video'
+      : 'image';
+
+  return {
+    ...story,
+    url: mediaUri,
+    imagem: mediaUri,
+    type,
+  };
+};
+
 const abrirStoryAdmin = (storyId: string) => {
-  const startIndex = meusStories.findIndex(story => story.id === storyId);
+  const storiesNormalizados = meusStories
+    .map(normalizarStoryAdmin)
+    .filter(story => story.id && (story.url || story.imagem));
+
+  const startIndex = storiesNormalizados.findIndex(story => story.id === storyId);
 
   if (startIndex < 0) return;
 
   navigation.navigate('StoryView', {
-    stories: meusStories,
+    stories: storiesNormalizados,
+    story: storiesNormalizados[startIndex],
     startIndex,
   });
 };
@@ -1402,7 +1434,13 @@ const temSelo =
                 activeOpacity={0.86}
                 onPress={() => abrirStoryAdmin(item.id)}
               >
-              <Image source={{ uri: item.url || item.imagem }} style={s.storyMiniatura} />
+              {normalizarStoryAdmin(item).type === 'video' ? (
+                <View style={[s.storyMiniatura, s.storyVideoMiniatura]}>
+                  <Text style={s.storyVideoIcon}>▶</Text>
+                </View>
+              ) : (
+                <Image source={{ uri: getStoryMediaUriAdmin(item) }} style={s.storyMiniatura} />
+              )}
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={s.storyInfoText}>
   {item?.timestamp?.seconds
@@ -1890,6 +1928,14 @@ financeiroCardDash: {
   storyManageCard: { backgroundColor: '#FFF', borderRadius: 18, padding: 12, flexDirection: 'row', alignItems: 'center', marginBottom: 10, elevation: 1 },
   storyPreviewAction: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   storyMiniatura: { width: 50, height: 70, borderRadius: 10, backgroundColor: '#EEE' },
+  storyVideoMiniatura: {
+    backgroundColor: '#111',
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyVideoIcon: { color: '#C9A96E', fontSize: 18, fontWeight: '900' },
   storyInfoText: { color: '#1A1A1A', fontSize: 14, fontWeight: '700' },
   storyInfoSub: { color: GOLD, fontSize: 12, fontWeight: '600', marginTop: 4 },
   storyInfoHint: { color: '#666', fontSize: 11, fontWeight: '600', marginTop: 4 },

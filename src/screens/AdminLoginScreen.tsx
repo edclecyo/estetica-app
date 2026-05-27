@@ -211,6 +211,25 @@ export default function AdminLoginScreen() {
         </View>
 
         <View style={s.body}>
+          <View style={s.tipoBox}>
+            <Text style={s.tipoTitulo}>Como voce quer acessar?</Text>
+            <Text style={s.tipoDesc}>
+              Cliente agenda servicos. Profissional gerencia agenda, clientes e estabelecimento.
+            </Text>
+            <View style={s.tipoSwitch}>
+              <TouchableOpacity
+                style={s.tipoOpcao}
+                onPress={() => navigation.navigate('ClienteLogin')}
+                activeOpacity={0.9}>
+                <Icon name="account-heart-outline" size={19} color="#777" />
+                <Text style={s.tipoText}>Cliente</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.tipoOpcao, s.tipoOpcaoAtiva]} activeOpacity={0.9}>
+                <Icon name="storefront-outline" size={19} color="#000" />
+                <Text style={[s.tipoText, s.tipoTextAtivo]}>Profissional</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           
           {/* LOGIN */}
           {tela === 'login' && (
@@ -393,6 +412,29 @@ const s = StyleSheet.create({
   topoTitulo: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8, marginTop: 10 },
   topoSub: { color: '#666', fontSize: 14, textAlign: 'center' },
   body: { padding: 24 },
+  tipoBox: {
+    backgroundColor: '#080808',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#222',
+    marginBottom: 22,
+  },
+  tipoTitulo: { color: '#FFF', fontSize: 15, fontWeight: '800', textAlign: 'center' },
+  tipoDesc: { color: '#777', fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 6, marginBottom: 12 },
+  tipoSwitch: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 14, padding: 5 },
+  tipoOpcao: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  tipoOpcaoAtiva: { backgroundColor: '#C9A96E' },
+  tipoText: { color: '#777', fontSize: 13, fontWeight: '800' },
+  tipoTextAtivo: { color: '#000' },
   form: { gap: 20 },
   inputGroup: { gap: 8 },
   label: { fontSize: 10, fontWeight: '800', color: '#C9A96E', letterSpacing: 1.5 },

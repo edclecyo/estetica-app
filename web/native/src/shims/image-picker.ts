@@ -12,7 +12,12 @@ function pickFile(options: PickerOptions = {}, capture?: string) {
 
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = options.mediaType === 'video' ? 'video/*' : 'image/*';
+    input.accept =
+      options.mediaType === 'mixed'
+        ? 'image/*,video/*'
+        : options.mediaType === 'video'
+          ? 'video/*'
+          : 'image/*';
     if (capture) input.setAttribute('capture', capture);
     input.style.position = 'fixed';
     input.style.left = '-9999px';

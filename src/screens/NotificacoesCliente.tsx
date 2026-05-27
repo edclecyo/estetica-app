@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
+  Platform,
 } from 'react-native';
 
 import firestore from '@react-native-firebase/firestore';
@@ -459,6 +460,16 @@ export default function NotificacoesClienteScreen() {
       <StatusBar barStyle="dark-content" />
 
       <View style={styles.header}>
+        {Platform.OS === 'web' && navigation.canGoBack?.() && (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => navigation.goBack()}
+            style={styles.backBtn}
+          >
+            <Text style={styles.backText}>‹</Text>
+          </TouchableOpacity>
+        )}
+
         <View>
           <Text style={styles.titulo}>
             Notificações
@@ -551,6 +562,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  backBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#1A1A1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backText: {
+    color: '#D4AF37',
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: '900',
   },
   titulo: { fontSize: 28, fontWeight: '900', color: '#1A1A1A' },
   linhaDourada: { width: 40, height: 4, backgroundColor: '#D4AF37', marginTop: 5, borderRadius: 2 },

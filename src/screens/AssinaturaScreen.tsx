@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  ActivityIndicator, Alert, StatusBar, Platform
+  ActivityIndicator, Alert, StatusBar, Platform, TextProps
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
@@ -19,8 +19,10 @@ const GOLD_TXT_GRADIENT = ['#C9A96E', '#F9E29B', '#B8860B'];
 const DARK_GRADIENT = ['#1A1A1A', '#0D0D0D', '#000'];
 const GOLD = '#D4AF37';
 const IS_WEB = Platform.OS === 'web';
+type PlanoId = 'free' | 'trial' | 'essencial' | 'pro' | 'elite';
+type TrialResponse = { ok?: boolean; message?: string };
 
-const GradientText = (props) => (
+const GradientText = (props: TextProps) => (
   <MaskedView maskElement={<Text {...props} />}>
     <LinearGradient colors={GOLD_TXT_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
       <Text {...props} style={[props.style, { opacity: 0 }]} />
@@ -132,11 +134,11 @@ const PLANOS = [
   },
 ];
 
-export default function AssinaturaScreen({ navigation }) {
-  const [loadingAction, setLoadingAction] = useState(null);
+export default function AssinaturaScreen({ navigation }: any) {
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [loadingDados, setLoadingDados] = useState(true);
-  const [estId, setEstId] = useState(null);
-  const [planoAtualId, setPlanoAtualId] = useState('free');
+  const [estId, setEstId] = useState<string | null>(null);
+  const [planoAtualId, setPlanoAtualId] = useState<PlanoId>('free');
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [trialUsado, setTrialUsado] = useState(false);
   const [trialAtivo, setTrialAtivo] = useState(false);
@@ -155,7 +157,7 @@ const [addIA, setAddIA] = useState(false);
           const data = doc.data();
 
           setEstId(doc.id);
-          setPlanoAtualId(data.plano || 'free');
+          setPlanoAtualId((data.plano || 'free') as PlanoId);
           setTrialUsado(!!data.trialUsado);
 
           const expira =
@@ -210,10 +212,12 @@ const res = await fn({
   estabelecimentoId: estId
 });
 
-      if (res.data?.ok) {
+      const data = res.data as TrialResponse;
+
+      if (data?.ok) {
         Alert.alert("Sucesso", "Trial ativado!");
       } else {
-        Alert.alert("Aviso", res.data?.message || "Erro ao ativar trial");
+        Alert.alert("Aviso", data?.message || "Erro ao ativar trial");
       }
     } catch {
       Alert.alert("Erro", "Falha de conexão");

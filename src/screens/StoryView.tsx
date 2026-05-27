@@ -51,12 +51,28 @@ const getStoryViews = (data: any) =>
     0
   );
 
+const getStoryMediaUri = (story: any) =>
+  story?.url ||
+  story?.imagem ||
+  story?.mediaUrl ||
+  story?.imageUrl ||
+  story?.videoUrl ||
+  story?.fotoUrl ||
+  "";
+
+const getStoryType = (story: any) => {
+  if (story?.type === "video" || story?.tipo === "video") return "video";
+  const uri = getStoryMediaUri(story).split("?")[0].toLowerCase();
+  return /\.(mp4|mov|m4v|webm)$/i.test(uri) ? "video" : "image";
+};
+
 
 export default function StoryView() {
   const route: any = useRoute();
   const navigation: any = useNavigation();
 
-  const stories = route.params?.stories || [];
+  const storyDireto = route.params?.story;
+  const stories = route.params?.stories || (storyDireto ? [storyDireto] : []);
   const startIndex = route.params?.startIndex || 0;
   const onVisto = route.params?.onVisto;
 
@@ -71,8 +87,12 @@ export default function StoryView() {
   const [totalShares, setTotalShares] = useState(0);
   const [loadingStats, setLoadingStats] = useState(false);
   const [videoDuration, setVideoDuration] = useState(5000);
+  const [mediaError, setMediaError] = useState(false);
 
-  const story = storiesFiltrados[index];
+  const story = storiesFiltrados[index] || storyDireto;
+  const mediaUri = getStoryMediaUri(story);
+  const storyType = getStoryType(story);
+  const isWebVideo = Platform.OS === "web" && storyType === "video";
   const user = auth().currentUser;
   const isAdmin = user?.uid === story?.adminId;
 
@@ -109,11 +129,12 @@ const panResponder = useRef(
 
     progress.setValue(0);
     pausedValue.current = 0;
+    setMediaError(false);
 
     registrarView();
     onVisto?.(story.id);
 
-    if (story.type !== "video") {
+    if (storyType !== "video") {
       startAnimation(0, 5000);
     }
 
@@ -172,7 +193,7 @@ function abrirAgendamento() {
     if (!showStats && story) {
       startAnimation(
         pausedValue.current,
-        story.type === "video" ? videoDuration : 5000
+        storyType === "video" ? videoDuration : 5000
       );
     }
   };
@@ -283,7 +304,7 @@ function abrirAgendamento() {
     try {
       await Share.open({
         title: "Compartilhar Story",
-        url: story.url || story.imagem,
+        url: mediaUri,
         message: `Olha o que vi no perfil de ${story.nome || "BeautyHub"}!`,
       });
 
@@ -437,25 +458,59 @@ function abrirAgendamento() {
     <View style={s.container}>
       <StatusBar hidden />
 
-      {story.type === "video" ? (
+      {mediaUri && !mediaError && storyType === "video" ? (
         <Video
-          source={{ uri: story.url || story.imagem }}
+          source={{ uri: mediaUri }}
           style={s.image}
           resizeMode="cover"
-          paused={isPaused.current || showStats}
+          paused={isWebVideo ? false : isPaused.current || showStats}
+          controls={Platform.OS === "web"}
           onLoad={data => {
-            const duration = data.duration * 1000;
+            const duration = Math.max(Number(data.duration || 5) * 1000, 3000);
             setVideoDuration(duration);
             startAnimation(0, duration);
           }}
           onEnd={proximo}
+          onError={() => {
+            setMediaError(true);
+            startAnimation(0, 5000);
+          }}
         />
-      ) : (
+      ) : mediaUri && !mediaError && Platform.OS === "web" ? (
+        React.createElement("img" as any, {
+          src: mediaUri,
+          alt: story.caption || story.nome || "Story",
+          onError: () => {
+            setMediaError(true);
+            startAnimation(0, 5000);
+          },
+          style: {
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            backgroundColor: "#000",
+          },
+        })
+      ) : mediaUri && !mediaError ? (
         <Image
-          source={{ uri: story.url || story.imagem }}
+          source={{ uri: mediaUri }}
           style={s.image}
           resizeMode="cover"
+          onError={() => {
+            setMediaError(true);
+            startAnimation(0, 5000);
+          }}
         />
+      ) : (
+        <View style={[s.image, s.mediaFallback]}>
+          <Ionicons name="image-outline" size={42} color="#C9A96E" />
+          <Text style={s.mediaFallbackTitle}>Story indisponivel</Text>
+          <Text style={s.mediaFallbackText}>
+            Nao foi possivel carregar esta midia.
+          </Text>
+        </View>
       )}
 
       <View style={s.topOverlay} />
@@ -503,7 +558,10 @@ function abrirAgendamento() {
         </View>
       </SafeAreaView>
 
-      <View style={s.touchLayer}>
+      <View
+        style={s.touchLayer}
+        pointerEvents={isWebVideo ? "none" : "auto"}
+      >
         <Pressable
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
@@ -744,6 +802,30 @@ const s = StyleSheet.create({
 
   image: {
     ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
+
+  mediaFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+    backgroundColor: "#050505",
+  },
+
+  mediaFallbackTitle: {
+    color: "#FFF",
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 12,
+  },
+
+  mediaFallbackText: {
+    color: "#999",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
+    textAlign: "center",
   },
 
   topOverlay: {

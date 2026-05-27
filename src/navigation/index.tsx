@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, ActivityIndicator, Platform, TouchableOpacity } from 'react-native';
+import { Text, View, ActivityIndicator } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { configurarAberturaPorNotificacao } from '../services/notificacao.service';
 
@@ -82,12 +82,6 @@ function HomeTabs() {
 export default function Navigation() {
   const { loading, isAdmin, isSuperAdmin, isResolvingAdmin } = useAuth();
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
-  const [webCanGoBack, setWebCanGoBack] = useState(false);
-
-  const atualizarVoltarWeb = () => {
-    if (Platform.OS !== 'web') return;
-    setWebCanGoBack(Boolean(navigationRef.current?.canGoBack?.()));
-  };
 
   useEffect(() => {
     configurarAberturaPorNotificacao((data) => {
@@ -138,12 +132,7 @@ export default function Navigation() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-    <NavigationContainer
-      ref={navigationRef}
-      onReady={atualizarVoltarWeb}
-      onStateChange={atualizarVoltarWeb}
-    >
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
 
         {/* ─── SUPER ADMIN ─── */}
@@ -212,34 +201,5 @@ export default function Navigation() {
 
       </Stack.Navigator>
     </NavigationContainer>
-    {Platform.OS === 'web' && webCanGoBack && (
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={() => navigationRef.current?.goBack?.()}
-        style={{
-          position: 'absolute',
-          top: 14,
-          left: 12,
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          backgroundColor: 'rgba(10,10,10,0.92)',
-          borderWidth: 1,
-          borderColor: 'rgba(201,169,110,0.55)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          shadowColor: '#000',
-          shadowOpacity: 0.35,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 4 },
-        }}
-      >
-        <Text style={{ color: '#C9A96E', fontSize: 30, lineHeight: 34 }}>
-          ‹
-        </Text>
-      </TouchableOpacity>
-    )}
-    </View>
   );
 }

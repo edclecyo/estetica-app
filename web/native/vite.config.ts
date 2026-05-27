@@ -31,7 +31,7 @@ export default defineConfig({
       { find: '@notifee/react-native', replacement: shim('notifee.ts') },
       { find: 'react-native-linear-gradient', replacement: shim('linear-gradient.tsx') },
       { find: 'react-native-maps', replacement: shim('maps.tsx') },
-      { find: 'react-native-video', replacement: shim('empty-component.tsx') },
+      { find: 'react-native-video', replacement: shim('video.tsx') },
       { find: 'react-native-webview', replacement: shim('empty-component.tsx') },
       { find: 'react-native-image-picker', replacement: shim('image-picker.ts') },
       { find: 'react-native-share', replacement: shim('share.ts') },

@@ -72,6 +72,7 @@ export default function StoryView() {
   const navigation: any = useNavigation();
 
   const storyDireto = route.params?.story;
+  const adminSimple = route.params?.adminSimple === true;
   const stories = route.params?.stories || (storyDireto ? [storyDireto] : []);
   const startIndex = route.params?.startIndex || 0;
   const onVisto = route.params?.onVisto;
@@ -454,6 +455,93 @@ function abrirAgendamento() {
     return null;
   }
 
+  if (Platform.OS === "web" && adminSimple && storyType !== "video") {
+    return (
+      <View style={s.simpleContainer}>
+        {mediaUri ? (
+          React.createElement("img" as any, {
+            src: mediaUri,
+            alt: story.caption || story.nome || "Story",
+            style: {
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              backgroundColor: "#000",
+              zIndex: 1,
+            },
+          })
+        ) : (
+          <View style={[s.image, s.mediaFallback]}>
+            <Ionicons name="image-outline" size={42} color="#C9A96E" />
+            <Text style={s.mediaFallbackTitle}>Story indisponivel</Text>
+          </View>
+        )}
+
+        <View style={s.simpleTopOverlay} />
+
+        <SafeAreaView style={s.simpleHeader} edges={["top"]}>
+          <View style={s.headerInfo}>
+            <Image source={{ uri: story.avatar }} style={s.avatarImg} />
+            <Text style={s.nomeEstab}>
+              {story.nome || story.nomeAdmin || "Story"}
+            </Text>
+            <TouchableOpacity style={{ padding: 10 }} onPress={fecharStories}>
+              <Ionicons name="close" size={30} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+
+        {story.caption ? (
+          <View style={[s.captionOverlay, { bottom: captionBottom }]}>
+            <Text style={s.captionOverlayText}>{story.caption}</Text>
+          </View>
+        ) : null}
+
+        <View style={[s.bottomActionArea, { bottom: actionBottom }]}>
+          <TouchableOpacity
+            style={s.adminSwipeBox}
+            onPress={abrirStats}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="chevron-up" size={20} color="#FFF" />
+            <Text style={s.swipeLabel}>Atividade</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Modal
+          visible={showStats}
+          transparent
+          animationType="none"
+          onRequestClose={fecharStats}
+        >
+          <View style={s.modalOverlay}>
+            <Pressable style={{ flex: 1 }} onPress={fecharStats} />
+            <Animated.View style={[s.statsSheet, { transform: [{ translateY: statsAnim }] }]}>
+              <View style={s.sheetHandle} />
+              <Text style={s.sheetTitle}>Atividade do Story</Text>
+              <View style={s.statsHeader}>
+                <View style={s.statBox}>
+                  <Text style={s.statValue}>{totalViews}</Text>
+                  <Text style={s.statLabel}>Vistas</Text>
+                </View>
+                <View style={s.statBox}>
+                  <Text style={s.statValue}>{quemCurtiu.length}</Text>
+                  <Text style={s.statLabel}>Curtidas</Text>
+                </View>
+                <View style={s.statBox}>
+                  <Text style={s.statValue}>{totalShares}</Text>
+                  <Text style={s.statLabel}>Compart.</Text>
+                </View>
+              </View>
+            </Animated.View>
+          </View>
+        </Modal>
+      </View>
+    );
+  }
+
   return (
     <View style={s.container}>
       <StatusBar hidden />
@@ -798,6 +886,30 @@ const s = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
+  },
+
+  simpleContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+    overflow: "hidden",
+  },
+
+  simpleTopOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 130,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    zIndex: 5,
+  },
+
+  simpleHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
   },
 
   image: {

@@ -19,6 +19,9 @@ import SeloVerificado from '../assets/selo_verificado.png';
 
 const { width } = Dimensions.get('window');
 const GOLD = '#C9A96E';
+type AgendaListItem =
+  | { tipo: 'header'; key: string; titulo: string; resumo: string }
+  | { tipo: 'agendamento'; key: string; agendamento: Agendamento };
 
 // ===== COMPONENT =====
 const EstabImage = ({ item }: { item: Estabelecimento }) => {
@@ -259,6 +262,7 @@ const abrirStoryAdmin = (storyId: string) => {
     stories: storiesNormalizados,
     story: storiesNormalizados[startIndex],
     startIndex,
+    adminSimple: true,
   });
 };
 
@@ -555,6 +559,87 @@ const fimAgendamento = (agendamento: Agendamento): Date | null => {
 
     return !fim || fim.getTime() > agoraAgendamentos;
   });
+
+  const formatarCabecalhoAgenda = (dataTexto: any) => {
+    const data = parseDataBR(dataTexto);
+
+    if (!data) {
+      return {
+        key: String(dataTexto || 'sem-data'),
+        titulo: 'Sem data',
+        resumo: 'Agendamentos sem data definida',
+      };
+    }
+
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+
+    const amanha = new Date(hoje);
+    amanha.setDate(hoje.getDate() + 1);
+
+    const dataBase = new Date(data);
+    dataBase.setHours(0, 0, 0, 0);
+
+    const dataFormatada = data.toLocaleDateString('pt-BR');
+    const diaSemana = data.toLocaleDateString('pt-BR', { weekday: 'long' });
+    const nomeDia =
+      dataBase.getTime() === hoje.getTime()
+        ? 'Hoje'
+        : dataBase.getTime() === amanha.getTime()
+        ? 'Amanha'
+        : diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1);
+
+    return {
+      key: dataFormatada,
+      titulo: `${nomeDia}, ${dataFormatada}`,
+      resumo: data.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      }),
+    };
+  };
+
+  const agendamentosPorDia = useMemo<AgendaListItem[]>(() => {
+    const ordenados = [...agendamentosVisiveis].sort((a, b) => {
+      const dataA = fimAgendamento(a) || parseDataBR(a.data) || new Date(8640000000000000);
+      const dataB = fimAgendamento(b) || parseDataBR(b.data) || new Date(8640000000000000);
+      return dataA.getTime() - dataB.getTime();
+    });
+
+    const itens: AgendaListItem[] = [];
+    const contagem = new Map<string, number>();
+
+    ordenados.forEach(agendamento => {
+      const cabecalho = formatarCabecalhoAgenda(agendamento.data);
+      contagem.set(cabecalho.key, (contagem.get(cabecalho.key) || 0) + 1);
+    });
+
+    const diasAdicionados = new Set<string>();
+
+    ordenados.forEach(agendamento => {
+      const cabecalho = formatarCabecalhoAgenda(agendamento.data);
+
+      if (!diasAdicionados.has(cabecalho.key)) {
+        const total = contagem.get(cabecalho.key) || 0;
+        itens.push({
+          tipo: 'header',
+          key: `header-${cabecalho.key}`,
+          titulo: cabecalho.titulo,
+          resumo: `${total} agendamento${total === 1 ? '' : 's'} neste dia`,
+        });
+        diasAdicionados.add(cabecalho.key);
+      }
+
+      itens.push({
+        tipo: 'agendamento',
+        key: agendamento.id,
+        agendamento,
+      });
+    });
+
+    return itens;
+  }, [agendamentosVisiveis, agoraAgendamentos]);
 
   const compartilharRelatorio = async () => {
     try {
@@ -1399,7 +1484,7 @@ const temSelo =
   </Text>
 
   <View style={s.suporteInfos}>
-    <Text style={s.suporteInfo}>📧 suporte@beautyhub.com</Text>
+    <Text style={s.suporteInfo}>📧 beautyhubbs.oficial@gmail.com</Text>
     <Text style={s.suporteInfo}>🕐 Atendimento: 08h às 22h</Text>
   </View>
 
@@ -1463,8 +1548,8 @@ const temSelo =
       {/* ─── ABA AGENDAMENTOS ─── */}
     {aba === 'agends' && (
   <FlatList
-    data={agendamentosVisiveis}
-    keyExtractor={a => a.id}
+    data={agendamentosPorDia}
+    keyExtractor={item => item.key}
     contentContainerStyle={s.lista}
     ListHeaderComponent={
       <View style={{
@@ -1485,7 +1570,19 @@ const temSelo =
         </TouchableOpacity>
       </View>
     }
-    renderItem={({ item }) => (
+    renderItem={({ item: agendaItem }) => {
+      if (agendaItem.tipo === 'header') {
+        return (
+          <View style={s.agendaDiaHeader}>
+            <Text style={s.agendaDiaTitulo}>{agendaItem.titulo}</Text>
+            <Text style={s.agendaDiaResumo}>{agendaItem.resumo}</Text>
+          </View>
+        );
+      }
+
+      const item = agendaItem.agendamento;
+
+      return (
       <View style={s.agendCard}>
               <View style={s.agendTop}>
                 <View style={{ flex: 1 }}>
@@ -1566,7 +1663,8 @@ const temSelo =
   </View>
 )}
             </View>
-          )}
+          );
+        }}
         />
       )}
 
@@ -1941,6 +2039,18 @@ financeiroCardDash: {
   storyInfoHint: { color: '#666', fontSize: 11, fontWeight: '600', marginTop: 4 },
   btnLixo: { backgroundColor: '#FFF0F0', width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   emptyText: { textAlign: 'center', color: '#AAA', marginTop: 30, fontSize: 14 },
+  agendaDiaHeader: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    marginBottom: 10,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.35)',
+  },
+  agendaDiaTitulo: { color: GOLD, fontSize: 15, fontWeight: '900' },
+  agendaDiaResumo: { color: '#DDD', fontSize: 12, fontWeight: '600', marginTop: 4 },
   agendCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 16, marginBottom: 12 },
   agendTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   agendNome: { color: '#1A1A1A', fontSize: 15, fontWeight: '700' },

@@ -897,12 +897,16 @@ const semHorarios = todosHorarios.every(h => {
 
       {/* WHATSAPP FLOAT */}
       {!!estab?.telefone && (
-        <TouchableOpacity
-          onPress={abrirWhatsApp}
-          style={s.whatsappBtn}
-        >
-          <Icon name="whatsapp" size={28} color="#fff" />
-        </TouchableOpacity>
+        <View style={s.whatsappFloatWrap} pointerEvents="box-none">
+          <Text style={s.whatsappHint}>Tire dúvidas pelo WhatsApp</Text>
+          <TouchableOpacity
+            onPress={abrirWhatsApp}
+            style={s.whatsappBtn}
+            activeOpacity={0.85}
+          >
+            <Icon name="whatsapp" size={28} color="#fff" />
+          </TouchableOpacity>
+        </View>
       )}
 
     </View>
@@ -1047,7 +1051,9 @@ horarioChipPassado: {
   alignItems: 'center',
   marginBottom: 12,
 },
-  whatsappBtn: { position: 'absolute', bottom: 24, right: 24, backgroundColor: '#25D366', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 6 },
+  whatsappFloatWrap: { position: 'absolute', bottom: 24, right: 18, alignItems: 'flex-end', zIndex: 30 },
+  whatsappHint: { backgroundColor: '#1A1A1A', color: '#fff', fontSize: 11, fontWeight: '700', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, marginBottom: 8, maxWidth: 190, textAlign: 'center', elevation: 3 },
+  whatsappBtn: { backgroundColor: '#25D366', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 6 },
 pagamentoCard: {
   backgroundColor: '#fff',
   borderRadius: 14,

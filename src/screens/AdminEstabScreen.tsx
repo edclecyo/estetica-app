@@ -163,6 +163,7 @@ export default function AdminEstabScreen() {
   const [coords, setCoords] = useState({ lat: -8.0, lng: -35.0 });
   const [coordsOk, setCoordsOk] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const telefoneCadastro = admin?.telefone?.trim() || '';
 
   const [gInicio, setGInicio] = useState('08:00');
   const [gFim, setGFim] = useState('18:00');
@@ -301,6 +302,94 @@ Geolocation.requestAuthorization?.();
     } catch { }
     finally { setBuscandoEnd(false); }
   };
+
+  const preencherEnderecoPorCoordenadas = async (lat: number, lng: number) => {
+    try {
+      setBuscandoEnd(true);
+
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR&addressdetails=1`,
+        { headers: { 'User-Agent': 'BeautyHub/1.0' } }
+      );
+      const data = await res.json();
+      const addr = data?.address || {};
+
+      const rua = addr.road || addr.pedestrian || addr.footway || addr.residential;
+      const bairroNovo = addr.suburb || addr.neighbourhood || addr.city_district || addr.quarter;
+      const cidadeNova = addr.city || addr.town || addr.village || addr.municipality || addr.county;
+      const cepNovo = String(addr.postcode || '').replace(/\D/g, '');
+
+      if (rua) setEndereco(rua);
+      if (bairroNovo) setBairro(bairroNovo);
+      if (cidadeNova) setCidade(cidadeNova);
+      if (addr.house_number) setNumero(String(addr.house_number));
+      if (cepNovo) setCep(cepNovo);
+    } catch (e) {
+      console.log('Erro reverse geocode:', e);
+    } finally {
+      setBuscandoEnd(false);
+    }
+  };
+
+  const selecionarCoordenada = async (lat: number, lng: number, carregarEndereco = true) => {
+    const novaCoord = { lat, lng };
+
+    setCoords(novaCoord);
+    setCoordsOk(true);
+
+    mapRef.current?.animateToRegion({
+      latitude: lat,
+      longitude: lng,
+      latitudeDelta: 0.003,
+      longitudeDelta: 0.003,
+    }, 600);
+
+    if (carregarEndereco) {
+      await preencherEnderecoPorCoordenadas(lat, lng);
+    }
+  };
+
+  const usarMinhaLocalizacao = async () => {
+    if (userLocation) {
+      await selecionarCoordenada(userLocation.lat, userLocation.lng, true);
+      return;
+    }
+
+    try {
+      setBuscandoEnd(true);
+      Geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setUserLocation({ lat, lng });
+          await selecionarCoordenada(lat, lng, true);
+        },
+        () => {
+          setBuscandoEnd(false);
+          Alert.alert('Localização', 'Não foi possível pegar sua localização atual.');
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 30000,
+          maximumAge: 10000,
+        }
+      );
+    } catch {
+      setBuscandoEnd(false);
+      Alert.alert('Localização', 'Não foi possível pegar sua localização atual.');
+    }
+  };
+
+  useEffect(() => {
+    if (loading || !endereco || !cidade) return;
+
+    const timer = setTimeout(() => {
+      setBuscandoEnd(true);
+      geocodificarEndereco(endereco, cidade, numero, bairro);
+    }, 900);
+
+    return () => clearTimeout(timer);
+  }, [endereco, cidade, numero, bairro, loading]);
 
   const handleCepChange = async (text: string) => {
     const cleanCep = text.replace(/\D/g, '');
@@ -600,6 +689,16 @@ if (!isNovo) {
   }, []);
 
   useEffect(() => {
+    if (isNovo && !nome && admin?.nome) {
+      setNome(admin.nome);
+    }
+
+    if (!telefone && telefoneCadastro) {
+      setTelefone(telefoneCadastro);
+    }
+  }, [admin?.nome, isNovo, telefoneCadastro]);
+
+  useEffect(() => {
     if (coordsOk) {
       setTimeout(() => {
         mapRef.current?.animateToRegion({
@@ -627,6 +726,7 @@ if (!isNovo) {
 
   try {
     setSalvando(true);
+    const telefoneFinal = telefone.trim() || telefoneCadastro;
 
     const res: any = await httpsCallable(
   functionsInstance,
@@ -640,7 +740,7 @@ if (!isNovo) {
       bairro,
       numero,
       cidade,
-      telefone,
+      telefone: telefoneFinal,
       descricao,
       horarioFuncionamento: horarioFunc,
       img,
@@ -657,6 +757,7 @@ if (!isNovo) {
         fim: normalizarHorario(pausaFim) || '14:00',
       },
       fotoPerfil,
+      fotoCapa,
       avaliacao: 5.0,
       ativo: true,
       lat: coords.lat,
@@ -732,6 +833,58 @@ await reference.putFile(uri);
       });
       Alert.alert("Sucesso! ✅", "Foto atualizada.");
     } catch { Alert.alert("Erro", "Falha no upload."); } finally { setSalvando(false); }
+  };
+
+  const removerImagem = (tipoImg: 'perfil' | 'capa') => {
+    const urlAtual = tipoImg === 'perfil' ? fotoPerfil : fotoCapa;
+
+    if (!urlAtual) return;
+
+    Alert.alert(
+      'Excluir foto',
+      tipoImg === 'perfil'
+        ? 'Deseja remover a logomarca do estabelecimento?'
+        : 'Deseja remover a foto de capa do estabelecimento?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            const imgFallback = img?.startsWith('http') ? '✨' : img;
+
+            try {
+              setSalvando(true);
+
+              if (tipoImg === 'perfil') {
+                setFotoPerfil('');
+                setImg(imgFallback);
+              } else {
+                setFotoCapa('');
+              }
+
+              if (!isNovo) {
+                await firestore().collection('estabelecimentos').doc(estabelecimentoId).update(
+                  tipoImg === 'perfil'
+                    ? { fotoPerfil: '', img: imgFallback }
+                    : { fotoCapa: '' }
+                );
+
+                try {
+                  await storage().refFromURL(urlAtual).delete();
+                } catch (e) {
+                  console.log('Foto removida do cadastro, storage manteve arquivo:', e);
+                }
+              }
+            } catch {
+              Alert.alert('Erro', 'Não foi possível remover a foto.');
+            } finally {
+              setSalvando(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const escolherFotoServico = async () => {
@@ -921,7 +1074,17 @@ await reference.putFile(uri);
             <View style={s.photoRow}>
               <TouchableOpacity onPress={() => escolherImagem('perfil')} style={s.photoBox}>
                 {fotoPerfil
-                  ? <Image source={{ uri: fotoPerfil }} style={s.imgFill} />
+                  ? (
+                    <>
+                      <Image source={{ uri: fotoPerfil }} style={s.imgFill} />
+                      <TouchableOpacity
+                        onPress={() => removerImagem('perfil')}
+                        style={s.photoRemoveBtn}
+                      >
+                        <Icon name="trash-can-outline" size={16} color="#fff" />
+                      </TouchableOpacity>
+                    </>
+                  )
                   : (
                     <View style={s.photoAddContainer}>
                       <Icon name="image-plus" size={28} color="#555" />
@@ -1083,17 +1246,27 @@ await reference.putFile(uri);
     </View>
   </View>
 
-  <View style={s.inputBox}>
-    <Text style={s.inputLabel}>TEL</Text>
+  {telefoneCadastro ? (
+    <View style={s.inputBox}>
+      <Text style={s.inputLabel}>TELEFONE</Text>
+      <View style={s.lockedPhoneBox}>
+        <Icon name="phone-check" size={18} color={cor} style={{ marginRight: 8 }} />
+        <Text style={s.lockedPhoneText}>{telefoneCadastro}</Text>
+      </View>
+    </View>
+  ) : (
+    <View style={s.inputBox}>
+      <Text style={s.inputLabel}>TELEFONE DO ESTABELECIMENTO</Text>
 
-    <TextInput
-      style={s.input}
-      value={telefone}
-      onChangeText={setTelefone}
-      keyboardType="phone-pad"
-      placeholderTextColor="#444"
-    />
-  </View>
+      <TextInput
+        style={s.input}
+        value={telefone}
+        onChangeText={setTelefone}
+        keyboardType="phone-pad"
+        placeholderTextColor="#444"
+      />
+    </View>
+  )}
 
   <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
     <Text style={[s.inputLabel, { marginBottom: 0 }]}>
@@ -1128,6 +1301,10 @@ await reference.putFile(uri);
   provider={PROVIDER_GOOGLE}
   showsUserLocation={false}
   showsMyLocationButton={false}
+  onPress={(e) => {
+    const { latitude, longitude } = e.nativeEvent.coordinate;
+    selecionarCoordenada(latitude, longitude, true);
+  }}
   initialRegion={{
     latitude: coords.lat,
     longitude: coords.lng,
@@ -1154,12 +1331,10 @@ await reference.putFile(uri);
           longitude: coords.lng,
         }}
         draggable
-        onDragEnd={(e) =>
-          setCoords({
-            lat: e.nativeEvent.coordinate.latitude,
-            lng: e.nativeEvent.coordinate.longitude,
-          })
-        }
+        onDragEnd={(e) => {
+          const { latitude, longitude } = e.nativeEvent.coordinate;
+          selecionarCoordenada(latitude, longitude, true);
+        }}
         pinColor={cor}
         title="Local do Estabelecimento"
       />
@@ -1169,18 +1344,7 @@ await reference.putFile(uri);
 
 {userLocation && (
   <TouchableOpacity
-    onPress={() => {
-      const loc = { lat: userLocation.lat, lng: userLocation.lng };
-      setCoords(loc);
-      setCoordsOk(true);
-      // O animateToRegion é seguro aqui pois é disparado por um evento de clique
-      mapRef.current?.animateToRegion({
-        latitude: loc.lat,
-        longitude: loc.lng,
-        latitudeDelta: 0.003,
-        longitudeDelta: 0.003,
-      }, 600);
-    }}
+    onPress={usarMinhaLocalizacao}
     style={[s.btnMinhaLoc, { borderColor: cor }]}
   >
     <Icon name="crosshairs-gps" size={16} color={cor} style={{ marginRight: 8 }} />
@@ -1738,12 +1902,15 @@ const s = StyleSheet.create({
   photoRow: { flexDirection: 'row', marginBottom: 10 },
   photoBox: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#111', borderWidth: 1, borderColor: '#333', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
   imgFill: { width: '100%', height: '100%' },
+  photoRemoveBtn: { position: 'absolute', right: 4, bottom: 4, width: 30, height: 30, borderRadius: 15, backgroundColor: '#FF4444', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#111' },
   photoAddContainer: { alignItems: 'center' },
   photoAdd: { color: '#555', fontSize: 10, marginTop: 4, fontWeight: 'bold' },
   
   inputBox: { marginBottom: 15 },
   inputLabel: { color: '#666', fontSize: 10, fontWeight: 'bold', marginBottom: 8, letterSpacing: 0.5 },
   input: { backgroundColor: '#1A1A1A', borderRadius: 12, height: 50, paddingHorizontal: 15, color: '#FFF', fontSize: 15, borderWidth: 1, borderColor: '#222' },
+  lockedPhoneBox: { height: 50, borderRadius: 12, paddingHorizontal: 15, backgroundColor: '#151515', borderWidth: 1, borderColor: '#252525', flexDirection: 'row', alignItems: 'center' },
+  lockedPhoneText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
   
   typeList: { marginBottom: 20 },
   typeChip: { paddingHorizontal: 15, height: 38, borderRadius: 19, borderWidth: 1, borderColor: '#333', marginRight: 8, justifyContent: 'center' },

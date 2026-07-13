@@ -1,0 +1,1120 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BeautyHub - Carrossel Instagram</title>
+  <style>
+    :root {
+      --ink: #12110f;
+      --night: #1a1714;
+      --gold: #c9a96e;
+      --cream: #fff8ed;
+      --rose: #ff5c8a;
+      --mint: #4ec8a2;
+      --sky: #5e8cff;
+      --paper: #fffdf8;
+      --muted: #756b61;
+      --line: rgba(18, 17, 15, 0.12);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #26221d;
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      padding: 14px;
+      background: rgba(18, 17, 15, 0.92);
+      backdrop-filter: blur(12px);
+      color: white;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+    }
+
+    .toolbar strong {
+      color: var(--gold);
+    }
+
+    .toolbar button {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: white;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+    }
+
+    .toolbar button:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .deck {
+      display: grid;
+      gap: 34px;
+      justify-content: center;
+      padding: 34px 18px 56px;
+    }
+
+    .slide {
+      position: relative;
+      width: min(1080px, calc(100vw - 36px));
+      aspect-ratio: 4 / 5;
+      overflow: hidden;
+      border-radius: 0;
+      background:
+        radial-gradient(circle at 88% 12%, rgba(255, 92, 138, 0.16), transparent 25%),
+        radial-gradient(circle at 12% 88%, rgba(78, 200, 162, 0.14), transparent 24%),
+        linear-gradient(135deg, #fffaf0 0%, #f3efe7 58%, #e9dfd1 100%);
+      box-shadow: 0 18px 80px rgba(0, 0, 0, 0.35);
+    }
+
+    .slide.dark {
+      color: white;
+      background:
+        radial-gradient(circle at 78% 16%, rgba(201, 169, 110, 0.28), transparent 24%),
+        radial-gradient(circle at 18% 84%, rgba(94, 140, 255, 0.22), transparent 25%),
+        linear-gradient(145deg, #161310, #2d241b 58%, #11100f);
+    }
+
+    .slide.green {
+      background:
+        radial-gradient(circle at 88% 14%, rgba(78, 200, 162, 0.28), transparent 26%),
+        linear-gradient(145deg, #f8fff8, #edf8f1 56%, #e2eee7);
+    }
+
+    .slide.blue {
+      background:
+        radial-gradient(circle at 82% 12%, rgba(94, 140, 255, 0.24), transparent 28%),
+        linear-gradient(145deg, #f7fbff, #eef1fb 56%, #e4e8f3);
+    }
+
+    .pad {
+      position: absolute;
+      inset: 58px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 26px;
+    }
+
+    .topline,
+    .bottomline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      font-size: 25px;
+      font-weight: 750;
+      letter-spacing: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand img {
+      width: 58px;
+      height: 58px;
+      object-fit: contain;
+      border-radius: 16px;
+      background: white;
+      padding: 8px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 48px;
+      border: 1px solid rgba(201, 169, 110, 0.42);
+      border-radius: 999px;
+      padding: 10px 18px;
+      color: var(--gold);
+      background: rgba(255, 255, 255, 0.12);
+      font-size: 18px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 42px;
+      align-items: center;
+    }
+
+    .hero-copy h1,
+    .copy h1 {
+      margin: 0;
+      font-size: clamp(58px, 7vw, 102px);
+      line-height: 0.94;
+      letter-spacing: 0;
+    }
+
+    .hero-copy p,
+    .copy p {
+      margin: 24px 0 0;
+      color: inherit;
+      font-size: 32px;
+      line-height: 1.2;
+      font-weight: 650;
+      max-width: 610px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .dark .muted {
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .phone {
+      position: relative;
+      width: 360px;
+      height: 732px;
+      justify-self: center;
+      border: 12px solid #171412;
+      border-radius: 48px;
+      background: #050505;
+      box-shadow: 0 32px 80px rgba(18, 17, 15, 0.34);
+      overflow: hidden;
+    }
+
+    .dark .phone {
+      box-shadow: 0 32px 80px rgba(0, 0, 0, 0.62);
+    }
+
+    .screen {
+      width: 100%;
+      height: 100%;
+      padding: 24px 20px;
+      background: #fbf7ef;
+      color: #161310;
+      overflow: hidden;
+    }
+
+    .screen.dark-ui {
+      color: white;
+      background: #0f0f0f;
+    }
+
+    .statusbar {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .app-title strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .app-title span {
+      color: #887763;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .avatar,
+    .mini-icon {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      color: white;
+      background: var(--gold);
+      font-weight: 900;
+    }
+
+    .search {
+      display: flex;
+      align-items: center;
+      height: 42px;
+      border-radius: 10px;
+      padding: 0 14px;
+      background: white;
+      color: #8b8278;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: inset 0 0 0 1px var(--line);
+    }
+
+    .stories {
+      display: flex;
+      gap: 12px;
+      margin: 17px 0;
+    }
+
+    .story {
+      width: 58px;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 800;
+      color: #66594c;
+    }
+
+    .story span {
+      display: grid;
+      place-items: center;
+      width: 58px;
+      height: 58px;
+      margin-bottom: 6px;
+      border: 3px solid var(--rose);
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1a1714, #c9a96e);
+      color: white;
+    }
+
+    .estab-card,
+    .booking-card,
+    .admin-card,
+    .metric-card,
+    .list-card {
+      border-radius: 8px;
+      background: white;
+      box-shadow: 0 14px 32px rgba(22, 19, 16, 0.12);
+    }
+
+    .estab-card {
+      overflow: hidden;
+      margin-top: 14px;
+    }
+
+    .photo {
+      height: 126px;
+      background:
+        linear-gradient(135deg, rgba(201, 169, 110, 0.35), rgba(255, 92, 138, 0.2)),
+        url("../assets/logo.png") center / 92px auto no-repeat,
+        #1a1714;
+    }
+
+    .estab-body {
+      padding: 15px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .estab-body h3,
+    .booking-card h3,
+    .admin-card h3,
+    .metric-card h3,
+    .list-card h3 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .pill,
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: rgba(201, 169, 110, 0.16);
+      color: #8a6835;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 44px;
+      border-radius: 8px;
+      margin-top: 13px;
+      color: #18120a;
+      background: var(--gold);
+      font-weight: 950;
+      font-size: 14px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin: 16px 0;
+    }
+
+    .tabs span {
+      flex: 1;
+      text-align: center;
+      padding: 9px 6px;
+      border-radius: 999px;
+      background: rgba(201, 169, 110, 0.14);
+      color: #7b684d;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .tabs span.active {
+      color: #171412;
+      background: var(--gold);
+    }
+
+    .service {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-top: 10px;
+      background: #fffdf8;
+    }
+
+    .service strong {
+      display: block;
+      font-size: 14px;
+    }
+
+    .service span {
+      color: #87796b;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .times {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .times span {
+      padding: 9px 2px;
+      border-radius: 8px;
+      text-align: center;
+      background: #efe5d5;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .times .active {
+      background: var(--mint);
+      color: white;
+    }
+
+    .bottom-nav {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      padding: 11px 13px 15px;
+      background: #161310;
+      color: #8a8177;
+      font-size: 10px;
+      font-weight: 850;
+    }
+
+    .bottom-nav span {
+      display: block;
+      margin: 0 auto 4px;
+      width: 22px;
+      height: 22px;
+      border-radius: 8px;
+      background: #2d2822;
+    }
+
+    .bottom-nav .active {
+      color: var(--gold);
+    }
+
+    .admin-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 11px;
+      margin: 16px 0;
+    }
+
+    .metric-card {
+      padding: 15px;
+    }
+
+    .metric-card span {
+      color: #7c7268;
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .metric-card strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 27px;
+      line-height: 1;
+    }
+
+    .admin-card,
+    .booking-card,
+    .list-card {
+      padding: 15px;
+      margin-top: 12px;
+    }
+
+    .admin-action {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-radius: 8px;
+      background: #f9f2e7;
+      margin-top: 10px;
+    }
+
+    .admin-action b {
+      display: block;
+      font-size: 14px;
+    }
+
+    .admin-action small {
+      color: #766a5e;
+      font-weight: 750;
+    }
+
+    .wide-copy {
+      display: grid;
+      align-content: center;
+      gap: 28px;
+      height: 100%;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    .feature {
+      min-height: 148px;
+      padding: 20px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 10px 28px rgba(18, 17, 15, 0.08);
+    }
+
+    .dark .feature {
+      background: rgba(255, 255, 255, 0.08);
+      box-shadow: none;
+    }
+
+    .feature span {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      color: #171412;
+      background: var(--gold);
+      font-weight: 950;
+    }
+
+    .feature h3 {
+      margin: 0 0 8px;
+      font-size: 25px;
+      line-height: 1;
+    }
+
+    .feature p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.22;
+      font-weight: 700;
+    }
+
+    .dark .feature p {
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .steps {
+      display: grid;
+      gap: 16px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 16px;
+      align-items: center;
+      padding: 18px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.8);
+      box-shadow: 0 10px 28px rgba(18, 17, 15, 0.08);
+    }
+
+    .step b {
+      display: grid;
+      place-items: center;
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      color: #171412;
+      background: var(--gold);
+      font-size: 24px;
+    }
+
+    .step h3 {
+      margin: 0 0 5px;
+      font-size: 26px;
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .cta {
+      align-self: end;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: end;
+      gap: 24px;
+      border-top: 1px solid rgba(201, 169, 110, 0.32);
+      padding-top: 20px;
+    }
+
+    .cta strong {
+      font-size: 34px;
+      line-height: 1;
+    }
+
+    .qr {
+      display: grid;
+      place-items: center;
+      width: 122px;
+      height: 122px;
+      border: 10px solid white;
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, #161310 8px, transparent 8px) 0 0 / 24px 24px,
+        linear-gradient(#161310 8px, transparent 8px) 0 0 / 24px 24px,
+        #f8efe0;
+      color: var(--gold);
+      font-weight: 950;
+    }
+
+    .caption-box {
+      width: min(1080px, calc(100vw - 36px));
+      padding: 22px;
+      border-radius: 8px;
+      background: #fffdf8;
+      color: #211d18;
+      box-shadow: 0 14px 46px rgba(0, 0, 0, 0.25);
+    }
+
+    .caption-box h2 {
+      margin: 0 0 12px;
+    }
+
+    .caption-box pre {
+      white-space: pre-wrap;
+      margin: 0;
+      line-height: 1.45;
+      font: 16px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    @media (max-width: 760px) {
+      .pad {
+        inset: 34px;
+      }
+
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 18px;
+      }
+
+      .hero-copy h1,
+      .copy h1 {
+        font-size: 48px;
+      }
+
+      .hero-copy p,
+      .copy p {
+        font-size: 22px;
+      }
+
+      .phone {
+        width: 252px;
+        height: 512px;
+        border-width: 8px;
+        border-radius: 34px;
+      }
+
+      .screen {
+        padding: 17px 14px;
+      }
+
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .topline,
+      .bottomline {
+        font-size: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <span><strong>BeautyHub</strong> carrossel Instagram 1080x1350</span>
+    <button type="button" onclick="window.print()">Imprimir / salvar PDF</button>
+    <button type="button" onclick="document.body.classList.toggle('clean')">Modo visual</button>
+  </div>
+
+  <main class="deck" aria-label="Carrossel Instagram BeautyHub">
+    <section class="slide dark" id="slide-01">
+      <div class="pad">
+        <div class="topline">
+          <div class="brand"><img src="../assets/logo.png" alt="BeautyHub" /> BeautyHub</div>
+          <span class="tag">App de beleza</span>
+        </div>
+        <div class="hero">
+          <div class="hero-copy">
+            <h1>Agendar beleza ficou simples.</h1>
+            <p class="muted">Cliente encontra, escolhe o serviço e marca horário. O profissional recebe tudo no painel.</p>
+          </div>
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>9:41</span><span>5G</span></div>
+              <div class="app-header">
+                <div class="app-title"><strong>BeautyHub</strong><span>Agendamentos de beleza</span></div>
+                <div class="avatar">BH</div>
+              </div>
+              <div class="search">Buscar salão, barbearia, unhas...</div>
+              <div class="stories">
+                <div class="story"><span>ST</span>Promo</div>
+                <div class="story"><span>IA</span>Antes</div>
+                <div class="story"><span>SL</span>Hoje</div>
+                <div class="story"><span>VIP</span>Top</div>
+              </div>
+              <div class="estab-card">
+                <div class="photo"></div>
+                <div class="estab-body">
+                  <div class="row"><h3>Studio Bella</h3><span class="pill">Verificado</span></div>
+                  <p class="muted">Cabelo, maquiagem e sobrancelha</p>
+                  <div class="btn">Ver horários</div>
+                </div>
+              </div>
+              <div class="bottom-nav">
+                <div class="active"><span></span>Início</div>
+                <div><span></span>Stories</div>
+                <div><span></span>Horários</div>
+                <div><span></span>Avisos</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bottomline"><span>Para cliente e profissional</span><span>@beautyhub.app</span></div>
+      </div>
+    </section>
+
+    <section class="slide" id="slide-02">
+      <div class="pad">
+        <div class="topline"><span class="tag">Cliente</span><span>1 de 4</span></div>
+        <div class="hero">
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>9:42</span><span>100%</span></div>
+              <div class="app-header">
+                <div class="app-title"><strong>Encontre perto de você</strong><span>Filtros rápidos</span></div>
+                <div class="mini-icon">L</div>
+              </div>
+              <div class="search">Pesquise por bairro ou serviço</div>
+              <div class="tabs"><span class="active">Todos</span><span>Unhas</span><span>Cabelo</span></div>
+              <div class="estab-card">
+                <div class="photo"></div>
+                <div class="estab-body">
+                  <div class="row"><h3>Espaço Glam</h3><span class="pill">5.0</span></div>
+                  <p class="muted">Aberto para agendamentos</p>
+                  <div class="btn">Ver horários</div>
+                </div>
+              </div>
+              <div class="estab-card">
+                <div class="estab-body">
+                  <div class="row"><h3>Barbearia Prime</h3><span class="pill">Top</span></div>
+                  <p class="muted">Corte, barba e pigmentação</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="copy">
+            <h1>Achou. Tocou. Marcou.</h1>
+            <p class="muted">O cliente vê opções por categoria, localização, avaliação e disponibilidade.</p>
+          </div>
+        </div>
+        <div class="bottomline"><span>Menos conversa no WhatsApp</span><span>Mais horário confirmado</span></div>
+      </div>
+    </section>
+
+    <section class="slide green" id="slide-03">
+      <div class="pad">
+        <div class="topline"><span class="tag">Agendamento</span><span>2 de 4</span></div>
+        <div class="hero">
+          <div class="copy">
+            <h1>Serviço, data e hora em poucos toques.</h1>
+            <p class="muted">A experiência mostra só o que está disponível, deixando o caminho mais claro para confirmar.</p>
+          </div>
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>9:43</span><span>5G</span></div>
+              <div class="app-header">
+                <div class="app-title"><strong>Studio Bella</strong><span>Escolha seu horário</span></div>
+                <div class="mini-icon">OK</div>
+              </div>
+              <div class="service"><div><strong>Design de sobrancelha</strong><span>40 min</span></div><b>R$ 45</b></div>
+              <div class="service"><div><strong>Escova modelada</strong><span>50 min</span></div><b>R$ 70</b></div>
+              <div class="tabs"><span>Seg</span><span class="active">Ter</span><span>Qua</span></div>
+              <div class="times"><span>09:00</span><span class="active">10:30</span><span>11:00</span><span>14:00</span><span>15:30</span><span>17:00</span></div>
+              <div class="booking-card">
+                <h3>Resumo</h3>
+                <p class="muted">Terça, 10:30<br />Design de sobrancelha</p>
+                <div class="btn">Confirmar agendamento</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bottomline"><span>Prático para o cliente</span><span>Organizado para o salão</span></div>
+      </div>
+    </section>
+
+    <section class="slide blue" id="slide-04">
+      <div class="pad">
+        <div class="topline"><span class="tag">Cliente</span><span>3 de 4</span></div>
+        <div class="hero">
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>9:44</span><span>5G</span></div>
+              <div class="app-header">
+                <div class="app-title"><strong>Meus horários</strong><span>Tudo em um lugar</span></div>
+                <div class="mini-icon">AG</div>
+              </div>
+              <div class="list-card">
+                <div class="row"><h3>Hoje, 15:30</h3><span class="pill">Confirmado</span></div>
+                <p class="muted">Escova modelada<br />Studio Bella</p>
+              </div>
+              <div class="list-card">
+                <div class="row"><h3>Amanhã, 10:00</h3><span class="pill">Pix</span></div>
+                <p class="muted">Unhas em gel<br />Nail House</p>
+              </div>
+              <div class="booking-card">
+                <h3>Notificações</h3>
+                <p class="muted">Receba lembretes e avisos do estabelecimento sem perder horário.</p>
+              </div>
+            </div>
+          </div>
+          <div class="copy">
+            <h1>O cliente não se perde.</h1>
+            <p class="muted">Histórico, lembretes, pagamentos e avaliações ficam no app.</p>
+          </div>
+        </div>
+        <div class="bottomline"><span>Lembretes automáticos</span><span>Avaliação após atendimento</span></div>
+      </div>
+    </section>
+
+    <section class="slide dark" id="slide-05">
+      <div class="pad">
+        <div class="topline"><span class="tag">Admin</span><span>Painel profissional</span></div>
+        <div class="hero">
+          <div class="copy">
+            <h1>O controle do negócio na mão.</h1>
+            <p class="muted">Agenda, clientes, faturamento, stories, selo e divulgação em um painel simples.</p>
+          </div>
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>9:45</span><span>5G</span></div>
+              <div class="app-header">
+                <div class="app-title"><strong>Painel Admin</strong><span>Studio Bella</span></div>
+                <div class="mini-icon">AD</div>
+              </div>
+              <div class="admin-grid">
+                <div class="metric-card"><span>Hoje</span><strong>12</strong></div>
+                <div class="metric-card"><span>Receita</span><strong>R$ 840</strong></div>
+                <div class="metric-card"><span>Clientes</span><strong>38</strong></div>
+                <div class="metric-card"><span>Avisos</span><strong>4</strong></div>
+              </div>
+              <div class="admin-card">
+                <h3>Ações rápidas</h3>
+                <div class="admin-action"><span class="mini-icon">ST</span><div><b>Postar story</b><small>Promoções e novidades</small></div></div>
+                <div class="admin-action"><span class="mini-icon">AG</span><div><b>Ver agenda</b><small>Confirmar ou concluir</small></div></div>
+                <div class="admin-action"><span class="mini-icon">FI</span><div><b>Financeiro</b><small>Pagamentos e relatórios</small></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bottomline"><span>Sem planilha solta</span><span>Sem perder pedido</span></div>
+      </div>
+    </section>
+
+    <section class="slide" id="slide-06">
+      <div class="pad">
+        <div class="topline"><span class="tag">Admin</span><span>Agenda</span></div>
+        <div class="hero">
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>9:46</span><span>5G</span></div>
+              <div class="app-header">
+                <div class="app-title"><strong>Agendamentos</strong><span>Dia organizado</span></div>
+                <div class="mini-icon">OK</div>
+              </div>
+              <div class="list-card">
+                <div class="row"><h3>10:30 - Ana Lima</h3><span class="pill">Novo</span></div>
+                <p class="muted">Design de sobrancelha<br />Pagamento no local</p>
+                <div class="btn">Concluir atendimento</div>
+              </div>
+              <div class="list-card">
+                <div class="row"><h3>14:00 - Carla Reis</h3><span class="pill">Pix</span></div>
+                <p class="muted">Escova + maquiagem<br />R$ 190</p>
+              </div>
+              <div class="list-card">
+                <div class="row"><h3>16:30 - Júlia</h3><span class="pill">Avisar</span></div>
+                <p class="muted">Unhas em gel<br />Lembrete enviado</p>
+              </div>
+            </div>
+          </div>
+          <div class="copy">
+            <h1>Agenda limpa, atendimento fluindo.</h1>
+            <p class="muted">O profissional acompanha cada horário, status e forma de pagamento.</p>
+          </div>
+        </div>
+        <div class="bottomline"><span>Confirmar</span><span>Concluir</span><span>Cancelar com controle</span></div>
+      </div>
+    </section>
+
+    <section class="slide green" id="slide-07">
+      <div class="pad">
+        <div class="topline"><span class="tag">Divulgação</span><span>Stories e destaque</span></div>
+        <div class="wide-copy">
+          <div class="copy">
+            <h1>Divulgue o que vende mais.</h1>
+            <p class="muted">Stories, impulsionamento e selo verificado deixam o estabelecimento mais chamativo para novos clientes.</p>
+          </div>
+          <div class="feature-grid">
+            <article class="feature"><span>ST</span><h3>Stories</h3><p>Promoções, agenda livre e novidades aparecem no app.</p></article>
+            <article class="feature"><span>IA</span><h3>Simulação IA</h3><p>Mostre antes e depois para cabelo, maquiagem e sobrancelha.</p></article>
+            <article class="feature"><span>SE</span><h3>Selo</h3><p>Mais confiança para quem está escolhendo onde agendar.</p></article>
+            <article class="feature"><span>UP</span><h3>Impulsionar</h3><p>Mais visibilidade para captar clientes em datas estratégicas.</p></article>
+          </div>
+        </div>
+        <div class="bottomline"><span>Mais presença</span><span>Mais confiança</span><span>Mais agendamentos</span></div>
+      </div>
+    </section>
+
+    <section class="slide blue" id="slide-08">
+      <div class="pad">
+        <div class="topline"><span class="tag">Pagamentos</span><span>Cliente e admin</span></div>
+        <div class="hero">
+          <div class="copy">
+            <h1>Do agendamento ao pagamento.</h1>
+            <p class="muted">Pix, assinatura, relatórios e conta bancária ajudam o admin a cuidar do dinheiro com menos trabalho.</p>
+          </div>
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>9:47</span><span>5G</span></div>
+              <div class="app-header">
+                <div class="app-title"><strong>Financeiro</strong><span>Relatório do mês</span></div>
+                <div class="mini-icon">R$</div>
+              </div>
+              <div class="admin-grid">
+                <div class="metric-card"><span>Recebido</span><strong>R$ 4,8k</strong></div>
+                <div class="metric-card"><span>Pendente</span><strong>R$ 620</strong></div>
+              </div>
+              <div class="list-card">
+                <div class="row"><h3>Pix assinatura</h3><span class="pill">Pago</span></div>
+                <p class="muted">Plano Crescer Agenda</p>
+              </div>
+              <div class="list-card">
+                <div class="row"><h3>Impulsionamento</h3><span class="pill">Ativo</span></div>
+                <p class="muted">Campanha de fim de semana</p>
+              </div>
+              <div class="btn">Gerar relatório</div>
+            </div>
+          </div>
+        </div>
+        <div class="bottomline"><span>Organização financeira</span><span>Relatórios rápidos</span></div>
+      </div>
+    </section>
+
+    <section class="slide dark" id="slide-09">
+      <div class="pad">
+        <div class="topline"><span class="tag">Como funciona</span><span>Resumo</span></div>
+        <div class="wide-copy">
+          <div class="copy">
+            <h1>Simples dos dois lados.</h1>
+            <p class="muted">O cliente ganha praticidade. O admin ganha controle.</p>
+          </div>
+          <div class="steps">
+            <div class="step"><b>1</b><div><h3>Cliente escolhe</h3><p>Encontra o estabelecimento, serviço, data e horário.</p></div></div>
+            <div class="step"><b>2</b><div><h3>App organiza</h3><p>Registra o agendamento, envia avisos e evita confusão.</p></div></div>
+            <div class="step"><b>3</b><div><h3>Admin acompanha</h3><p>Visualiza agenda, status, pagamentos, stories e relatórios.</p></div></div>
+          </div>
+        </div>
+        <div class="bottomline"><span>Menos atrito</span><span>Mais agenda cheia</span></div>
+      </div>
+    </section>
+
+    <section class="slide" id="slide-10">
+      <div class="pad">
+        <div class="topline">
+          <div class="brand"><img src="../assets/logo.png" alt="BeautyHub" /> BeautyHub</div>
+          <span class="tag">Baixe agora</span>
+        </div>
+        <div class="hero">
+          <div class="copy">
+            <h1>Seu próximo horário começa aqui.</h1>
+            <p class="muted">Para clientes que querem praticidade e profissionais que querem vender com organização.</p>
+          </div>
+          <div class="phone">
+            <div class="screen dark-ui">
+              <div class="statusbar"><span>9:48</span><span>5G</span></div>
+              <div class="app-header">
+                <div class="app-title"><strong>BeautyHub</strong><span>Agenda de beleza</span></div>
+                <div class="avatar">BH</div>
+              </div>
+              <div class="booking-card" style="background:#fffdf8;color:#171412;margin-top:70px">
+                <h3>Para clientes</h3>
+                <p class="muted">Ache serviços de beleza e agende em minutos.</p>
+                <div class="btn">Entrar como cliente</div>
+              </div>
+              <div class="booking-card" style="background:#fffdf8;color:#171412">
+                <h3>Para profissionais</h3>
+                <p class="muted">Gerencie agenda, divulgação e financeiro.</p>
+                <div class="btn">Acesso profissional</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cta">
+          <strong>BeautyHub<br /><span class="muted">beleza mais prática.</span></strong>
+          <div class="qr">BH</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="caption-box" aria-label="Legenda sugerida">
+      <h2>Legenda sugerida</h2>
+      <pre>Agendar beleza nunca foi tão simples.
+
+No BeautyHub, o cliente encontra estabelecimentos, escolhe o serviço, vê horários disponíveis e confirma em poucos toques.
+
+Para o profissional, o painel organiza agenda, notificações, stories, pagamentos, selo, impulsionamento e relatórios.
+
+Mais praticidade para o cliente.
+Mais controle para o admin.
+Mais horários preenchidos para o seu negócio.
+
+#BeautyHub #AgendaDeBeleza #SalaoDeBeleza #Barbearia #Estetica #AgendamentoOnline #Beleza</pre>
+    </section>
+  </main>
+
+  <style>
+    @media print {
+      body {
+        background: white;
+      }
+
+      .toolbar,
+      .caption-box {
+        display: none;
+      }
+
+      .deck {
+        display: block;
+        padding: 0;
+      }
+
+      .slide {
+        width: 1080px;
+        height: 1350px;
+        page-break-after: always;
+        box-shadow: none;
+      }
+    }
+
+    body.clean .toolbar {
+      display: none;
+    }
+
+    body.exporting {
+      background: white;
+    }
+
+    body.exporting .toolbar,
+    body.exporting .caption-box {
+      display: none;
+    }
+
+    body.exporting .deck {
+      display: block;
+      padding: 0;
+    }
+
+    body.exporting .slide {
+      display: none;
+      width: 1080px;
+      height: 1350px;
+      box-shadow: none;
+    }
+
+    body.exporting .slide.is-export {
+      display: block;
+    }
+  </style>
+  <script>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const slideNumber = params.get('slide');
+      if (!slideNumber) return;
+      document.addEventListener('DOMContentLoaded', () => {
+        document.body.classList.add('exporting');
+        const id = `slide-${String(slideNumber).padStart(2, '0')}`;
+        document.querySelectorAll('.slide').forEach(slide => {
+          slide.classList.toggle('is-export', slide.id === id);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

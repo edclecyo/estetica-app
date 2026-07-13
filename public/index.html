@@ -8,7 +8,6 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #090909;
         --panel: rgba(18, 15, 10, 0.88);
         --text: #fff8e8;
         --muted: #d8c8a6;
@@ -17,9 +16,7 @@
         --line: rgba(245, 199, 106, 0.26);
       }
 
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
 
       body {
         margin: 0;
@@ -39,44 +36,12 @@
         padding: 28px 18px;
       }
 
-      .wrap {
-        width: min(740px, 100%);
-      }
-
-      .logo {
-        display: block;
-        width: min(260px, 62vw);
-        height: auto;
-        margin: 0 auto 12px;
-      }
-
-      .hero {
-        text-align: center;
-      }
-
-      .eyebrow {
-        margin: 0 0 10px;
-        color: var(--gold);
-        font-size: 13px;
-        font-weight: 800;
-        letter-spacing: 0;
-        text-transform: uppercase;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: clamp(34px, 7vw, 66px);
-        line-height: 1;
-        letter-spacing: 0;
-      }
-
-      .lead {
-        margin: 16px auto 0;
-        max-width: 600px;
-        color: var(--muted);
-        font-size: 18px;
-        line-height: 1.5;
-      }
+      .wrap { width: min(740px, 100%); }
+      .hero { text-align: center; }
+      .logo { display: block; width: min(260px, 62vw); height: auto; margin: 0 auto 12px; }
+      .eyebrow { margin: 0 0 10px; color: var(--gold); font-size: 13px; font-weight: 800; text-transform: uppercase; }
+      h1 { margin: 0; font-size: clamp(34px, 7vw, 66px); line-height: 1; }
+      .lead { margin: 16px auto 0; max-width: 600px; color: var(--muted); font-size: 18px; line-height: 1.5; }
 
       .panel {
         margin-top: 28px;
@@ -102,27 +67,11 @@
         font-weight: 900;
       }
 
-      .download.secondary {
-        margin-top: 12px;
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--text);
-      }
-
-      .install-options {
-        display: grid;
-        gap: 12px;
-      }
-
-      .device-panel {
-        display: none;
-      }
-
+      .install-options { display: grid; gap: 12px; }
+      .device-panel { display: none; }
       body.is-android .android-panel,
       body.is-ios .ios-panel,
-      body.is-other .other-panel {
-        display: block;
-      }
+      body.is-other .other-panel { display: block; }
 
       .meta {
         display: grid;
@@ -138,107 +87,23 @@
         background: rgba(255, 255, 255, 0.035);
       }
 
-      .label {
-        display: block;
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.2;
-      }
+      .label { display: block; color: var(--muted); font-size: 12px; line-height: 1.2; }
+      .value { display: block; margin-top: 5px; font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
+      .note { margin: 18px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; line-height: 1.45; }
 
-      .value {
-        display: block;
-        margin-top: 5px;
-        font-size: 14px;
-        font-weight: 800;
-        overflow-wrap: anywhere;
-      }
-
-      ol {
-        margin: 18px 0 0;
-        padding-left: 21px;
-        color: var(--muted);
-        line-height: 1.55;
-      }
-
-      .note {
-        margin: 18px 0 0;
-        padding-top: 16px;
-        border-top: 1px solid var(--line);
-        color: var(--muted);
-        font-size: 14px;
-        line-height: 1.45;
-      }
-
-      .tutorial {
-        margin-top: 18px;
-        padding-top: 16px;
-        border-top: 1px solid var(--line);
-      }
-
-      .tutorial h2 {
-        margin: 0 0 12px;
-        color: var(--text);
-        font-size: 17px;
-        line-height: 1.25;
-      }
-
-      .steps {
-        display: grid;
-        gap: 10px;
-      }
-
-      .step {
-        display: grid;
-        grid-template-columns: 34px 1fr;
-        gap: 10px;
-        align-items: center;
-        padding: 12px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.035);
-      }
-
-      .stepNumber {
-        display: grid;
-        place-items: center;
-        width: 34px;
-        height: 34px;
-        border-radius: 8px;
-        background: linear-gradient(180deg, #ffe39a, var(--gold-strong));
-        color: #161006;
-        font-weight: 900;
-      }
-
-      .step strong {
-        display: block;
-        color: var(--text);
-        font-size: 14px;
-      }
-
-      .step span {
-        display: block;
-        margin-top: 3px;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.35;
-      }
+      .tutorial { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+      .tutorial h2 { margin: 0 0 12px; color: var(--text); font-size: 17px; line-height: 1.25; }
+      .steps { display: grid; gap: 10px; }
+      .step { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.035); }
+      .stepNumber { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: linear-gradient(180deg, #ffe39a, var(--gold-strong)); color: #161006; font-weight: 900; }
+      .step strong { display: block; color: var(--text); font-size: 14px; }
+      .step span { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; line-height: 1.35; }
 
       @media (max-width: 560px) {
-        main {
-          padding-top: 18px;
-        }
-
-        .logo {
-          width: min(230px, 72vw);
-        }
-
-        .meta {
-          grid-template-columns: 1fr;
-        }
-
-        .panel {
-          padding: 18px;
-        }
+        main { padding-top: 18px; }
+        .logo { width: min(230px, 72vw); }
+        .meta { grid-template-columns: 1fr; }
+        .panel { padding: 18px; }
       }
     </style>
   </head>
@@ -257,29 +122,16 @@
         <div class="panel">
           <div class="device-panel android-panel">
             <div class="install-options">
-            <a class="download" href="/downloads/BeautyHub-v1.0.2-arm64-release.apk" download>
-              Baixar BeautyHub para Android
-            </a>
+              <a class="download" href="/downloads/BeautyHub-v1.0.2-arm64-release.apk" download>
+                Baixar BeautyHub para Android
+              </a>
             </div>
-
             <div class="meta" aria-label="Informacoes do app Android">
-              <div class="item">
-                <span class="label">Sistema</span>
-                <span class="value">Android</span>
-              </div>
-              <div class="item">
-                <span class="label">Arquivo</span>
-                <span class="value">APK 1.0.2</span>
-              </div>
-              <div class="item">
-                <span class="label">Compatibilidade</span>
-                <span class="value">Android 7+ arm64</span>
-              </div>
+              <div class="item"><span class="label">Sistema</span><span class="value">Android</span></div>
+              <div class="item"><span class="label">Arquivo</span><span class="value">APK 1.0.2</span></div>
+              <div class="item"><span class="label">Compatibilidade</span><span class="value">Android 7+ arm64</span></div>
             </div>
-
-            <p class="note">
-              Este download e apenas para Android. No iPhone, abra este mesmo link pelo Safari.
-            </p>
+            <p class="note">Este download e apenas para Android. No iPhone, abra este mesmo link pelo Safari.</p>
           </div>
 
           <div class="device-panel ios-panel">
@@ -288,73 +140,30 @@
                 Instalar BeautyHub no iPhone
               </a>
             </div>
-
             <div class="meta" aria-label="Informacoes do app para iPhone">
-              <div class="item">
-                <span class="label">Sistema</span>
-                <span class="value">iPhone</span>
-              </div>
-              <div class="item">
-                <span class="label">Formato</span>
-                <span class="value">Web App</span>
-              </div>
-              <div class="item">
-                <span class="label">Compatibilidade</span>
-                <span class="value">Safari</span>
-              </div>
+              <div class="item"><span class="label">Sistema</span><span class="value">iPhone</span></div>
+              <div class="item"><span class="label">Formato</span><span class="value">Web App</span></div>
+              <div class="item"><span class="label">Compatibilidade</span><span class="value">Safari</span></div>
             </div>
-
-            <p class="note">
-              Esta versao e exclusiva para iPhone. Use o Safari para adicionar o BeautyHub na tela inicial.
-            </p>
+            <p class="note">Esta versao e exclusiva para iPhone. Use o Safari para adicionar o BeautyHub na tela inicial.</p>
 
             <div class="tutorial" aria-label="Como instalar no iPhone">
               <h2>Como colocar no iPhone igual app</h2>
               <div class="steps">
-                <div class="step">
-                  <span class="stepNumber">1</span>
-                  <div>
-                    <strong>Abra pelo Safari</strong>
-                    <span>Toque em Instalar BeautyHub no iPhone e, se abrir fora do Safari, escolha abrir no Safari.</span>
-                  </div>
-                </div>
-                <div class="step">
-                  <span class="stepNumber">2</span>
-                  <div>
-                    <strong>Toque em compartilhar</strong>
-                    <span>No rodape do Safari, toque no icone de compartilhar.</span>
-                  </div>
-                </div>
-                <div class="step">
-                  <span class="stepNumber">3</span>
-                  <div>
-                    <strong>Adicionar a Tela de Inicio</strong>
-                    <span>Escolha essa opcao e confirme em Adicionar. O BeautyHub aparece como app na tela inicial.</span>
-                  </div>
-                </div>
+                <div class="step"><span class="stepNumber">1</span><div><strong>Abra pelo Safari</strong><span>Toque em Instalar BeautyHub no iPhone e, se abrir fora do Safari, escolha abrir no Safari.</span></div></div>
+                <div class="step"><span class="stepNumber">2</span><div><strong>Toque em compartilhar</strong><span>No rodape do Safari, toque no icone de compartilhar.</span></div></div>
+                <div class="step"><span class="stepNumber">3</span><div><strong>Adicionar a Tela de Inicio</strong><span>Escolha essa opcao e confirme em Adicionar. O BeautyHub aparece como app na tela inicial.</span></div></div>
               </div>
             </div>
           </div>
 
           <div class="device-panel other-panel">
             <div class="meta" aria-label="Escolha pelo aparelho correto">
-              <div class="item">
-                <span class="label">Android</span>
-                <span class="value">Abra este link no celular Android para baixar o APK.</span>
-              </div>
-              <div class="item">
-                <span class="label">iPhone</span>
-                <span class="value">Abra este link no Safari do iPhone para instalar na tela inicial.</span>
-              </div>
-              <div class="item">
-                <span class="label">Organizacao</span>
-                <span class="value">Cada aparelho recebe apenas a opcao correta.</span>
-              </div>
+              <div class="item"><span class="label">Android</span><span class="value">Abra este link no celular Android para baixar o APK.</span></div>
+              <div class="item"><span class="label">iPhone</span><span class="value">Abra este link no Safari do iPhone para instalar na tela inicial.</span></div>
+              <div class="item"><span class="label">Organizacao</span><span class="value">Cada aparelho recebe apenas a opcao correta.</span></div>
             </div>
-
-            <p class="note">
-              Para evitar instalacao errada, o download Android e a versao iPhone so aparecem no aparelho compativel.
-            </p>
+            <p class="note">Para evitar instalacao errada, o download Android e a versao iPhone so aparecem no aparelho compativel.</p>
           </div>
         </div>
       </section>

@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   PanResponder,
   Platform,
+  Linking,
 } from "react-native";
 
 import firestore, {
@@ -66,6 +67,35 @@ const getStoryType = (story: any) => {
   return /\.(mp4|mov|m4v|webm)$/i.test(uri) ? "video" : "image";
 };
 
+const webStoryImageStyle = (uri: string) => ({
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  width: "100%",
+  height: "100%",
+  backgroundImage: `url("${uri.replace(/"/g, '\\"')}")`,
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+  backgroundColor: "#000",
+});
+
+const webStoryImgStyle = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+  objectPosition: "center",
+  backgroundColor: "#000",
+  WebkitUserSelect: "none",
+  userSelect: "none",
+  WebkitTouchCallout: "none",
+  zIndex: 2,
+};
+
 
 export default function StoryView() {
   const route: any = useRoute();
@@ -89,11 +119,15 @@ export default function StoryView() {
   const [loadingStats, setLoadingStats] = useState(false);
   const [videoDuration, setVideoDuration] = useState(5000);
   const [mediaError, setMediaError] = useState(false);
+  const [mediaLoadStatus, setMediaLoadStatus] = useState<
+    "idle" | "loading" | "loaded" | "error" | "timeout"
+  >("idle");
 
   const story = storiesFiltrados[index] || storyDireto;
   const mediaUri = getStoryMediaUri(story);
   const storyType = getStoryType(story);
   const isWebVideo = Platform.OS === "web" && storyType === "video";
+  const isWebImage = Platform.OS === "web" && storyType !== "video";
   const user = auth().currentUser;
   const isAdmin = user?.uid === story?.adminId;
 
@@ -131,16 +165,29 @@ const panResponder = useRef(
     progress.setValue(0);
     pausedValue.current = 0;
     setMediaError(false);
+    setMediaLoadStatus(isWebImage && mediaUri ? "loading" : "idle");
 
     registrarView();
     onVisto?.(story.id);
 
-    if (storyType !== "video") {
+    if (storyType !== "video" && !isWebImage) {
       startAnimation(0, 5000);
     }
 
     return () => progress.stopAnimation();
-  }, [index]);
+  }, [index, isWebImage, mediaUri, storyType]);
+
+  useEffect(() => {
+    if (!isWebImage || !mediaUri) return;
+
+    const timeout = setTimeout(() => {
+      setMediaLoadStatus(current =>
+        current === "loaded" || current === "error" ? current : "timeout"
+      );
+    }, 3500);
+
+    return () => clearTimeout(timeout);
+  }, [isWebImage, mediaUri, story?.id]);
 
   useEffect(() => {
   if (!story?.id || !user?.uid) {
@@ -167,6 +214,19 @@ function abrirAgendamento() {
     estabelecimentoId: story.estabelecimentoId,
   });
 }
+
+function abrirMidiaDireta() {
+  if (!mediaUri) return;
+
+  const webWindow = (globalThis as any)?.window;
+  if (Platform.OS === "web" && webWindow?.open) {
+    webWindow.open(mediaUri, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  Linking.openURL(mediaUri).catch(() => {});
+}
+
   function startAnimation(resumeValue = 0, duration = 5000) {
     progress.setValue(resumeValue);
 
@@ -437,6 +497,8 @@ function abrirAgendamento() {
   }
 
   function proximo() {
+    if (isWebImage) return;
+
     if (index + 1 >= storiesFiltrados.length) {
       fecharStories();
     } else {
@@ -455,29 +517,61 @@ function abrirAgendamento() {
     return null;
   }
 
-  if (Platform.OS === "web" && adminSimple && storyType !== "video") {
+  if (isWebImage) {
     return (
       <View style={s.simpleContainer}>
-        {mediaUri ? (
-          React.createElement("img" as any, {
-            src: mediaUri,
-            alt: story.caption || story.nome || "Story",
-            style: {
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              backgroundColor: "#000",
-              zIndex: 1,
-            },
-          })
+        {mediaUri && !mediaError ? (
+          <>
+            {React.createElement("div" as any, {
+              key: `bg-${story.id}`,
+              role: "img",
+              "aria-label": story.caption || story.nome || "Story",
+              style: {
+                ...webStoryImageStyle(mediaUri),
+                zIndex: 1,
+              },
+            })}
+            {React.createElement("img" as any, {
+              key: `img-${story.id}`,
+              src: mediaUri,
+              alt: story.caption || story.nome || "Story",
+              decoding: "async",
+              loading: "eager",
+              onLoad: () => setMediaLoadStatus("loaded"),
+              onError: () => {
+                setMediaLoadStatus("error");
+                setMediaError(true);
+              },
+              style: webStoryImgStyle,
+            })}
+          </>
         ) : (
           <View style={[s.image, s.mediaFallback]}>
             <Ionicons name="image-outline" size={42} color="#C9A96E" />
             <Text style={s.mediaFallbackTitle}>Story indisponivel</Text>
           </View>
         )}
+
+        {mediaLoadStatus === "timeout" || mediaLoadStatus === "error" ? (
+          <View style={s.storyDebugBox}>
+            <Text style={s.storyDebugTitle}>
+              {mediaLoadStatus === "error"
+                ? "Imagem bloqueada ou indisponivel"
+                : "Imagem nao renderizou no iPhone"}
+            </Text>
+            <Text style={s.storyDebugText}>
+              Teste abrindo a imagem direta. Se abrir fora do app, o problema e
+              renderizacao do Safari. Se nao abrir, e permissao ou URL.
+            </Text>
+            <TouchableOpacity
+              style={s.storyDebugButton}
+              onPress={abrirMidiaDireta}
+              activeOpacity={0.85}
+            >
+              <Text style={s.storyDebugButtonText}>Abrir imagem</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <View style={s.simpleTopOverlay} />
 
@@ -500,25 +594,31 @@ function abrirAgendamento() {
         ) : null}
 
         <View style={[s.bottomActionArea, { bottom: actionBottom }]}>
-          <TouchableOpacity
-            style={s.adminSwipeBox}
-            onPress={abrirStats}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="chevron-up" size={20} color="#FFF" />
-            <Text style={s.swipeLabel}>Atividade</Text>
-          </TouchableOpacity>
+          {isAdmin ? (
+            <TouchableOpacity
+              style={s.adminSwipeBox}
+              onPress={abrirStats}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="chevron-up" size={20} color="#FFF" />
+              <Text style={s.swipeLabel}>Atividade</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={s.agendarStoryBtn}
+              onPress={abrirAgendamento}
+              activeOpacity={0.9}
+            >
+              <Text style={s.agendarStoryText}>Faça seu agendamento!</Text>
+              <Ionicons name="calendar-outline" size={20} color="#000" />
+            </TouchableOpacity>
+          )}
         </View>
 
-        <Modal
-          visible={showStats}
-          transparent
-          animationType="none"
-          onRequestClose={fecharStats}
-        >
-          <View style={s.modalOverlay}>
-            <Pressable style={{ flex: 1 }} onPress={fecharStats} />
-            <Animated.View style={[s.statsSheet, { transform: [{ translateY: statsAnim }] }]}>
+        {showStats ? (
+          <View style={s.webStatsOverlay}>
+            <Pressable style={s.webStatsBackdrop} onPress={fecharStats} />
+            <View style={s.webStatsSheet}>
               <View style={s.sheetHandle} />
               <Text style={s.sheetTitle}>Atividade do Story</Text>
               <View style={s.statsHeader}>
@@ -535,9 +635,9 @@ function abrirAgendamento() {
                   <Text style={s.statLabel}>Compart.</Text>
                 </View>
               </View>
-            </Animated.View>
+            </View>
           </View>
-        </Modal>
+        ) : null}
       </View>
     );
   }
@@ -565,21 +665,10 @@ function abrirAgendamento() {
           }}
         />
       ) : mediaUri && !mediaError && Platform.OS === "web" ? (
-        React.createElement("img" as any, {
-          src: mediaUri,
-          alt: story.caption || story.nome || "Story",
-          onError: () => {
-            setMediaError(true);
-            startAnimation(0, 5000);
-          },
-          style: {
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            backgroundColor: "#000",
-          },
+        React.createElement("div" as any, {
+          role: "img",
+          "aria-label": story.caption || story.nome || "Story",
+          style: webStoryImageStyle(mediaUri),
         })
       ) : mediaUri && !mediaError ? (
         <Image
@@ -890,6 +979,10 @@ const s = StyleSheet.create({
 
   simpleContainer: {
     flex: 1,
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    minHeight: Platform.OS === "web" ? ("100dvh" as any) : undefined,
     backgroundColor: "#000",
     overflow: "hidden",
   },
@@ -938,6 +1031,69 @@ const s = StyleSheet.create({
     lineHeight: 19,
     marginTop: 6,
     textAlign: "center",
+  },
+
+  storyDebugBox: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    top: "32%",
+    zIndex: 80,
+    borderRadius: 8,
+    padding: 16,
+    backgroundColor: "rgba(12,12,12,0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(201,169,110,0.45)",
+  },
+
+  storyDebugTitle: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  storyDebugText: {
+    color: "#D8D8D8",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+    textAlign: "center",
+  },
+
+  storyDebugButton: {
+    minHeight: 44,
+    borderRadius: 8,
+    marginTop: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#C9A96E",
+  },
+
+  storyDebugButtonText: {
+    color: "#000",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  webStatsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 90,
+    justifyContent: "flex-end",
+  },
+
+  webStatsBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+
+  webStatsSheet: {
+    minHeight: 220,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 20,
+    paddingBottom: 34,
+    backgroundColor: "#121212",
   },
 
   topOverlay: {

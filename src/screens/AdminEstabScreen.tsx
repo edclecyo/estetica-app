@@ -184,6 +184,11 @@ export default function AdminEstabScreen() {
   const [nsFoto, setNsFoto] = useState('');
   const [subindoFotoServico, setSubindoFotoServico] = useState(false);
 
+const [buscaEndereco, setBuscaEndereco] = useState('');
+const [sugestoesEndereco, setSugestoesEndereco] = useState<any[]>([]);
+const [buscandoSugestoes, setBuscandoSugestoes] = useState(false);
+
+
   const stats = useMemo(() => {
     const concluido = agends.filter(a => a.status === 'concluido').reduce((acc, curr) => acc + (curr.servicoPreco || 0), 0);
     const pendente = agends.filter(a => a.status === 'confirmado').reduce((acc, curr) => acc + (curr.servicoPreco || 0), 0);
@@ -280,9 +285,10 @@ Geolocation.requestAuthorization?.();
 }, []);
 
   const geocodificarEndereco = async (rua: string, cid: string, n: string, bairo: string) => {
-    if (!rua || !cid) return;
+    const termo = [rua, n, bairo, cid].map(v => String(v || '').trim()).filter(Boolean).join(', ');
+    if (!termo) return;
     try {
-      const query = encodeURIComponent(`${rua}, ${n}, ${bairo}, ${cid}, Brasil`);
+      const query = encodeURIComponent(`${termo}, Brasil`);
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1&accept-language=pt-BR&countrycodes=br`,
         { headers: { 'User-Agent': 'EsteticaApp/1.0' } }
@@ -302,7 +308,91 @@ Geolocation.requestAuthorization?.();
     } catch { }
     finally { setBuscandoEnd(false); }
   };
+const buscarSugestoesEndereco = async (texto: string) => {
+  setBuscaEndereco(texto);
+  setEndereco(texto);
 
+  if (texto.trim().length < 3) {
+    setSugestoesEndereco([]);
+    return;
+  }
+
+  try {
+    setBuscandoSugestoes(true);
+
+    const query = encodeURIComponent(`${texto}, Brasil`);
+
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=5&addressdetails=1`,
+      {
+        headers: {
+          'User-Agent': 'BeautyHub/1.0',
+        },
+      }
+    );
+
+    const data = await res.json();
+
+    setSugestoesEndereco(data || []);
+  } catch (e) {
+    console.log(e);
+  } finally {
+    setBuscandoSugestoes(false);
+  }
+};
+const selecionarSugestaoEndereco = async (item: any) => {
+  const lat = parseFloat(item.lat);
+  const lng = parseFloat(item.lon);
+
+  const addr = item.address || {};
+  const rua =
+    addr.road ||
+    addr.pedestrian ||
+    addr.residential ||
+    item.display_name ||
+    '';
+
+  setBuscaEndereco(item.display_name || rua);
+
+  setEndereco(rua);
+
+  setBairro(
+    addr.suburb ||
+    addr.neighbourhood ||
+    ''
+  );
+
+  setCidade(
+    addr.city ||
+    addr.town ||
+    addr.village ||
+    ''
+  );
+
+  setCep(
+    String(addr.postcode || '')
+      .replace(/\D/g, '')
+  );
+
+  setCoords({
+    lat,
+    lng,
+  });
+
+  setCoordsOk(true);
+
+  setSugestoesEndereco([]);
+
+  mapRef.current?.animateToRegion(
+    {
+      latitude: lat,
+      longitude: lng,
+      latitudeDelta: 0.003,
+      longitudeDelta: 0.003,
+    },
+    800
+  );
+};
   const preencherEnderecoPorCoordenadas = async (lat: number, lng: number) => {
     try {
       setBuscandoEnd(true);
@@ -318,6 +408,14 @@ Geolocation.requestAuthorization?.();
       const bairroNovo = addr.suburb || addr.neighbourhood || addr.city_district || addr.quarter;
       const cidadeNova = addr.city || addr.town || addr.village || addr.municipality || addr.county;
       const cepNovo = String(addr.postcode || '').replace(/\D/g, '');
+      const textoBusca = [
+        rua,
+        addr.house_number,
+        bairroNovo,
+        cidadeNova,
+      ].filter(Boolean).join(', ');
+
+      setBuscaEndereco(textoBusca || data.display_name || '');
 
       if (rua) setEndereco(rua);
       if (bairroNovo) setBairro(bairroNovo);
@@ -381,7 +479,7 @@ Geolocation.requestAuthorization?.();
   };
 
   useEffect(() => {
-    if (loading || !endereco || !cidade) return;
+    if (loading || !endereco) return;
 
     const timer = setTimeout(() => {
       setBuscandoEnd(true);
@@ -609,6 +707,7 @@ if (!isNovo) {
         setNome(d.nome);
         setTipo(d.tipo);
         setEndereco(d.endereco);
+        setBuscaEndereco(d.endereco || '');
         setCep(d.cep || '');
         setBairro(d.bairro || '');
         setNumero(d.numero || '');
@@ -713,7 +812,14 @@ if (!isNovo) {
 
    const salvar = async () => {
   // 🔒 validação básica
-  if (!nome || !endereco || !cidade) {
+  const nomeFinal = nome.trim();
+  const enderecoFinal = (endereco || buscaEndereco).trim();
+  const cidadeFinal = cidade.trim();
+  const bairroFinal = bairro.trim();
+  const numeroFinal = numero.trim();
+  const cepFinal = cep.trim();
+
+  if (!nomeFinal || !enderecoFinal || !cidadeFinal) {
     Alert.alert('Atenção', 'Nome, endereço e cidade são obrigatórios.');
     return;
   }
@@ -733,13 +839,13 @@ if (!isNovo) {
   'salvarEstabelecimento'
 )({
       estabelecimentoId: isNovo ? undefined : estabelecimentoId,
-      nome,
+      nome: nomeFinal,
       tipo,
-      endereco,
-      cep,
-      bairro,
-      numero,
-      cidade,
+      endereco: enderecoFinal,
+      cep: cepFinal,
+      bairro: bairroFinal,
+      numero: numeroFinal,
+      cidade: cidadeFinal,
       telefone: telefoneFinal,
       descricao,
       horarioFuncionamento: horarioFunc,
@@ -762,6 +868,10 @@ if (!isNovo) {
       ativo: true,
       lat: coords.lat,
       lng: coords.lng,
+      coords: {
+        lat: coords.lat,
+        lng: coords.lng,
+      },
       // ❌ NÃO precisa mandar adminId (vem do backend via auth)
     });
 
@@ -1191,9 +1301,10 @@ await reference.putFile(uri);
     <Text style={s.inputLabel}>ENDEREÇO (RUA)</Text>
 
     <TextInput
-      style={s.input}
-      value={endereco}
-      onChangeText={setEndereco}
+  style={s.input}
+  value={buscaEndereco || endereco}
+  onChangeText={buscarSugestoesEndereco}
+  placeholder="Digite o endereço"
       placeholderTextColor="#444"
       onBlur={() =>
         geocodificarEndereco(
@@ -1205,7 +1316,45 @@ await reference.putFile(uri);
       }
     />
   </View>
+{buscandoSugestoes && (
+  <ActivityIndicator
+    size="small"
+    color={cor}
+    style={{ marginTop: 10 }}
+  />
+)}
 
+{sugestoesEndereco.length > 0 && (
+  <View
+    style={{
+      backgroundColor: '#1A1A1A',
+      borderRadius: 12,
+      marginTop: 10,
+      overflow: 'hidden',
+    }}
+  >
+    {sugestoesEndereco.map((item, index) => (
+      <TouchableOpacity
+        key={index}
+        onPress={() => selecionarSugestaoEndereco(item)}
+        style={{
+          padding: 14,
+          borderBottomWidth: 1,
+          borderBottomColor: '#222',
+        }}
+      >
+        <Text
+          style={{
+            color: '#FFF',
+            fontSize: 14,
+          }}
+        >
+          {item.display_name}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+)}
   <View style={s.row}>
     <View style={[s.inputBox, { flex: 1, marginRight: 10 }]}>
       <Text style={s.inputLabel}>BAIRRO</Text>
@@ -1301,15 +1450,26 @@ await reference.putFile(uri);
   provider={PROVIDER_GOOGLE}
   showsUserLocation={false}
   showsMyLocationButton={false}
-  onPress={(e) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-    selecionarCoordenada(latitude, longitude, true);
-  }}
-  initialRegion={{
+  region={{
     latitude: coords.lat,
     longitude: coords.lng,
     latitudeDelta: 0.005,
     longitudeDelta: 0.005,
+  }}
+  onPress={async (e) => {
+    const { latitude, longitude } =
+      e.nativeEvent.coordinate;
+
+    setCoords({
+      lat: latitude,
+      lng: longitude,
+    });
+    setCoordsOk(true);
+
+    await preencherEnderecoPorCoordenadas(
+      latitude,
+      longitude
+    );
   }}
 >
       {/* 📍 LOCAL DO USUÁRIO */}

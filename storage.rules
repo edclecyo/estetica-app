@@ -11,14 +11,31 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*|video/.*');
     }
 
+    function isSafeStoryUpload() {
+      return request.resource.size < 80 * 1024 * 1024;
+    }
+
     match /estabelecimentos/{estabelecimentoId}/{allPaths=**} {
       allow read: if true;
       allow write: if signedIn() && isSafeMedia();
     }
 
-    match /stories/{allPaths=**} {
+    match /stories/{fileName} {
       allow read: if true;
-      allow write: if signedIn() && isSafeMedia();
+      allow create, update: if signedIn()
+        && fileName.matches(request.auth.uid + '_.*')
+        && isSafeStoryUpload();
+      allow delete: if signedIn()
+        && fileName.matches(request.auth.uid + '_.*');
+    }
+
+    match /stories/{estabelecimentoId}/{fileName} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && firestore.get(/databases/(default)/documents/estabelecimentos/$(estabelecimentoId)).data.adminId == request.auth.uid
+        && isSafeStoryUpload();
+      allow delete: if signedIn()
+        && firestore.get(/databases/(default)/documents/estabelecimentos/$(estabelecimentoId)).data.adminId == request.auth.uid;
     }
 
     match /simulacoesIA/originais/{uid}/{allPaths=**} {

@@ -4,7 +4,26 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#090909" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="BeautyHub" />
+    <link rel="manifest" href="/app-iphone/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/beautyhub-icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/beautyhub-icon-180.png" />
     <title>BeautyHub - Instalar App</title>
+    <script>
+      (function () {
+        var isStandalone =
+          window.navigator.standalone === true ||
+          window.matchMedia('(display-mode: standalone)').matches;
+        var ua = navigator.userAgent || '';
+        var platform = navigator.platform || '';
+        var isIOS = /iPad|iPhone|iPod/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        if (isIOS && isStandalone && location.pathname !== '/app-iphone/') {
+          location.replace('/app-iphone/');
+        }
+      })();
+    </script>
     <style>
       :root {
         color-scheme: dark;
@@ -135,22 +154,17 @@
           </div>
 
           <div class="device-panel ios-panel">
-            <div class="install-options">
-              <a class="download" href="/app-iphone/" aria-label="Instalar BeautyHub no iPhone">
-                Instalar BeautyHub no iPhone
-              </a>
-            </div>
             <div class="meta" aria-label="Informacoes do app para iPhone">
               <div class="item"><span class="label">Sistema</span><span class="value">iPhone</span></div>
-              <div class="item"><span class="label">Formato</span><span class="value">Web App</span></div>
+              <div class="item"><span class="label">Instalação</span><span class="value">Tela de Início</span></div>
               <div class="item"><span class="label">Compatibilidade</span><span class="value">Safari</span></div>
             </div>
-            <p class="note">Esta versao e exclusiva para iPhone. Use o Safari para adicionar o BeautyHub na tela inicial.</p>
+            <p class="note">Para melhor usabilidade no iPhone, coloque o BeautyHub na tela inicial e abra por esse icone.</p>
 
             <div class="tutorial" aria-label="Como instalar no iPhone">
               <h2>Como colocar no iPhone igual app</h2>
               <div class="steps">
-                <div class="step"><span class="stepNumber">1</span><div><strong>Abra pelo Safari</strong><span>Toque em Instalar BeautyHub no iPhone e, se abrir fora do Safari, escolha abrir no Safari.</span></div></div>
+                <div class="step"><span class="stepNumber">1</span><div><strong>Abra no Safari</strong><span>Use o Safari do iPhone para acessar esta página.</span></div></div>
                 <div class="step"><span class="stepNumber">2</span><div><strong>Toque em compartilhar</strong><span>No rodape do Safari, toque no icone de compartilhar.</span></div></div>
                 <div class="step"><span class="stepNumber">3</span><div><strong>Adicionar a Tela de Inicio</strong><span>Escolha essa opcao e confirme em Adicionar. O BeautyHub aparece como app na tela inicial.</span></div></div>
               </div>

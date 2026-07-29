@@ -128,8 +128,17 @@ service cloud.firestore {
 
     match /stories/{id} {
       allow read: if resource.data.ativo == true || (isAdmin() && resource.data.adminId == request.auth.uid) || isSuperAdmin();
-      allow create: if isAdmin()
-        && request.resource.data.adminId == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.adminId == request.auth.uid
+        && request.resource.data.estabelecimentoId is string
+        && request.resource.data.ativo == true;
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'likesCount',
+          'views',
+          'visualizacoes',
+          'compartilhamentos'
+        ]);
       allow update, delete: if (isAdmin() && resource.data.adminId == request.auth.uid) || isSuperAdmin();
     }
 

@@ -32,6 +32,7 @@ export const gerarRelatorioFinanceiro = onCall(
       estabelecimentoId,
       dataInicio,
       dataFim,
+      periodoTipo,
     } = req.data || {};
 
     if (!estabelecimentoId || !dataInicio || !dataFim) {
@@ -105,6 +106,8 @@ export const gerarRelatorioFinanceiro = onCall(
     );
 
     const porServico: Record<string, { qtd: number; total: number }> = {};
+    const porDia: Record<string, { qtd: number; total: number }> = {};
+    const porStatus: Record<string, number> = {};
 
     filtrados.forEach(a => {
       const nome = a.servicoNome || 'Serviço';
@@ -114,6 +117,23 @@ export const gerarRelatorioFinanceiro = onCall(
 
       porServico[nome].qtd += 1;
       porServico[nome].total += Number(a.servicoPreco || 0);
+
+      const dia = String(a.data || 'Sem data');
+      if (!porDia[dia]) {
+        porDia[dia] = { qtd: 0, total: 0 };
+      }
+
+      porDia[dia].qtd += 1;
+      porDia[dia].total += Number(a.servicoPreco || 0);
+    });
+
+    agendamentos.forEach(a => {
+      const dataAg = parseDataBR(a.data);
+
+      if (dataAg < inicio || dataAg > fim) return;
+
+      const status = String(a.status || 'sem_status');
+      porStatus[status] = (porStatus[status] || 0) + 1;
     });
 
     const doc = new PDFDocument({
@@ -140,8 +160,37 @@ export const gerarRelatorioFinanceiro = onCall(
       .fontSize(12)
       .text(`Estabelecimento: ${est.nome || ''}`)
       .text(`Plano: ${plano.toUpperCase()}`)
+      .text(`Tipo de periodo: ${String(periodoTipo || 'personalizado').toUpperCase()}`)
       .text(`Período: ${dataInicio} até ${dataFim}`)
       .text(`Gerado em: ${dataBR(new Date())}`);
+
+    doc.moveDown();
+
+    doc
+      .fontSize(16)
+      .text('Resumo por status', { underline: true });
+
+    doc.moveDown(0.5);
+
+    Object.entries(porStatus).forEach(([status, total]) => {
+      doc
+        .fontSize(11)
+        .text(`${status.toUpperCase()} - ${total}`);
+    });
+
+    doc.moveDown();
+
+    doc
+      .fontSize(16)
+      .text('Resumo por dia', { underline: true });
+
+    doc.moveDown(0.5);
+
+    Object.entries(porDia).forEach(([dia, item]) => {
+      doc
+        .fontSize(11)
+        .text(`${dia} - ${item.qtd} atendimento(s) - ${moeda(item.total)}`);
+    });
 
     doc.moveDown();
 
@@ -227,6 +276,7 @@ export const gerarRelatorioFinanceiro = onCall(
       plano,
       dataInicio,
       dataFim,
+      periodoTipo: String(periodoTipo || 'personalizado'),
       receitaTotal,
       totalAgendamentos: filtrados.length,
       totalCancelados: cancelados.length,
@@ -242,6 +292,7 @@ export const gerarRelatorioFinanceiro = onCall(
       url,
       receitaTotal,
       totalAgendamentos: filtrados.length,
+      periodoTipo: String(periodoTipo || 'personalizado'),
       plano,
     };
   }

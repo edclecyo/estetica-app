@@ -1,8 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, ActivityIndicator } from 'react-native';
+import { Text, View, ActivityIndicator, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { configurarAberturaPorNotificacao } from '../services/notificacao.service';
 
@@ -43,6 +43,22 @@ import SuperAdminFinanceScreen from '../screens/SuperAdminFinanceScreen';
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
+const isIPhoneWeb = () => {
+  const nav = (globalThis as any).navigator;
+  if (Platform.OS !== 'web' || !nav) return false;
+  const ua = nav.userAgent || '';
+  const platform = nav.platform || '';
+  return /iPad|iPhone|iPod/.test(ua) || (platform === 'MacIntel' && nav.maxTouchPoints > 1);
+};
+
+const rotasRaiz = new Set([
+  'HomeTabs',
+  'AdminDash',
+  'SuperAdminDash',
+  'AdminLogin',
+  'ClienteLogin',
+]);
+
 function HomeTabs() {
   return (
     <Tab.Navigator
@@ -82,6 +98,17 @@ function HomeTabs() {
 export default function Navigation() {
   const { loading, isAdmin, isSuperAdmin, isResolvingAdmin } = useAuth();
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
+  const [mostrarVoltarWeb, setMostrarVoltarWeb] = useState(false);
+
+  const atualizarVoltarWeb = () => {
+    if (!isIPhoneWeb() || !navigationRef.current) {
+      setMostrarVoltarWeb(false);
+      return;
+    }
+
+    const rotaAtual = navigationRef.current.getCurrentRoute()?.name;
+    setMostrarVoltarWeb(Boolean(navigationRef.current.canGoBack() && rotaAtual && !rotasRaiz.has(rotaAtual)));
+  };
 
   useEffect(() => {
     configurarAberturaPorNotificacao((data) => {
@@ -132,8 +159,13 @@ export default function Navigation() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <View style={{ flex: 1 }}>
+      <NavigationContainer
+        ref={navigationRef}
+        onReady={atualizarVoltarWeb}
+        onStateChange={atualizarVoltarWeb}
+      >
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
 
         {/* ─── SUPER ADMIN ─── */}
         {isSuperAdmin ? (
@@ -199,7 +231,53 @@ export default function Navigation() {
           </Stack.Group>
         )}
 
-      </Stack.Navigator>
-    </NavigationContainer>
+        </Stack.Navigator>
+      </NavigationContainer>
+
+      {mostrarVoltarWeb && (
+        <TouchableOpacity
+          onPress={() => navigationRef.current?.goBack()}
+          style={s.webBackButton}
+          activeOpacity={0.86}
+        >
+          <Text style={s.webBackIcon}>‹</Text>
+          <Text style={s.webBackText}>Voltar</Text>
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
+
+const s = StyleSheet.create({
+  webBackButton: {
+    position: 'absolute',
+    left: 14,
+    bottom: 78,
+    zIndex: 9999,
+    elevation: 20,
+    minHeight: 46,
+    paddingHorizontal: 14,
+    borderRadius: 23,
+    backgroundColor: 'rgba(10,10,10,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.45)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  webBackIcon: {
+    color: '#C9A96E',
+    fontSize: 30,
+    lineHeight: 32,
+    marginRight: 6,
+    fontWeight: '800',
+  },
+  webBackText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+});

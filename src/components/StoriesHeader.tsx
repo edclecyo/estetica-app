@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -184,11 +185,28 @@ export default function StoriesHeader() {
           return (
             <TouchableOpacity
               style={s.storyItem}
-              onPress={() => navigation.navigate('StoryView', {
+              onPress={() => {
+                if (!uid) {
+                  Alert.alert(
+                    'Entre para ver stories',
+                    'Voce pode ver as novidades na lista, mas precisa entrar para abrir os stories.',
+                    [
+                      { text: 'Agora nao', style: 'cancel' },
+                      {
+                        text: 'Entrar',
+                        onPress: () => navigation.navigate('ClienteLogin'),
+                      },
+                    ]
+                  );
+                  return;
+                }
+
+                navigation.navigate('StoryView', {
                 stories: item.todosOsStories,
                 startIndex: 0,
                 onVisto: marcarComoVisto, // ✅ passa callback para o StoryView
-              })}
+              });
+              }}
             >
               <View style={[s.bordaColorida, { backgroundColor: corBorda }]}>
                 <View style={s.fundoIcone}>

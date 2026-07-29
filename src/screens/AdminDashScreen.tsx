@@ -117,6 +117,8 @@ export default function AdminDashScreen() {
   
   const [periodoGrafico, setPeriodoGrafico] =
   useState<'dia' | 'mes' | 'ano'>('dia');
+  const [periodoRelatorioBasico, setPeriodoRelatorioBasico] =
+  useState<'dia' | 'semana' | 'mes'>('dia');
   const [whatsSuporte, setWhatsSuporte] = useState<string | null>(null);
   // ===== LÓGICA =====
 const temEstabelecimento = estabs.length > 0;
@@ -334,7 +336,7 @@ const abrirStoryAdmin = (storyId: string) => {
   .collection('agendamentos')
   .where('adminId', '==', adminUid)
   .orderBy('criadoEm', 'desc')
-  .limit(100)
+  .limit(500)
   .onSnapshot(
     snap => {
       if (!snap) return;
@@ -478,7 +480,8 @@ const abrirStoryAdmin = (storyId: string) => {
       const texto = data.trim();
 
       if (/^\d{4}-\d{2}-\d{2}/.test(texto)) {
-        const d = new Date(texto);
+        const [ano, mes, dia] = texto.slice(0, 10).split('-').map(Number);
+        const d = new Date(ano, mes - 1, dia);
         return isNaN(d.getTime()) ? null : d;
       }
 
@@ -505,6 +508,34 @@ const formatDate = (date: any): string => {
   if (!d) return '';
 
   return d.toLocaleDateString('pt-BR');
+};
+
+const obterIntervaloRelatorio = (periodo: 'dia' | 'semana' | 'mes') => {
+  const inicio = new Date();
+  inicio.setHours(0, 0, 0, 0);
+
+  const fim = new Date();
+  fim.setHours(23, 59, 59, 999);
+
+  if (periodo === 'semana') {
+    inicio.setDate(inicio.getDate() - 6);
+  }
+
+  if (periodo === 'mes') {
+    inicio.setDate(1);
+  }
+
+  const labels = {
+    dia: 'Hoje',
+    semana: 'Ultimos 7 dias',
+    mes: 'Mes atual',
+  };
+
+  return {
+    inicio,
+    fim,
+    label: labels[periodo],
+  };
 };
 
 const fimAgendamento = (agendamento: Agendamento): Date | null => {
@@ -643,11 +674,27 @@ const fimAgendamento = (agendamento: Agendamento): Date | null => {
 
   const compartilharRelatorio = async () => {
     try {
-      const linhas = agends.map(a =>
+      const intervalo = obterIntervaloRelatorio(periodoRelatorioBasico);
+      const agendsPeriodo = agends.filter(a => {
+        const dataAg = parseDataBR(a.data);
+        if (!dataAg) return false;
+
+        return dataAg >= intervalo.inicio && dataAg <= intervalo.fim;
+      });
+
+      if (agendsPeriodo.length === 0) {
+        Alert.alert(
+          'Sem agendamentos',
+          'Nao existem agendamentos nesse periodo para gerar relatorio.'
+        );
+        return;
+      }
+
+      const linhas = agendsPeriodo.map(a =>
         `📅 ${a.data} às ${a.horario}\n👤 ${a.clienteNome}\n✂️ ${a.servicoNome}\n💰 R$ ${a.servicoPreco}\n📌 ${a.status?.toUpperCase()}\n`
       ).join('\n─────────────────────\n');
 
-      const receitaConf = agends
+      const receitaConf = agendsPeriodo
         .filter(a => a.status === 'confirmado' || a.status === 'concluido')
         .reduce((acc, a) => acc + (a.servicoPreco || 0), 0);
 
@@ -657,13 +704,35 @@ const fimAgendamento = (agendamento: Agendamento): Date | null => {
 ══════════════════════════
 Admin: ${admin?.nome}
 Data: ${new Date().toLocaleDateString('pt-BR')}
-Total agendamentos: ${agends.length}
+Periodo: ${intervalo.label} (${intervalo.inicio.toLocaleDateString('pt-BR')} a ${intervalo.fim.toLocaleDateString('pt-BR')})
+Total agendamentos: ${agendsPeriodo.length}
 Receita confirmada: R$ ${receitaConf.toLocaleString('pt-BR')}
 ══════════════════════════
 
 ${linhas}
 
 Gerado pelo BeautyHub`;
+
+      if (Platform.OS === 'web') {
+        const nav: any = (globalThis as any)?.navigator || null;
+
+        if (nav?.share) {
+          await nav.share({
+            title: 'Relatorio BeautyHub',
+            text: conteudo,
+          });
+          return;
+        }
+
+        if (nav?.clipboard?.writeText) {
+          await nav.clipboard.writeText(conteudo);
+          Alert.alert('Relatorio copiado', 'O relatorio foi copiado para a area de transferencia.');
+          return;
+        }
+
+        Alert.alert('Relatorio', conteudo);
+        return;
+      }
 
       await Share.open({
   title: 'Relatório',
@@ -1552,12 +1621,8 @@ const temSelo =
     keyExtractor={item => item.key}
     contentContainerStyle={s.lista}
     ListHeaderComponent={
-      <View style={{
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 15
-      }}>
+      <View style={s.agendaHeaderWrap}>
+        <View style={s.agendaHeaderTop}>
         <Text style={[s.secTitulo, { marginBottom: 0 }]}>
           Gerenciar Agendamentos
         </Text>
@@ -1568,6 +1633,38 @@ const temSelo =
         >
           <Text style={s.btnPdfText}>📄 PDF</Text>
         </TouchableOpacity>
+        </View>
+
+        <View style={s.relatorioPeriodoRow}>
+          {[
+            { k: 'dia', l: 'Dia' },
+            { k: 'semana', l: 'Semana' },
+            { k: 'mes', l: 'Mes' },
+          ].map(item => {
+            const ativo = periodoRelatorioBasico === item.k;
+
+            return (
+              <TouchableOpacity
+                key={item.k}
+                activeOpacity={0.85}
+                onPress={() => setPeriodoRelatorioBasico(item.k as any)}
+                style={[
+                  s.relatorioPeriodoChip,
+                  ativo && s.relatorioPeriodoChipAtivo,
+                ]}
+              >
+                <Text
+                  style={[
+                    s.relatorioPeriodoText,
+                    ativo && s.relatorioPeriodoTextAtivo,
+                  ]}
+                >
+                  {item.l}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
     }
     renderItem={({ item: agendaItem }) => {
@@ -2049,6 +2146,13 @@ financeiroCardDash: {
     borderWidth: 1,
     borderColor: 'rgba(201,169,110,0.35)',
   },
+  agendaHeaderWrap: { marginBottom: 15 },
+  agendaHeaderTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  relatorioPeriodoRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  relatorioPeriodoChip: { flex: 1, backgroundColor: '#FFF', borderRadius: 12, borderWidth: 1, borderColor: '#E6E6E6', paddingVertical: 10, alignItems: 'center' },
+  relatorioPeriodoChipAtivo: { backgroundColor: '#1A1A1A', borderColor: GOLD },
+  relatorioPeriodoText: { color: '#777', fontSize: 12, fontWeight: '800' },
+  relatorioPeriodoTextAtivo: { color: GOLD },
   agendaDiaTitulo: { color: GOLD, fontSize: 15, fontWeight: '900' },
   agendaDiaResumo: { color: '#DDD', fontSize: 12, fontWeight: '600', marginTop: 4 },
   agendCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 16, marginBottom: 12 },

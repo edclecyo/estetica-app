@@ -29,6 +29,24 @@ export default function RelatorioFinanceiroScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [urlPdf, setUrlPdf] = useState('');
   const [resumo, setResumo] = useState<any>(null);
+  const [periodo, setPeriodo] = useState<'dia' | 'semana' | 'mes'>('mes');
+
+  const aplicarPeriodo = (tipo: 'dia' | 'semana' | 'mes') => {
+    const fim = new Date();
+    const inicio = new Date();
+
+    if (tipo === 'semana') {
+      inicio.setDate(inicio.getDate() - 6);
+    }
+
+    if (tipo === 'mes') {
+      inicio.setDate(1);
+    }
+
+    setPeriodo(tipo);
+    setDataInicio(formatar(inicio));
+    setDataFim(formatar(fim));
+  };
 
   const gerar = async () => {
     if (!estabelecimentoId) {
@@ -48,6 +66,7 @@ export default function RelatorioFinanceiroScreen({ route, navigation }: any) {
         estabelecimentoId,
         dataInicio,
         dataFim,
+        periodoTipo: periodo,
       });
 
       setUrlPdf(res.data?.url || '');
@@ -92,6 +111,29 @@ export default function RelatorioFinanceiroScreen({ route, navigation }: any) {
 
       <View style={s.card}>
         <Text style={s.cardTitle}>Período do relatório</Text>
+
+        <View style={s.periodoRow}>
+          {[
+            { k: 'dia', l: 'Dia' },
+            { k: 'semana', l: 'Semana' },
+            { k: 'mes', l: 'Mes' },
+          ].map(item => {
+            const ativo = periodo === item.k;
+
+            return (
+              <TouchableOpacity
+                key={item.k}
+                activeOpacity={0.85}
+                onPress={() => aplicarPeriodo(item.k as any)}
+                style={[s.periodoChip, ativo && s.periodoChipAtivo]}
+              >
+                <Text style={[s.periodoText, ativo && s.periodoTextAtivo]}>
+                  {item.l}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         <Text style={s.label}>Data inicial</Text>
         <TextInput
@@ -196,6 +238,37 @@ const s = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     marginBottom: 16,
+  },
+
+  periodoRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 6,
+  },
+
+  periodoChip: {
+    flex: 1,
+    backgroundColor: '#0D0D0D',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+
+  periodoChipAtivo: {
+    backgroundColor: GOLD,
+    borderColor: GOLD,
+  },
+
+  periodoText: {
+    color: '#AAA',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  periodoTextAtivo: {
+    color: '#000',
   },
 
   label: {

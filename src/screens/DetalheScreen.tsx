@@ -156,6 +156,7 @@ export default function DetalheScreen() {
   const [confirmado, setConfirmado] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState('');
   const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
+  const [usuarioLogado, setUsuarioLogado] = useState(auth().currentUser);
 const criandoAgendamentoRef = useRef(false);
   const podePagarNoApp =
   (estab?.plano === 'pro' || estab?.plano === 'elite') &&
@@ -189,6 +190,19 @@ const criandoAgendamentoRef = useRef(false);
 
     return () => unsub();
   }, [estabelecimentoId]);
+
+  useEffect(() => {
+    const unsubAuth = auth().onAuthStateChanged(user => {
+      setUsuarioLogado(user);
+
+      if (user?.displayName) {
+        setNome(user.displayName);
+        setNomeUsuario(user.displayName);
+      }
+    });
+
+    return () => unsubAuth();
+  }, []);
 
   useEffect(() => {
   if (!dataSel || !estabelecimentoId) return;
@@ -247,6 +261,7 @@ const servicoObj = estab?.servicos?.find(
   
     if (!servicoSel || !dataSel || !horarioSel || !nome || !formaPagamento) {
       Alert.alert('Atenção', 'Preencha todos os campos!');
+      criandoAgendamentoRef.current = false;
       return;
     }
 
@@ -649,6 +664,22 @@ const semHorarios = todosHorarios.every(h => {
         </TouchableOpacity>
     )}
 
+    {!usuarioLogado?.uid ? (
+      <View style={s.loginRequiredCard}>
+        <Text style={s.loginRequiredTitle}>Entre para agendar</Text>
+        <Text style={s.loginRequiredText}>
+          Voce pode conhecer o estabelecimento, mas precisa entrar na sua conta para ver horarios e finalizar agendamentos.
+        </Text>
+        <TouchableOpacity
+          style={s.loginRequiredBtn}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('ClienteLogin')}
+        >
+          <Text style={s.loginRequiredBtnText}>Entrar na conta</Text>
+        </TouchableOpacity>
+      </View>
+    ) : (
+    <>
     <View style={s.stepsWrap}>
             {[1, 2, 3, 4].map(i => (
               <View key={i} style={s.stepItem}>
@@ -892,6 +923,8 @@ const semHorarios = todosHorarios.every(h => {
             onPress={confirmar}>
             {salvando ? <ActivityIndicator color="#fff" /> : <Text style={s.btnPrimarioText}>Finalizar Agendamento</Text>}
           </TouchableOpacity>
+    </>
+    )}
         </View>
       </ScrollView>
 
@@ -924,6 +957,11 @@ const s = StyleSheet.create({
   bannerNome: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
   bannerTipo: { fontSize: 12, color: '#666' },
   body: { padding: 16 },
+  loginRequiredCard: { backgroundColor: '#1A1A1A', borderRadius: 20, padding: 18, borderWidth: 1, borderColor: '#C9A96E', marginTop: 8 },
+  loginRequiredTitle: { color: '#C9A96E', fontSize: 18, fontWeight: '900', marginBottom: 8 },
+  loginRequiredText: { color: '#EAEAEA', fontSize: 13, lineHeight: 20, marginBottom: 16 },
+  loginRequiredBtn: { backgroundColor: '#C9A96E', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  loginRequiredBtnText: { color: '#1A1A1A', fontSize: 14, fontWeight: '900' },
   confirmHeader: {
   flexDirection: 'row',
   alignItems: 'center',

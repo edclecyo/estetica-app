@@ -353,7 +353,7 @@ function VerificadosSection({
               style={sv.card}
               activeOpacity={0.85}
               onPress={() =>
-                navigation.navigate(usuarioLogado ? 'Detalhe' : 'ClienteLogin', {
+                navigation.navigate('Detalhe', {
                   estabelecimentoId: item.id,
                 })
               }
@@ -388,6 +388,7 @@ function VerificadosSection({
                 {item.tipo}
               </Text>
 
+              {usuarioLogado && (
               <View
                 style={[
                   sv.statusPill,
@@ -418,6 +419,7 @@ function VerificadosSection({
                   {aberto ? 'Aberto' : 'Fechado'}
                 </Text>
               </View>
+              )}
 
               {item.avaliacao > 0 && (
                 <View style={sv.ratingRow}>
@@ -496,13 +498,6 @@ export default function HomeScreen() {
   }, [user?.uid]);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setBusca('');
-      setFiltro('Todos');
-      setLocalizacao(null);
-      return;
-    }
-
   const obterPosicao = async () => {
 
     try {
@@ -542,7 +537,7 @@ export default function HomeScreen() {
 
   obterPosicao();
 
-}, [user?.uid]);
+}, []);
 
   useEffect(() => {
     const unsub = auth().onAuthStateChanged(u => setUser(u));
@@ -673,7 +668,7 @@ export default function HomeScreen() {
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={() =>
-          navigation.navigate(podeInteragir ? 'Detalhe' : 'ClienteLogin', {
+          navigation.navigate('Detalhe', {
             estabelecimentoId: item.id,
           })
         }
@@ -768,6 +763,7 @@ export default function HomeScreen() {
     {item.tipo}
   </Text>
 
+  {podeInteragir && (
   <View style={s.statusRowCentral}>
     <View
       style={[
@@ -801,6 +797,7 @@ export default function HomeScreen() {
       </Text>
     )}
   </View>
+  )}
 
   {dist !== null && (
     <View style={s.distInfoRow}>
@@ -957,7 +954,6 @@ export default function HomeScreen() {
             style={s.buscaInput}
             placeholder="Buscar salão, serviço..."
             placeholderTextColor="#666"
-            editable={podeInteragir}
             value={busca}
             onChangeText={setBusca}
           />
@@ -993,8 +989,7 @@ export default function HomeScreen() {
                       style={{ borderRadius: 24, marginRight: 10 }}
                     >
                       <TouchableOpacity
-                        activeOpacity={podeInteragir ? 0.8 : 1}
-                        disabled={!podeInteragir}
+                        activeOpacity={0.8}
                         onPress={() => setFiltro(t)}
                         style={[s.chip, { backgroundColor: 'transparent' }]}
                       >
@@ -1018,8 +1013,7 @@ export default function HomeScreen() {
                   ) : (
                     <TouchableOpacity
                       key={t}
-                      activeOpacity={podeInteragir ? 0.8 : 1}
-                      disabled={!podeInteragir}
+                      activeOpacity={0.8}
                       onPress={() => setFiltro(t)}
                       style={s.chip}
                     >

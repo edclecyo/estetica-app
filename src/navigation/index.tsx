@@ -9,6 +9,7 @@ import { configurarAberturaPorNotificacao } from '../services/notificacao.servic
 // Telas Cliente
 import HomeScreen from '../screens/HomeScreen';
 import DetalheScreen from '../screens/DetalheScreen';
+import RotaMapaScreen from '../screens/RotaMapaScreen';
 import AgendamentosScreen from '../screens/AgendamentosScreen';
 import ClienteLoginScreen from '../screens/ClienteLoginScreen';
 import AvaliarScreen from '../screens/AvaliarScreen';
@@ -187,6 +188,7 @@ export default function Navigation() {
             <Stack.Screen name="PostarStory" component={PostarStory} />
             <Stack.Screen name="StoryView" component={StoryView} />
             <Stack.Screen name="HomeTabs" component={HomeTabs} />
+            <Stack.Screen name="RotaMapa" component={RotaMapaScreen} />
             <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
             <Stack.Screen name="Assinatura" component={AssinaturaScreen} />
 			   <Stack.Screen name="CheckoutPagamentoScreen" component={CheckoutPagamentoScreen} />
@@ -217,6 +219,7 @@ export default function Navigation() {
           <Stack.Group>
             <Stack.Screen name="HomeTabs" component={HomeTabs} />
             <Stack.Screen name="Detalhe" component={DetalheScreen} />
+            <Stack.Screen name="RotaMapa" component={RotaMapaScreen} />
             <Stack.Screen name="ClienteLogin" component={ClienteLoginScreen} />
             <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
             <Stack.Screen name="Avaliar" component={AvaliarScreen} />

@@ -102,7 +102,7 @@ function firestore() {
   };
 }
 
-firestore.FieldValue = { serverTimestamp, arrayUnion };
+firestore.FieldValue = { serverTimestamp, arrayUnion, increment };
 firestore.Timestamp = Timestamp;
 
 export { arrayUnion, dataWithId, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, startAfter, Timestamp, updateDoc, where, writeBatch };

@@ -30,6 +30,14 @@ export interface Servico {
   foto?: string;
 }
 
+export interface Profissional {
+  id: string;
+  nome: string;
+  funcao: string;
+  foto?: string;
+  ativo?: boolean;
+}
+
 export interface Estabelecimento {
   id: string;
   nome: string;
@@ -57,6 +65,7 @@ export interface Estabelecimento {
   };
   diasFechados?: string[];
   horariosBloqueados?: Record<string, string[]>;
+  profissionais?: Profissional[];
   servicos: Servico[];
   horarios: string[];
   adminId: string;
@@ -153,6 +162,12 @@ export interface Agendamento {
 export type RootStackParamList = {
   Home: undefined;
   Detalhe: { estabelecimentoId: string };
+  RotaMapa: {
+    estabelecimentoNome: string;
+    endereco?: string;
+    origem: { lat: number; lng: number };
+    destino: { lat: number; lng: number };
+  };
   Agendamentos: undefined;
   AdminLogin: undefined;
   AdminDash: undefined;

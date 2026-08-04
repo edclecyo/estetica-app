@@ -663,6 +663,21 @@ export default function HomeScreen() {
     const verificado =
   item.verificado === true ||
   item.plano === 'elite';
+    const abrirRota = () => {
+      const lat = item.coords?.lat ?? item.lat;
+      const lng = item.coords?.lng ?? item.lng;
+
+      if (!localizacao || typeof lat !== 'number' || typeof lng !== 'number') {
+        return;
+      }
+
+      navigation.navigate('RotaMapa', {
+        estabelecimentoNome: item.nome,
+        endereco: item.endereco,
+        origem: localizacao,
+        destino: { lat, lng },
+      });
+    };
 
     return (
       <TouchableOpacity
@@ -685,7 +700,16 @@ export default function HomeScreen() {
         >
           <View style={[s.card, { marginBottom: 0, borderWidth: 0 }]}>
            {dist !== null && (
-  <View style={sv.distFloating}>
+  <TouchableOpacity
+    style={sv.distFloating}
+    activeOpacity={0.78}
+    accessibilityRole="button"
+    accessibilityLabel={`Ver rota até ${item.nome}`}
+    onPress={event => {
+      event.stopPropagation();
+      abrirRota();
+    }}
+  >
     <LinearGradient
       colors={[
         'rgba(0,0,0,0.92)',
@@ -715,7 +739,7 @@ export default function HomeScreen() {
       </View>
 
     </LinearGradient>
-  </View>
+  </TouchableOpacity>
 )}
 
             <View style={s.cardHeaderCircular}>
@@ -800,7 +824,16 @@ export default function HomeScreen() {
   )}
 
   {dist !== null && (
-    <View style={s.distInfoRow}>
+    <TouchableOpacity
+      style={s.distInfoRow}
+      activeOpacity={0.72}
+      accessibilityRole="button"
+      accessibilityLabel={`Ver rota até ${item.nome}`}
+      onPress={event => {
+        event.stopPropagation();
+        abrirRota();
+      }}
+    >
       <Icon
         name="map-marker-outline"
         size={13}
@@ -811,7 +844,7 @@ export default function HomeScreen() {
       <Text style={s.distanciaInfoSub}>
         A {formatarDistancia(dist)} de você
       </Text>
-    </View>
+    </TouchableOpacity>
   )}
 
   <View style={s.ratingRow}>
@@ -835,7 +868,7 @@ export default function HomeScreen() {
         </LinearGradient>
       </TouchableOpacity>
     );
-  }, [navigation, podeInteragir, renderStars]);
+  }, [navigation, localizacao, podeInteragir, renderStars]);
 
   if (loading) {
     return (

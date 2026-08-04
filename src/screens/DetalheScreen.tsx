@@ -157,6 +157,8 @@ export default function DetalheScreen() {
   const [nomeUsuario, setNomeUsuario] = useState('');
   const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
   const [usuarioLogado, setUsuarioLogado] = useState(auth().currentUser);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [mostrarInfoEstab, setMostrarInfoEstab] = useState(false);
 const criandoAgendamentoRef = useRef(false);
   const podePagarNoApp =
   (estab?.plano === 'pro' || estab?.plano === 'elite') &&
@@ -194,6 +196,7 @@ const criandoAgendamentoRef = useRef(false);
   useEffect(() => {
     const unsubAuth = auth().onAuthStateChanged(user => {
       setUsuarioLogado(user);
+      setAuthChecking(false);
 
       if (user?.displayName) {
         setNome(user.displayName);
@@ -203,6 +206,12 @@ const criandoAgendamentoRef = useRef(false);
 
     return () => unsubAuth();
   }, []);
+
+  useEffect(() => {
+    if (!authChecking && !usuarioLogado?.uid) {
+      navigation.replace('ClienteLogin', { estabelecimentoId });
+    }
+  }, [authChecking, estabelecimentoId, navigation, usuarioLogado?.uid]);
 
   useEffect(() => {
   if (!dataSel || !estabelecimentoId) return;
@@ -360,7 +369,7 @@ const servicoObj = estab?.servicos?.find(
     Linking.openURL(url);
   };
 
-  if (loading) {
+  if (loading || authChecking || !usuarioLogado?.uid) {
     return (
       <View style={s.center}>
         <ActivityIndicator size="large" color="#C9A96E" />
@@ -614,6 +623,12 @@ const semHorarios = todosHorarios.every(h => {
 }
 
   const svcsAtivos = Array.isArray(estab?.servicos) ? estab.servicos.filter(s => s.ativo) : [];
+  const profissionaisAtivos = Array.isArray((estab as any)?.profissionais)
+    ? (estab as any).profissionais.filter((p: any) => p && p.nome && p.ativo !== false)
+    : [];
+  const notaEstab = Number(estab?.avaliacao || 0);
+  const totalAvaliacoes = Number((estab as any)?.totalAvaliacoes || (estab as any)?.quantidadeAvaliacoes || 0);
+  const servicosMaisAgendados = svcsAtivos.slice(0, 6);
 
    return (
     <View style={s.container}>
@@ -623,19 +638,19 @@ const semHorarios = todosHorarios.every(h => {
         <BannerMedia data={estab} style={s.bannerEmoji} />
         <View style={s.bannerInfo}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-  <Text style={s.bannerNome}>{estab?.nome}</Text>
+            <Text style={s.bannerNome}>{estab?.nome}</Text>
 
-  {(estab?.verificado === true || estab?.plano === 'elite') && (
-    <Image
-      source={SeloVerificado}
-      style={{
-        width: 18,
-        height: 18,
-        resizeMode: 'contain',
-      }}
-    />
-  )}
-</View>
+            {(estab?.verificado === true || estab?.plano === 'elite') && (
+              <Image
+                source={SeloVerificado}
+                style={{
+                  width: 18,
+                  height: 18,
+                  resizeMode: 'contain',
+                }}
+              />
+            )}
+          </View>
           <Text style={s.bannerTipo}>{estab?.tipo}</Text>
         </View>
       </View>
@@ -664,21 +679,86 @@ const semHorarios = todosHorarios.every(h => {
         </TouchableOpacity>
     )}
 
-    {!usuarioLogado?.uid ? (
-      <View style={s.loginRequiredCard}>
-        <Text style={s.loginRequiredTitle}>Entre para agendar</Text>
-        <Text style={s.loginRequiredText}>
-          Voce pode conhecer o estabelecimento, mas precisa entrar na sua conta para ver horarios e finalizar agendamentos.
-        </Text>
+    {profissionaisAtivos.length > 0 && (
+      <View style={s.secao}>
+        <Text style={s.secaoTitulo}>Nossa equipe</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {profissionaisAtivos.map((prof: any) => (
+            <View key={prof.id || prof.nome} style={s.profCard}>
+              {prof.foto ? (
+                <Image source={{ uri: prof.foto }} style={s.profFoto} />
+              ) : (
+                <View style={s.profFotoPlaceholder}>
+                  <Icon name="user" size={24} color="#888" />
+                </View>
+              )}
+              <Text style={s.profNome} numberOfLines={1}>{prof.nome}</Text>
+              <Text style={s.profFuncao} numberOfLines={1}>{prof.funcao}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+    )}
+
+    <View style={s.estabResumoCard}>
+      <BannerMedia data={estab} style={s.estabResumoLogo} />
+      <View style={s.estabResumoInfo}>
+        <View style={s.estabResumoNomeRow}>
+          <Text style={s.estabResumoNome} numberOfLines={2}>{estab?.nome}</Text>
+          {(estab?.verificado === true || estab?.plano === 'elite') && (
+            <Image source={SeloVerificado} style={s.estabResumoSelo} />
+          )}
+        </View>
+
+        <View style={s.avaliacoesRow}>
+          <Text style={s.avaliacoesNota}>{notaEstab > 0 ? notaEstab.toFixed(1) : 'Novo'}</Text>
+          {notaEstab > 0 && <Icon name="star" size={18} color="#C9A96E" />}
+          <Text style={s.avaliacoesTotal}>
+            ({totalAvaliacoes} {totalAvaliacoes === 1 ? 'avaliação' : 'avaliações'})
+          </Text>
+        </View>
+
         <TouchableOpacity
-          style={s.loginRequiredBtn}
           activeOpacity={0.85}
-          onPress={() => navigation.navigate('ClienteLogin')}
+          onPress={() => setMostrarInfoEstab(prev => !prev)}
+          style={s.infoResumoBtn}
         >
-          <Text style={s.loginRequiredBtnText}>Entrar na conta</Text>
+          <Text style={s.infoResumoText}>{mostrarInfoEstab ? '− Informações' : '+ Informações'}</Text>
         </TouchableOpacity>
       </View>
-    ) : (
+    </View>
+
+    {mostrarInfoEstab && (
+      <View style={s.infoResumoBox}>
+        {!!estab?.descricao && <Text style={s.infoResumoDesc}>{estab.descricao}</Text>}
+        {!!estab?.endereco && <Text style={s.infoResumoLinha}>📍 {estab.endereco}{estab.numero ? `, ${estab.numero}` : ''}</Text>}
+        {!!estab?.horarioFuncionamento && <Text style={s.infoResumoLinha}>⏰ {estab.horarioFuncionamento}</Text>}
+      </View>
+    )}
+
+    {servicosMaisAgendados.length > 0 && (
+      <View style={s.secao}>
+        <Text style={s.secaoTitulo}>Mais agendados</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {servicosMaisAgendados.map(sv => (
+            <TouchableOpacity
+              key={`mais-${sv.id}`}
+              activeOpacity={0.88}
+              onPress={() => { setServicoSel(sv.nome); setStep(Math.max(step, 2)); }}
+              style={[s.maisCard, servicoSel === sv.nome && s.maisCardAtivo]}
+            >
+              <Text style={[s.maisNome, servicoSel === sv.nome && s.maisNomeAtivo]} numberOfLines={2}>{sv.nome}</Text>
+              <Text style={[s.maisDuracao, servicoSel === sv.nome && s.maisTextoAtivo]}>{sv.duracao} min</Text>
+              <Text style={[s.maisPreco, servicoSel === sv.nome && s.maisTextoAtivo]}>R$ {sv.preco}</Text>
+              <View style={[s.maisAgendarBtn, servicoSel === sv.nome && s.maisAgendarBtnAtivo]}>
+                <Text style={[s.maisAgendarText, servicoSel === sv.nome && s.maisAgendarTextAtivo]}>Agendar</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    )}
+
     <>
     <View style={s.stepsWrap}>
             {[1, 2, 3, 4].map(i => (
@@ -924,7 +1004,6 @@ const semHorarios = todosHorarios.every(h => {
             {salvando ? <ActivityIndicator color="#fff" /> : <Text style={s.btnPrimarioText}>Finalizar Agendamento</Text>}
           </TouchableOpacity>
     </>
-    )}
         </View>
       </ScrollView>
 
@@ -1038,6 +1117,36 @@ confirmAlertText: {
   stepLineAtiva: { backgroundColor: '#1A1A1A' },
   secao: { marginBottom: 20 },
   secaoTitulo: { fontSize: 13, fontWeight: '700', color: '#999', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 },
+  profCard: { width: 118, backgroundColor: '#fff', borderRadius: 14, padding: 10, marginRight: 10, alignItems: 'center' },
+  profFoto: { width: 62, height: 62, borderRadius: 31, marginBottom: 8, backgroundColor: '#F5F5F5' },
+  profFotoPlaceholder: { width: 62, height: 62, borderRadius: 31, marginBottom: 8, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center' },
+  profNome: { width: '100%', color: '#1A1A1A', fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  profFuncao: { width: '100%', color: '#888', fontSize: 11, marginTop: 2, textAlign: 'center' },
+  estabResumoCard: { backgroundColor: '#fff', borderRadius: 18, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#EFE7D6', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10 },
+  estabResumoLogo: { width: 74, height: 74, borderRadius: 16, marginRight: 14, backgroundColor: '#F7F1E5' },
+  estabResumoInfo: { flex: 1 },
+  estabResumoNomeRow: { flexDirection: 'row', alignItems: 'center' },
+  estabResumoNome: { flex: 1, color: '#1A1A1A', fontSize: 17, fontWeight: '900', lineHeight: 22 },
+  estabResumoSelo: { width: 17, height: 17, resizeMode: 'contain', marginLeft: 6 },
+  avaliacoesRow: { flexDirection: 'row', alignItems: 'center', marginTop: 9 },
+  avaliacoesNota: { color: '#C9A96E', fontSize: 16, fontWeight: '900', marginRight: 5 },
+  avaliacoesTotal: { color: '#777', fontSize: 13, fontWeight: '600', marginLeft: 7 },
+  infoResumoBtn: { alignSelf: 'flex-end', marginTop: 12, paddingVertical: 4, paddingHorizontal: 2 },
+  infoResumoText: { color: '#C9A96E', fontSize: 14, fontWeight: '900' },
+  infoResumoBox: { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginTop: -6, marginBottom: 18, borderWidth: 1, borderColor: '#EFE7D6' },
+  infoResumoDesc: { color: '#444', fontSize: 13, lineHeight: 20, marginBottom: 8 },
+  infoResumoLinha: { color: '#555', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  maisCard: { width: 148, minHeight: 184, backgroundColor: '#fff', borderRadius: 16, padding: 14, marginRight: 12, alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#EFE7D6', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.07, shadowRadius: 8 },
+  maisCardAtivo: { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
+  maisNome: { minHeight: 42, color: '#1A1A1A', fontSize: 14, fontWeight: '800', lineHeight: 20, textAlign: 'center' },
+  maisNomeAtivo: { color: '#fff' },
+  maisDuracao: { color: '#888', fontSize: 12, fontWeight: '700' },
+  maisPreco: { color: '#1A1A1A', fontSize: 18, fontWeight: '900' },
+  maisTextoAtivo: { color: '#C9A96E' },
+  maisAgendarBtn: { width: '100%', backgroundColor: '#C9A96E', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  maisAgendarBtnAtivo: { backgroundColor: '#fff' },
+  maisAgendarText: { color: '#1A1A1A', fontSize: 13, fontWeight: '900' },
+  maisAgendarTextAtivo: { color: '#1A1A1A' },
   servicoCard: { backgroundColor: '#fff', borderRadius: 14, padding: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   servicoCardAtivo: { backgroundColor: '#1A1A1A' },
   servicoFoto: { width: 50, height: 50, borderRadius: 10, marginRight: 12 },

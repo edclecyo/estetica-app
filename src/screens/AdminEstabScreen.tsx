@@ -10,7 +10,7 @@ import { getApp } from '@react-native-firebase/app';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-import type { Servico, Agendamento } from '../types';
+import type { Servico, Agendamento, Profissional } from '../types';
 import { launchImageLibrary } from "react-native-image-picker";
 import storage from "@react-native-firebase/storage";
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -131,7 +131,7 @@ export default function AdminEstabScreen() {
 );
   const mapRef = useRef<MapView>(null);
 
-  const [aba, setAba] = useState<'info' | 'servicos' | 'horarios' | 'agenda'>('info');
+  const [aba, setAba] = useState<'info' | 'equipe' | 'servicos' | 'horarios' | 'agenda'>('info');
   const [loading, setLoading] = useState(!isNovo);
   const [salvando, setSalvando] = useState(false);
   const [buscandoCep, setBuscandoCep] = useState(false);
@@ -155,6 +155,7 @@ export default function AdminEstabScreen() {
   const [cor, setCor] = useState('#D4A5A5');
 
   const [servicos, setServicos] = useState<Servico[]>([]);
+  const [profissionais, setProfissionais] = useState<Profissional[]>([]);
   const [horarios, setHorarios] = useState<string[]>([]);
   const [agends, setAgends] = useState<Agendamento[]>([]);
   const [fotoPerfil, setFotoPerfil] = useState('');
@@ -183,6 +184,11 @@ export default function AdminEstabScreen() {
   const [nsDuracao, setNsDuracao] = useState('');
   const [nsFoto, setNsFoto] = useState('');
   const [subindoFotoServico, setSubindoFotoServico] = useState(false);
+  const [npNome, setNpNome] = useState('');
+  const [npFuncao, setNpFuncao] = useState('');
+  const [npFoto, setNpFoto] = useState('');
+  const [editandoProfId, setEditandoProfId] = useState<string | null>(null);
+  const [subindoFotoProf, setSubindoFotoProf] = useState(false);
 
 const [buscaEndereco, setBuscaEndereco] = useState('');
 const [sugestoesEndereco, setSugestoesEndereco] = useState<any[]>([]);
@@ -718,6 +724,7 @@ if (!isNovo) {
         setImg(d.img);
         setCor(d.cor);
         setServicos(d.servicos || []);
+        setProfissionais(Array.isArray(d.profissionais) ? d.profissionais : []);
         setHorarios(ordenarHorarios(d.horarios || []));
         setDiasFuncionamento(
           Array.isArray(d.diasFuncionamento) && d.diasFuncionamento.length
@@ -851,6 +858,7 @@ if (!isNovo) {
       horarioFuncionamento: horarioFunc,
       img,
       cor,
+      profissionais,
       servicos,
       horarios: ordenarHorarios(horarios),
       diasFuncionamento,
@@ -1023,6 +1031,79 @@ await reference.putFile(uri);
     }
   };
 
+  const escolherFotoProfissional = async () => {
+    const res = await launchImageLibrary({ mediaType: "photo", quality: 0.5 });
+    if (!res.assets || !res.assets[0]) return;
+
+    const uri = res.assets[0].uri;
+    const pastaEstab = isNovo ? `temp_${admin?.id || 'novo'}` : estabelecimentoId;
+    const path = `estabelecimentos/${pastaEstab}/profissionais/${Date.now()}.jpg`;
+    const reference = storage().ref(path);
+
+    try {
+      setSubindoFotoProf(true);
+      if (!uri) return;
+      await reference.putFile(uri);
+      const url = await reference.getDownloadURL();
+      setNpFoto(url);
+    } catch {
+      Alert.alert("Erro", "Upload da foto do profissional falhou.");
+    } finally {
+      setSubindoFotoProf(false);
+    }
+  };
+
+  const limparFormProfissional = () => {
+    setNpNome('');
+    setNpFuncao('');
+    setNpFoto('');
+    setEditandoProfId(null);
+  };
+
+  const salvarProfissionalLista = () => {
+    const nomeProf = npNome.trim();
+    const funcaoProf = npFuncao.trim();
+
+    if (!nomeProf || !funcaoProf) {
+      Alert.alert('Atenção', 'Informe nome e função do profissional.');
+      return;
+    }
+
+    const profissional: Profissional = {
+      id: editandoProfId || Date.now().toString(),
+      nome: nomeProf,
+      funcao: funcaoProf,
+      foto: npFoto,
+      ativo: true,
+    };
+
+    setProfissionais(prev =>
+      editandoProfId
+        ? prev.map(item => item.id === editandoProfId ? profissional : item)
+        : [...prev, profissional]
+    );
+    limparFormProfissional();
+  };
+
+  const editarProfissional = (item: Profissional) => {
+    setEditandoProfId(item.id);
+    setNpNome(item.nome || '');
+    setNpFuncao(item.funcao || '');
+    setNpFoto(item.foto || '');
+    setAba('equipe');
+  };
+
+  const removerFotoProfissional = (id?: string) => {
+    if (!id) {
+      setNpFoto('');
+      return;
+    }
+
+    setProfissionais(prev =>
+      prev.map(item => item.id === id ? { ...item, foto: '' } : item)
+    );
+  };
+
   if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#C9A96E" /></View>;
 
   return (
@@ -1090,6 +1171,20 @@ await reference.putFile(uri);
       {/* ABAS */}
       <View style={s.tabsWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsContent}>
+          <TouchableOpacity
+            onPress={() => setAba('equipe')}
+            style={[
+              s.tabItem,
+              aba === 'equipe' && { backgroundColor: cor, borderColor: cor }
+            ]}
+          >
+            <Text style={[
+              s.tabText,
+              aba === 'equipe' && { color: getContraste(cor) }
+            ]}>
+              Equipe
+            </Text>
+          </TouchableOpacity>
          {([['info','Informações'],['servicos','Serviços'],['horarios','Horários'],['agenda','Agenda']] as const)
   .filter(([k]) => !isNovo || k !== 'agenda')
   .map(([k, l]) => (
@@ -1516,6 +1611,107 @@ await reference.putFile(uri);
         )}
 
         {/* ─── ABA SERVIÇOS ─── */}
+        {aba === 'equipe' && (
+          <View>
+            <Text style={s.sectionTitle}>Equipe</Text>
+            <View style={s.card}>
+              <View style={s.row}>
+                <TouchableOpacity onPress={escolherFotoProfissional} style={[s.nsFotoBox, { borderColor: cor + '44' }]}>
+                  {subindoFotoProf
+                    ? <ActivityIndicator size="small" color={cor} />
+                    : npFoto
+                      ? (
+                        <>
+                          <Image source={{ uri: npFoto }} style={s.imgFill} />
+                          <TouchableOpacity onPress={() => removerFotoProfissional()} style={s.photoRemoveBtn}>
+                            <Icon name="trash-can-outline" size={16} color="#fff" />
+                          </TouchableOpacity>
+                        </>
+                      )
+                      : <Icon name="account-camera" size={30} color="#555" />}
+                </TouchableOpacity>
+
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <TextInput
+                    style={s.input}
+                    value={npNome}
+                    onChangeText={setNpNome}
+                    placeholder="Nome do profissional"
+                    placeholderTextColor="#444"
+                  />
+                  <TextInput
+                    style={[s.input, { marginTop: 10 }]}
+                    value={npFuncao}
+                    onChangeText={setNpFuncao}
+                    placeholder="Funcao. Ex: Cabeleireiro"
+                    placeholderTextColor="#444"
+                  />
+                </View>
+              </View>
+
+              <View style={[s.row, { marginTop: 15 }]}>
+                {editandoProfId ? (
+                  <TouchableOpacity
+                    onPress={limparFormProfissional}
+                    style={[s.btnAdd, { borderColor: '#666', flex: 1, marginRight: 8 }]}
+                  >
+                    <Text style={[s.btnAddText, { color: '#888' }]}>Cancelar</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                <TouchableOpacity
+                  onPress={salvarProfissionalLista}
+                  style={[s.btnAdd, { borderColor: cor, flex: 1 }]}
+                >
+                  <Icon name={editandoProfId ? "content-save" : "plus-circle-outline"} size={18} color={cor} style={{ marginRight: 8 }} />
+                  <Text style={[s.btnAddText, { color: cor }]}>
+                    {editandoProfId ? 'Salvar profissional' : 'Adicionar profissional'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {profissionais.length === 0 ? (
+              <View style={s.emptyTeamCard}>
+                <Icon name="account-group-outline" size={28} color="#777" />
+                <Text style={s.emptyTeamText}>Adicione os profissionais que fazem parte da equipe.</Text>
+              </View>
+            ) : (
+              profissionais.map(item => (
+                <View key={item.id} style={s.itemCard}>
+                  {item.foto
+                    ? (
+                      <View>
+                        <Image source={{ uri: item.foto }} style={s.itemThumb} />
+                        <TouchableOpacity onPress={() => removerFotoProfissional(item.id)} style={s.teamThumbRemove}>
+                          <Icon name="close" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    )
+                    : (
+                      <View style={[s.itemThumb, { backgroundColor: '#222', justifyContent: 'center', alignItems: 'center' }]}>
+                        <Icon name="account" size={24} color="#555" />
+                      </View>
+                    )}
+
+                  <View style={s.itemInfo}>
+                    <Text style={s.itemTitle}>{item.nome}</Text>
+                    <Text style={s.itemSub}>{item.funcao}</Text>
+                  </View>
+
+                  <TouchableOpacity onPress={() => editarProfissional(item)} style={s.itemRemove}>
+                    <Icon name="pencil-outline" size={20} color={cor} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity onPress={() => setProfissionais(profissionais.filter(x => x.id !== item.id))} style={s.itemRemove}>
+                    <Icon name="trash-can-outline" size={20} color="#FF4444" />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
         {aba === 'servicos' && (
           <View>
             <Text style={s.sectionTitle}>Novo Serviço</Text>
@@ -2094,6 +2290,9 @@ const s = StyleSheet.create({
   itemTitle: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
   itemSub: { color: '#666', fontSize: 12, marginTop: 2 },
   itemRemove: { padding: 8, marginLeft: 10 },
+  teamThumbRemove: { position: 'absolute', right: -6, top: -6, width: 24, height: 24, borderRadius: 12, backgroundColor: '#FF4444', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#111' },
+  emptyTeamCard: { backgroundColor: '#111', borderRadius: 16, padding: 18, marginTop: 10, borderWidth: 1, borderColor: '#222', alignItems: 'center' },
+  emptyTeamText: { color: '#777', fontSize: 12, lineHeight: 18, marginTop: 8, textAlign: 'center' },
   
   horariosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 20 },
   timeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, height: 36, borderRadius: 10, borderWidth: 1 },

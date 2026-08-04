@@ -107,7 +107,7 @@ export const avaliarAgendamento = onCall(
       const est = estSnap.data() || {};
 
       const totalAtual =
-        Number(est.quantidadeAvaliacoes || 0);
+        Number(est.totalAvaliacoes || est.quantidadeAvaliacoes || 0);
 
       const somaAtual =
         Number(est.somaAvaliacoes || 0);
@@ -167,6 +167,7 @@ export const avaliarAgendamento = onCall(
         avaliacao: novaMedia,
         somaAvaliacoes: novaSoma,
         quantidadeAvaliacoes: novoTotal,
+        totalAvaliacoes: novoTotal,
 
         avaliacoesPositivas: novasPositivas,
         avaliacoesNegativas: novasNegativas,

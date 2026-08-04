@@ -37,6 +37,7 @@ export default function StoryViewWeb() {
   const [showStats, setShowStats] = useState(false);
   const [loadingStats, setLoadingStats] = useState(false);
   const [stats, setStats] = useState({ views: 0, likes: 0, shares: 0 });
+  const [isLiked, setIsLiked] = useState(false);
 
   const storiesFiltrados = useMemo(
     () => stories.filter((s: any) => s && s.id),
@@ -70,6 +71,23 @@ export default function StoryViewWeb() {
     };
 
     registrar();
+  }, [story?.id, user?.uid]);
+
+  useEffect(() => {
+    if (!story?.id || !user?.uid) {
+      setIsLiked(false);
+      return;
+    }
+
+    const likeId = `${story.id}_${user.uid}`;
+    const unsub = firestore()
+      .collection("storyLikes")
+      .doc(likeId)
+      .onSnapshot((snap: any) => {
+        setIsLiked(snap.exists);
+      });
+
+    return () => unsub();
   }, [story?.id, user?.uid]);
 
   const fechar = () => {
@@ -112,6 +130,87 @@ export default function StoryViewWeb() {
     }
   };
 
+  const curtir = async () => {
+    if (!user?.uid) {
+      navigation.navigate("ClienteLogin");
+      return;
+    }
+    if (!story?.id) return;
+
+    const estavaCurtido = isLiked;
+    setIsLiked(!estavaCurtido);
+
+    try {
+      const storyRef = firestore().collection("stories").doc(story.id);
+      const likeRef = firestore()
+        .collection("storyLikes")
+        .doc(`${story.id}_${user.uid}`);
+
+      if (estavaCurtido) {
+        await likeRef.delete();
+        await storyRef.update({
+          likesCount: firestore.FieldValue.increment(-1),
+        });
+      } else {
+        await likeRef.set({
+          storyId: story.id,
+          userId: user.uid,
+          userName: user.displayName || "Cliente",
+          timestamp: firestore.FieldValue.serverTimestamp(),
+        });
+        await storyRef.update({
+          likesCount: firestore.FieldValue.increment(1),
+        });
+      }
+    } catch (error) {
+      console.log("Erro curtir story web:", error);
+      setIsLiked(estavaCurtido);
+    }
+  };
+
+  const compartilhar = async () => {
+    if (!user?.uid) {
+      navigation.navigate("ClienteLogin");
+      return;
+    }
+    if (!story?.id) return;
+
+    try {
+      const webNavigator = (globalThis as any).navigator;
+      const webLocation = (globalThis as any).location;
+      const shareData = {
+        title: "BeautyHub",
+        text: `Olha o que vi no perfil de ${story.nome || "BeautyHub"}!`,
+        url: mediaUri || webLocation?.href || "",
+      };
+
+      if (webNavigator?.share) {
+        await webNavigator.share(shareData);
+      } else if (webNavigator?.clipboard?.writeText) {
+        await webNavigator.clipboard.writeText(shareData.url);
+      }
+
+      await firestore().collection("stories").doc(story.id).update({
+        compartilhamentos: firestore.FieldValue.increment(1),
+      });
+
+      await firestore()
+        .collection("storyShares")
+        .doc(`${story.id}_${user.uid}`)
+        .set(
+          {
+            storyId: story.id,
+            userId: user.uid,
+            userName: user.displayName || "Cliente",
+            timestamp: firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+    } catch (error) {
+      console.log("Compartilhar story web cancelado/erro:", error);
+    }
+  };
+
   const voltarStory = () => {
     if (index > 0) setIndex(index - 1);
   };
@@ -134,25 +233,28 @@ export default function StoryViewWeb() {
   return (
     <View style={s.container}>
       {mediaUri && !mediaError ? (
-        storyType === "video" ? (
-          React.createElement("video" as any, {
-            src: mediaUri,
-            controls: true,
-            autoPlay: true,
-            playsInline: true,
-            style: videoStyle,
-            onError: () => setMediaError(true),
-          })
-        ) : (
-          React.createElement("img" as any, {
-            src: mediaUri,
-            alt: story.caption || story.nome || "Story",
-            decoding: "async",
-            loading: "eager",
-            style: imageStyle,
-            onError: () => setMediaError(true),
-          })
-        )
+        <View style={s.mediaLayer} pointerEvents="none">
+          {storyType === "video"
+            ? React.createElement("video" as any, {
+                key: `story-video-${story.id}`,
+                src: mediaUri,
+                controls: true,
+                autoPlay: true,
+                playsInline: true,
+                muted: false,
+                style: videoStyle,
+                onError: () => setMediaError(true),
+              })
+            : React.createElement("img" as any, {
+                key: `story-img-${story.id}`,
+                src: mediaUri,
+                alt: story.caption || story.nome || "Story",
+                decoding: "sync",
+                loading: "eager",
+                style: imageStyle,
+                onError: () => setMediaError(true),
+              })}
+        </View>
       ) : (
         <View style={s.fallback}>
           <Ionicons name="image-outline" size={44} color="#C9A96E" />
@@ -179,6 +281,19 @@ export default function StoryViewWeb() {
           <Text style={s.captionText}>{story.caption}</Text>
         </View>
       ) : null}
+
+      <View style={s.sideActions}>
+        <TouchableOpacity style={s.sideButton} onPress={curtir}>
+          <Ionicons
+            name={isLiked ? "heart" : "heart-outline"}
+            size={30}
+            color={isLiked ? "#FF3B5F" : "#FFF"}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity style={s.sideButton} onPress={compartilhar}>
+          <Ionicons name="send-outline" size={28} color="#FFF" />
+        </TouchableOpacity>
+      </View>
 
       <View style={s.bottom}>
         {isAdmin ? (
@@ -227,11 +342,16 @@ export default function StoryViewWeb() {
 
 const imageStyle = {
   position: "absolute",
-  inset: 0,
+  top: 0,
+  left: 0,
   width: "100%",
   height: "100%",
   objectFit: "cover",
   backgroundColor: "#000",
+  display: "block",
+  pointerEvents: "none",
+  WebkitTransform: "translateZ(0)",
+  transform: "translateZ(0)",
 };
 
 const videoStyle = {
@@ -242,7 +362,14 @@ const s = StyleSheet.create({
   container: {
     flex: 1,
     position: "relative",
-    minHeight: "100dvh" as any,
+    height: "100vh" as any,
+    minHeight: "-webkit-fill-available" as any,
+    backgroundColor: "#000",
+    overflow: "hidden",
+  },
+  mediaLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
     backgroundColor: "#000",
     overflow: "hidden",
   },
@@ -335,6 +462,22 @@ const s = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "700",
+  },
+  sideActions: {
+    position: "absolute",
+    right: 14,
+    bottom: 118,
+    zIndex: 32,
+    alignItems: "center",
+    gap: 16,
+  },
+  sideButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.32)",
   },
   bottom: {
     position: "absolute",

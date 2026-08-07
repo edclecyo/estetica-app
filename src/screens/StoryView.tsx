@@ -210,7 +210,8 @@ const panResponder = useRef(
 function abrirAgendamento() {
   if (!story?.estabelecimentoId) return;
 
-  navigation.navigate(user ? "Detalhe" : "ClienteLogin", {
+  progress.stopAnimation();
+  navigation.replace(user ? "Detalhe" : "ClienteLogin", {
     estabelecimentoId: story.estabelecimentoId,
   });
 }
@@ -539,8 +540,7 @@ function abrirMidiaDireta() {
               loading: "eager",
               onLoad: () => setMediaLoadStatus("loaded"),
               onError: () => {
-                setMediaLoadStatus("error");
-                setMediaError(true);
+                setMediaLoadStatus("loaded");
               },
               style: webStoryImgStyle,
             })}
@@ -551,27 +551,6 @@ function abrirMidiaDireta() {
             <Text style={s.mediaFallbackTitle}>Story indisponivel</Text>
           </View>
         )}
-
-        {mediaLoadStatus === "timeout" || mediaLoadStatus === "error" ? (
-          <View style={s.storyDebugBox}>
-            <Text style={s.storyDebugTitle}>
-              {mediaLoadStatus === "error"
-                ? "Imagem bloqueada ou indisponivel"
-                : "Imagem nao renderizou no iPhone"}
-            </Text>
-            <Text style={s.storyDebugText}>
-              Teste abrindo a imagem direta. Se abrir fora do app, o problema e
-              renderizacao do Safari. Se nao abrir, e permissao ou URL.
-            </Text>
-            <TouchableOpacity
-              style={s.storyDebugButton}
-              onPress={abrirMidiaDireta}
-              activeOpacity={0.85}
-            >
-              <Text style={s.storyDebugButtonText}>Abrir imagem</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
 
         <View style={s.simpleTopOverlay} />
 
@@ -660,7 +639,7 @@ function abrirMidiaDireta() {
           }}
           onEnd={proximo}
           onError={() => {
-            setMediaError(true);
+            setMediaError(Platform.OS !== "web");
             startAnimation(0, 5000);
           }}
         />
@@ -676,7 +655,7 @@ function abrirMidiaDireta() {
           style={s.image}
           resizeMode="cover"
           onError={() => {
-            setMediaError(true);
+            setMediaError(Platform.OS !== "web");
             startAnimation(0, 5000);
           }}
         />

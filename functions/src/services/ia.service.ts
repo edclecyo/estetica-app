@@ -12,27 +12,47 @@ const OPENAI_API_KEY = defineSecret('OPENAI_API_KEY');
 
 const gerarPromptIA = (categoria: string) => {
   const base = `
-Crie uma simulação estética realista.
-Mantenha a identidade da pessoa, rosto, expressão, idade, pele, iluminação e fundo o mais preservados possível.
+Crie uma simulação estética realista e profissional.
+
+Preserve a identidade da pessoa, rosto, expressão, idade,
+tom de pele, iluminação e fundo o máximo possível.
+
+A alteração deve ser exclusivamente estética e relacionada
+à categoria solicitada.
+
+Não altere roupas.
+Não altere o corpo.
+Não altere pose.
+Não crie nudez.
+Não sexualize a imagem.
 Não transforme em desenho.
-Não mude a pessoa.
-Não exagere.
-Resultado deve parecer uma prévia profissional realista.
+Não mude a identidade da pessoa.
+Não exagere nas alterações.
+
+O resultado deve parecer uma prévia profissional de salão
+ou clínica de estética.
 `;
 
   if (categoria === 'cabelo') {
     return `${base}
-Simule cabelo mais bonito, tratado, alinhado, brilhante e com acabamento profissional de salão.`;
+Altere somente o cabelo.
+Simule cabelo tratado, alinhado, brilhante e com acabamento profissional.
+Preserve completamente rosto, roupas e corpo.`;
   }
 
   if (categoria === 'maquiagem') {
     return `${base}
-Simule maquiagem profissional elegante, pele uniforme, olhos destacados e acabamento natural.`;
+Altere somente a maquiagem facial.
+Simule maquiagem profissional elegante e natural.
+Uniformize levemente a pele e destaque olhos e lábios sem alterar a identidade.
+Preserve completamente roupas e corpo.`;
   }
 
   if (categoria === 'sobrancelha') {
     return `${base}
-Simule design de sobrancelha profissional, natural, alinhado e harmonioso com o rosto.`;
+Altere somente as sobrancelhas.
+Simule design profissional natural, alinhado e harmonioso com o rosto.
+Não altere nenhuma outra parte da imagem.`;
   }
 
   return `${base}
@@ -76,42 +96,74 @@ export const gerarSimulacaoIA = onCall(
 
   async req => {
     if (!req.auth) {
-      throw new HttpsError('unauthenticated', 'Faça login');
-    }
-
-    const { estabelecimentoId, categoria, imagemUrl } = req.data || {};
-
-    if (!estabelecimentoId || !categoria || !imagemUrl) {
       throw new HttpsError(
-        'invalid-argument',
-        'Dados obrigatórios ausentes'
+        'unauthenticated',
+        'Faça login novamente.'
       );
     }
 
-    if (!['cabelo', 'maquiagem', 'sobrancelha'].includes(
-      String(categoria)
-    )) {
+    const {
+      estabelecimentoId,
+      categoria,
+      imagemUrl,
+    } = req.data || {};
+
+    if (
+      !estabelecimentoId ||
+      !categoria ||
+      !imagemUrl
+    ) {
       throw new HttpsError(
         'invalid-argument',
-        'Categoria de Previa IA invalida.'
+        'Dados obrigatórios ausentes.'
       );
     }
 
-    if (!String(imagemUrl).includes('firebasestorage.googleapis.com')) {
+    if (
+      ![
+        'cabelo',
+        'maquiagem',
+        'sobrancelha',
+      ].includes(String(categoria))
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Categoria de Prévia IA inválida.'
+      );
+    }
+
+    if (
+      !String(imagemUrl).includes(
+        'firebasestorage.googleapis.com'
+      )
+    ) {
       throw new HttpsError(
         'permission-denied',
         'Imagem inválida. Envie uma imagem do Firebase Storage.'
       );
     }
 
-    const rateRef = db.collection('rateLimitIA').doc(req.auth.uid);
-    const rateSnap = await rateRef.get();
+    // =====================================================
+    // RATE LIMIT
+    // =====================================================
 
-    const agoraMs = Date.now();
+    const rateRef = db
+      .collection('rateLimitIA')
+      .doc(req.auth.uid);
+
+    const rateSnap =
+      await rateRef.get();
+
+    const agoraMs =
+      Date.now();
 
     if (
       rateSnap.exists &&
-      agoraMs - Number(rateSnap.data()?.last || 0) < 15000
+      agoraMs -
+        Number(
+          rateSnap.data()?.last || 0
+        ) <
+        15000
     ) {
       throw new HttpsError(
         'resource-exhausted',
@@ -119,184 +171,647 @@ export const gerarSimulacaoIA = onCall(
       );
     }
 
-    await rateRef.set({
-      last: agoraMs,
-      atualizadoEm: FieldValue.serverTimestamp(),
-    });
+    await rateRef.set(
+      {
+        last: agoraMs,
+        atualizadoEm:
+          FieldValue.serverTimestamp(),
+      },
+      {
+        merge: true,
+      }
+    );
 
-    const estSnap = await db
+    // =====================================================
+    // ESTABELECIMENTO
+    // =====================================================
+
+    const estRef = db
       .collection('estabelecimentos')
-      .doc(estabelecimentoId)
-      .get();
+      .doc(estabelecimentoId);
+
+    const estSnap =
+      await estRef.get();
 
     if (!estSnap.exists) {
       throw new HttpsError(
         'not-found',
-        'Estabelecimento não encontrado'
+        'Estabelecimento não encontrado.'
       );
     }
 
-    const est = estSnap.data() as any;
-    const agora = new Date();
-    const assinaturaExpira = est.expiraEm?.toDate?.() || null;
-    const assinaturaValida =
-      est.assinaturaAtiva === true &&
-      (!assinaturaExpira || assinaturaExpira > agora);
+    const est =
+      estSnap.data() as any;
+
+    const agora =
+      new Date();
+
+    const plano = String(
+      est.planoAprovado ||
+      est.plano ||
+      ''
+    )
+      .toLowerCase()
+      .trim();
+
+    const assinaturaExpira =
+      est.expiraEm?.toDate?.() ||
+      null;
+
+    const planoValido =
+      plano === 'trial'
+        ? assinaturaExpira instanceof Date &&
+          assinaturaExpira > agora
+        : est.assinaturaAtiva === true &&
+          ['pro', 'elite'].includes(plano) &&
+          (
+            !assinaturaExpira ||
+            assinaturaExpira > agora
+          );
+
+    const iaExpira =
+      est.iaSimulacaoExpiraEm
+        ?.toDate?.() ||
+      null;
+
+    const iaValida =
+      est.iaSimulacaoAtiva === true &&
+      (
+        !iaExpira ||
+        iaExpira > agora
+      );
 
     if (
-      est.plano !== 'elite' ||
-      !assinaturaValida ||
-      est.iaSimulacaoAtiva !== true
+      !planoValido ||
+      !iaValida
     ) {
       throw new HttpsError(
         'failed-precondition',
-        'Prévia IA disponível apenas para Elite com adicional IA ativo.'
+        'Prévia IA disponível somente para estabelecimentos com plano ativo e pacote IA válido.'
       );
     }
 
-    const mesKey = `${agora.getFullYear()}-${String(
-      agora.getMonth() + 1
-    ).padStart(2, '0')}`;
+    // =====================================================
+    // LIMITE MENSAL
+    // =====================================================
 
-    const limite = Number(est.iaSimulacaoLimiteMensal || 0);
+    const mesKey =
+      `${agora.getFullYear()}-${String(
+        agora.getMonth() + 1
+      ).padStart(2, '0')}`;
 
-    if (limite <= 0) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Limite de Previa IA indisponivel para este estabelecimento.'
-      );
+    // =====================================================
+// LIMITE REAL DA IA PELO PLANO/PACOTE
+// =====================================================
+
+const pacoteIA = String(
+  est.iaSimulacaoPacote || ''
+)
+  .toLowerCase()
+  .trim();
+
+let limite = 0;
+
+// Elite = 100 imagens / 30 dias
+if (
+  plano === 'elite' ||
+  pacoteIA === 'elite_ia_100'
+) {
+  limite = 100;
+}
+
+// Pro = 20 imagens / 30 dias
+else if (
+  plano === 'pro' ||
+  pacoteIA === 'pro_ia_20'
+) {
+  limite = 20;
+}
+
+if (limite <= 0) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Não foi possível determinar o limite da Prévia IA deste estabelecimento.'
+  );
+}
+
+// =====================================================
+// CORRIGE AUTOMATICAMENTE VALORES ANTIGOS DO FIRESTORE
+// =====================================================
+
+const limiteSalvo = Number(
+  est.iaSimulacaoLimiteMensal || 0
+);
+
+if (limiteSalvo !== limite) {
+  console.log(
+    'CORRIGINDO LIMITE IA:',
+    {
+      estabelecimentoId,
+      plano,
+      pacoteIA,
+      limiteAntigo: limiteSalvo,
+      limiteNovo: limite,
     }
+  );
+
+  await estRef.update({
+    iaSimulacaoLimiteMensal: limite,
+    atualizadoEm:
+      FieldValue.serverTimestamp(),
+  });
+}
 
     const limiteRef = db
       .collection('limitesIA')
-      .doc(`${estabelecimentoId}_${mesKey}`);
+      .doc(
+        `${estabelecimentoId}_${mesKey}`
+      );
 
     let totalUsado = 0;
+    let usouCreditoExtra = false;
 
-    await db.runTransaction(async t => {
-      const limiteSnap = await t.get(limiteRef);
-    const totalAtual = limiteSnap.exists
-      ? Number(limiteSnap.data()?.total || 0)
-      : 0;
+    // =====================================================
+    // RESERVA 1 GERAÇÃO
+    // =====================================================
 
-    if (totalAtual >= limite) {
-      throw new HttpsError(
-        'resource-exhausted',
-        `Este estabelecimento atingiu o limite mensal de ${limite} simulações IA.`
-      );
-    }
+    await db.runTransaction(
+      async transaction => {
+        const limiteSnap =
+          await transaction.get(
+            limiteRef
+          );
 
-      totalUsado = totalAtual + 1;
+        const totalAtual =
+          limiteSnap.exists
+            ? Number(
+                limiteSnap
+                  .data()
+                  ?.total || 0
+              )
+            : 0;
 
-      t.set(
-        limiteRef,
-        {
-          estabelecimentoId,
-          mes: mesKey,
-          total: totalUsado,
-          limite,
-          atualizadoEm: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-    });
+        // Acabou mensal → tenta extra
+        if (
+          totalAtual >= limite
+        ) {
+          const estAtualSnap =
+            await transaction.get(
+              estRef
+            );
 
-    try {
-      const openai = new OpenAI({
-        apiKey: OPENAI_API_KEY.value(),
-      });
+          const creditos =
+            Number(
+              estAtualSnap
+                .data()
+                ?.iaCreditosDisponiveis ||
+              0
+            );
 
-      const { buffer, contentType } =
-        await baixarImagem(String(imagemUrl));
+          if (creditos > 0) {
+            usouCreditoExtra = true;
 
-      const extensaoOriginal = contentType.includes('png')
-        ? 'png'
-        : 'jpg';
+            totalUsado =
+              totalAtual;
 
-      const resposta = await openai.images.edit({
-        model: 'gpt-image-1',
-        image: await toFile(
-          buffer,
-          `imagem-original.${extensaoOriginal}`,
-          { type: contentType }
-        ),
-        prompt: gerarPromptIA(String(categoria)),
-        size: '1024x1024',
-        quality: 'low',
-      });
+            transaction.update(
+              estRef,
+              {
+                iaCreditosDisponiveis:
+                  FieldValue.increment(
+                    -1
+                  ),
 
-      const base64 = resposta.data?.[0]?.b64_json;
+                iaCreditosUsados:
+                  FieldValue.increment(
+                    1
+                  ),
 
-      if (!base64) {
-        throw new Error('A IA não retornou imagem.');
-      }
+                atualizadoEm:
+                  FieldValue.serverTimestamp(),
+              }
+            );
 
-      const imagemGeradaBuffer = Buffer.from(base64, 'base64');
+            return;
+          }
 
-      const bucket = admin.storage().bucket();
+          throw new HttpsError(
+            'resource-exhausted',
+            `Este estabelecimento atingiu o limite mensal de ${limite} simulações IA e não possui créditos extras.`
+          );
+        }
 
-      const storagePath =
-        `simulacoesIA/${estabelecimentoId}/${mesKey}/${req.auth.uid}_${Date.now()}.png`;
+        // Usa mensal
+        totalUsado =
+          totalAtual + 1;
 
-      const file = bucket.file(storagePath);
-
-      await file.save(imagemGeradaBuffer, {
-        metadata: {
-          contentType: 'image/png',
-        },
-      });
-
-      const [imagemGerada] = await file.getSignedUrl({
-        action: 'read',
-        expires: '01-01-2035',
-      });
-
-      const simRef = await db.collection('simulacoesIA').add({
-        clienteUid: req.auth.uid,
-        estabelecimentoId,
-        categoria,
-
-        imagemOriginal: imagemUrl,
-        imagemGerada,
-        storagePath,
-
-        modeloIA: 'gpt-image-1',
-        qualidadeIA: 'low',
-
-        mesKey,
-        criadoEm: FieldValue.serverTimestamp(),
-      });
-
-      return {
-        ok: true,
-        simulacaoId: simRef.id,
-        imagemGerada,
-        limiteMensal: limite,
-        totalUsado,
-      };
-    } catch (error: any) {
-      await db.runTransaction(async t => {
-        const snap = await t.get(limiteRef);
-        const atual = snap.exists ? Number(snap.data()?.total || 0) : 0;
-
-        t.set(
+        transaction.set(
           limiteRef,
           {
             estabelecimentoId,
             mes: mesKey,
-            total: Math.max(0, atual - 1),
+            total: totalUsado,
             limite,
-            atualizadoEm: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-      });
 
-      console.error('Erro gerarSimulacaoIA:', error);
+            atualizadoEm:
+              FieldValue.serverTimestamp(),
+          },
+          {
+            merge: true,
+          }
+        );
+      }
+    );
+
+    try {
+      // =====================================================
+      // OPENAI
+      // =====================================================
+
+      const apiKey =
+        OPENAI_API_KEY.value();
+
+      if (
+        !apiKey ||
+        !apiKey
+          .trim()
+          .startsWith('sk-')
+      ) {
+        throw new HttpsError(
+          'unavailable',
+          'A Prévia IA está temporariamente indisponível.'
+        );
+      }
+
+      const openai =
+        new OpenAI({
+          apiKey,
+        });
+
+      const {
+        buffer,
+        contentType,
+      } =
+        await baixarImagem(
+          String(imagemUrl)
+        );
+
+      const extensaoOriginal =
+        contentType.includes('png')
+          ? 'png'
+          : contentType.includes('webp')
+            ? 'webp'
+            : 'jpg';
+
+      const resposta =
+        await openai.images.edit({
+          model: 'gpt-image-1',
+
+          image: await toFile(
+            buffer,
+            `imagem-original.${extensaoOriginal}`,
+            {
+              type: contentType,
+            }
+          ),
+
+          prompt:
+            gerarPromptIA(
+              String(categoria)
+            ),
+
+          size: '1024x1024',
+          quality: 'low',
+        });
+
+      const base64 =
+        resposta.data?.[0]?.b64_json;
+
+      if (!base64) {
+        throw new Error(
+          'A IA não retornou uma imagem.'
+        );
+      }
+
+      // =====================================================
+      // STORAGE
+      // =====================================================
+
+      const imagemGeradaBuffer =
+        Buffer.from(
+          base64,
+          'base64'
+        );
+
+      const bucket =
+        admin.storage().bucket();
+
+      const storagePath =
+        `simulacoesIA/` +
+        `${estabelecimentoId}/` +
+        `${mesKey}/` +
+        `${req.auth.uid}_` +
+        `${Date.now()}.png`;
+
+      const file =
+        bucket.file(
+          storagePath
+        );
+
+      await file.save(
+        imagemGeradaBuffer,
+        {
+          resumable: false,
+
+          metadata: {
+            contentType:
+              'image/png',
+          },
+        }
+      );
+
+      const [imagemGerada] =
+        await file.getSignedUrl({
+          action: 'read',
+          expires: '01-01-2035',
+        });
+
+      // =====================================================
+      // HISTÓRICO
+      // =====================================================
+
+      const simRef =
+        await db
+          .collection(
+            'simulacoesIA'
+          )
+          .add({
+            clienteUid:
+              req.auth.uid,
+
+            estabelecimentoId,
+
+            categoria,
+
+            imagemOriginal:
+              imagemUrl,
+
+            imagemGerada,
+
+            storagePath,
+
+            modeloIA:
+              'gpt-image-1',
+
+            qualidadeIA:
+              'low',
+
+            mesKey,
+
+            usouCreditoExtra,
+
+            criadoEm:
+              FieldValue.serverTimestamp(),
+          });
+
+      // =====================================================
+      // SALDO EXTRA ATUAL
+      // =====================================================
+
+      const estFinalSnap =
+        await estRef.get();
+
+      const creditosExtras =
+        Number(
+          estFinalSnap
+            .data()
+            ?.iaCreditosDisponiveis ||
+          0
+        );
+
+      const restantesMensais =
+        Math.max(
+          0,
+          limite -
+            totalUsado
+        );
+
+      return {
+        ok: true,
+
+        simulacaoId:
+          simRef.id,
+
+        imagemGerada,
+
+        limiteMensal:
+          limite,
+
+        totalUsado,
+
+        restantesMensais,
+
+        creditosExtras,
+
+        usouCreditoExtra,
+      };
+    } catch (error: any) {
+      // =====================================================
+      // DEVOLVE O CRÉDITO SE A GERAÇÃO FALHAR
+      // =====================================================
+
+      try {
+        await db.runTransaction(
+          async transaction => {
+            if (
+              usouCreditoExtra
+            ) {
+              transaction.update(
+                estRef,
+                {
+                  iaCreditosDisponiveis:
+                    FieldValue.increment(
+                      1
+                    ),
+
+                  iaCreditosUsados:
+                    FieldValue.increment(
+                      -1
+                    ),
+
+                  atualizadoEm:
+                    FieldValue.serverTimestamp(),
+                }
+              );
+
+              return;
+            }
+
+            const snap =
+              await transaction.get(
+                limiteRef
+              );
+
+            const atual =
+              snap.exists
+                ? Number(
+                    snap
+                      .data()
+                      ?.total || 0
+                  )
+                : 0;
+
+            transaction.set(
+              limiteRef,
+              {
+                estabelecimentoId,
+                mes: mesKey,
+
+                total:
+                  Math.max(
+                    0,
+                    atual - 1
+                  ),
+
+                limite,
+
+                atualizadoEm:
+                  FieldValue.serverTimestamp(),
+              },
+              {
+                merge: true,
+              }
+            );
+          }
+        );
+      } catch (
+        rollbackError
+      ) {
+        console.error(
+          'Erro ao devolver crédito IA:',
+          rollbackError
+        );
+      }
+
+      // =====================================================
+      // LOG REAL
+      // =====================================================
+
+      console.error(
+        'Erro gerarSimulacaoIA:',
+        error
+      );
+
+      if (
+        error instanceof HttpsError
+      ) {
+        throw error;
+      }
+
+      const status =
+        Number(
+          error?.status || 0
+        );
+
+      const code =
+        String(
+          error?.code || ''
+        ).toLowerCase();
+
+      const type =
+        String(
+          error?.type || ''
+        ).toLowerCase();
+
+      const message =
+        String(
+          error?.message || ''
+        ).toLowerCase();
+
+      // =====================================================
+      // MODERAÇÃO / SAFETY
+      // =====================================================
+
+      if (
+        code ===
+          'moderation_blocked' ||
+        type ===
+          'image_generation_user_error' ||
+        message.includes(
+          'safety system'
+        ) ||
+        message.includes(
+          'safety_violations'
+        )
+      ) {
+        throw new HttpsError(
+          'invalid-argument',
+          'Não foi possível gerar a Prévia IA com esta foto. Tente outra imagem com o rosto bem visível, boa iluminação e enquadramento adequado.'
+        );
+      }
+
+      // =====================================================
+      // SEM CRÉDITOS NA CONTA OPENAI
+      // =====================================================
+
+      if (
+        code ===
+          'credit_balance_exhausted' ||
+        type ===
+          'insufficient_quota' ||
+        message.includes(
+          'no credits remaining'
+        ) ||
+        message.includes(
+          'insufficient_quota'
+        )
+      ) {
+        throw new HttpsError(
+          'unavailable',
+          'A Prévia IA está temporariamente indisponível. Tente novamente mais tarde.'
+        );
+      }
+
+      // =====================================================
+      // CHAVE REALMENTE INVÁLIDA
+      // =====================================================
+
+      if (
+        status === 401 ||
+        code ===
+          'invalid_api_key' ||
+        message.includes(
+          'incorrect api key'
+        ) ||
+        message.includes(
+          'invalid api key'
+        )
+      ) {
+        throw new HttpsError(
+          'unavailable',
+          'A Prévia IA está temporariamente indisponível.'
+        );
+      }
+
+      // =====================================================
+      // RATE LIMIT OPENAI
+      // =====================================================
+
+      if (
+        status === 429 ||
+        message.includes(
+          'rate limit'
+        )
+      ) {
+        throw new HttpsError(
+          'resource-exhausted',
+          'Muitas simulações estão sendo processadas. Aguarde alguns segundos e tente novamente.'
+        );
+      }
 
       throw new HttpsError(
         'internal',
-        error?.message || 'Erro ao gerar simulação IA.'
+        'Não foi possível gerar a simulação. Tente novamente.'
       );
     }
   }

@@ -24,6 +24,24 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Clipboard from '@react-native-clipboard/clipboard';
 
+const getIAAddon = (planoId: string) => {
+  if (planoId === 'pro') {
+    return {
+      textoPreco: '+ R$ 19,99/mes',
+      limite: 20,
+    };
+  }
+
+  if (planoId === 'elite') {
+    return {
+      textoPreco: '+ R$ 14,90/mes',
+      limite: 100,
+    };
+  }
+
+  return null;
+};
+
 export default function CheckoutScreen({
   route,
   navigation
@@ -36,10 +54,15 @@ export default function CheckoutScreen({
   planoNome,
   estabelecimentoId,
   addIA,
+  tipoCheckout,
+  pacoteIAId,
 } = route.params;
 
 const valorFinal =
   Number(valor ?? preco ?? 0);
+const isIACreditos = tipoCheckout === 'ia_creditos';
+const isIA = tipoCheckout === 'ia' || isIACreditos;
+const iaAddon = getIAAddon(String(planoId || ''));
   
   const functionsInstance = getFunctions(
     getApp(),
@@ -85,6 +108,9 @@ const valorFinal =
   const timerRef =
     useRef<any>(null);
 
+  const pagamentoAlvoRef =
+    useRef<any>(null);
+
   // =====================================================
   // TEMPO REAL
   // =====================================================
@@ -104,7 +130,9 @@ const valorFinal =
         // STATUS PIX
         // =================================================
 
-       const status = data.paymentStatus || 'idle';
+       const status = isIA
+        ? data.iaSimulacaoPaymentStatus || 'idle'
+        : data.paymentStatus || 'idle';
 
         setStatusPix(status);
 
@@ -136,19 +164,42 @@ const valorFinal =
         // PIX SOMENTE DO PLANO ATUAL
         // =================================================
 
-        const isThisPix =
-  data.planoPendente === planoId;
+        const pendenteIA =
+          data.iaSimulacaoPagamentoPendente || null;
+
+        const isThisPix = isIACreditos
+          ? pendenteIA?.status === 'pending' &&
+            pendenteIA?.tipo === 'ia_creditos'
+          : isIA
+          ? pendenteIA?.status === 'pending' &&
+            pendenteIA?.tipo !== 'ia_creditos'
+          : data.planoPendente === planoId;
+
+        if (
+          isThisPix &&
+          isIA &&
+          !pagamentoAlvoRef.current &&
+          pendenteIA?.mercadoPagoId
+        ) {
+          pagamentoAlvoRef.current = pendenteIA.mercadoPagoId;
+        }
 
 if (
-  data.paymentStatus === 'pending' &&
-  data.pixQrCodeBase64 &&
+  status === 'pending' &&
+  (isIA
+    ? data.iaSimulacaoPagamentoPendente?.qrCodeBase64
+    : data.pixQrCodeBase64) &&
   isThisPix
 ) {
 
           setPix({
-            qr_code: data.pixQrCode,
+            qr_code: isIA
+              ? data.iaSimulacaoPagamentoPendente?.qrCode
+              : data.pixQrCode,
             qr_code_base64:
-              data.pixQrCodeBase64
+              isIA
+                ? data.iaSimulacaoPagamentoPendente?.qrCodeBase64
+                : data.pixQrCodeBase64
           });
 
         } else {
@@ -162,7 +213,9 @@ if (
         // =================================================
 
         const expira =
-          data.pixExpiraEm?.toDate?.();
+          isIA
+            ? data.iaSimulacaoPagamentoPendente?.expiraEm?.toDate?.()
+            : data.pixExpiraEm?.toDate?.();
 
         if (expira) {
 
@@ -199,13 +252,20 @@ if (
         // PIX APROVADO
         // =================================================
 
-        const pagamentoDestePlano =
-  data.plano === planoId ||
-  data.planoAprovado === planoId;
+        const pagamentoDestePlano = isIACreditos
+          ? data.iaUltimoPagamentoCreditosId === pagamentoAlvoRef.current
+          : isIA
+          ? data.iaSimulacaoAtiva === true
+          : data.plano === planoId ||
+            data.planoAprovado === planoId;
 
 if (
   status === 'approved' &&
-  data.assinaturaAtiva === true &&
+  (isIACreditos
+    ? data.iaUltimoPagamentoCreditosId === pagamentoAlvoRef.current
+    : isIA
+    ? data.iaSimulacaoAtiva === true
+    : data.assinaturaAtiva === true) &&
   pagamentoDestePlano &&
   !alertaExibido
 ) {
@@ -220,7 +280,11 @@ if (
 
           Alert.alert(
             'Pagamento aprovado',
-            'Seu plano foi ativado com sucesso!',
+            isIACreditos
+              ? 'Creditos extras adicionados a sua Previa IA.'
+              : isIA
+              ? 'A Previa IA foi ativada por 30 dias.'
+              : 'Seu plano foi ativado com sucesso!',
             [
               {
                 text: 'Continuar',
@@ -271,10 +335,10 @@ if (
 
  const pagarPix = async () => {
 
-  if (
+  if (!isIA && (
     assinaturaAtiva &&
     planoAtual === planoId
-  ) {
+  )) {
 
     Alert.alert('Plano já ativo');
 
@@ -295,19 +359,35 @@ if (
 
     const fn = httpsCallable(
       functionsInstance,
-      'criarPagamentoPixAssinatura'
+      isIACreditos
+        ? 'criarPagamentoPixCreditosIA'
+        : isIA
+        ? 'criarPagamentoPixIA'
+        : 'criarPagamentoPixAssinatura'
     );
 
-    const { data }: any = await fn({
-  estabelecimentoId,
-  plano: planoId,
-  valor: valorFinal,
-  addIA: addIA === true,
-});
+    const payload = isIACreditos
+      ? {
+          estabelecimentoId,
+          pacote: pacoteIAId || '1',
+        }
+      : isIA
+      ? { estabelecimentoId }
+      : {
+          estabelecimentoId,
+          plano: planoId,
+          valor: valorFinal,
+          addIA: addIA === true,
+        };
+
+    const { data }: any = await fn(payload);
 
     if (!data?.qr_code_base64) {
       throw new Error('PIX inválido');
     }
+
+    pagamentoAlvoRef.current =
+      data?.mercadoPagoId || null;
 
     setPix(data);
 
@@ -330,6 +410,13 @@ if (
   // =====================================================
 
   const pagarCartao = () => {
+    if (isIA) {
+      Alert.alert(
+        'Pagamento por PIX',
+        'A Previa IA por 30 dias esta disponivel por PIX.'
+      );
+      return;
+    }
 
     if (
       assinaturaAtiva &&
@@ -349,7 +436,8 @@ if (
       {
         estabelecimentoId,
         planoId,
-        valor
+        valor,
+        addIA: addIA === true
       }
     );
   };
@@ -409,6 +497,7 @@ if (
   // =====================================================
 
   const mesmoPlano =
+    !isIA &&
     assinaturaAtiva &&
     planoAtual === planoId;
 
@@ -417,7 +506,7 @@ if (
   // =====================================================
 
   const pixDessePlano =
-    planoPixAtual === planoId &&
+    (isIA || planoPixAtual === planoId) &&
     statusPix === 'pending';
 
   // =====================================================
@@ -452,7 +541,11 @@ if (
         </TouchableOpacity>
 
         <Text style={s.title}>
-          Finalizar Assinatura
+          {isIACreditos
+            ? 'Comprar creditos IA'
+            : isIA
+            ? 'Ativar Previa IA'
+            : 'Finalizar Assinatura'}
         </Text>
 
       </View>
@@ -472,10 +565,12 @@ if (
         <Text style={s.valor}>
           R$ {Number(valor).toFixed(2)}
         </Text>
-{planoId === 'elite' && addIA === true && (
+{!isIA && addIA === true && (
   <Text style={s.iaResumo}>
     ✨ Prévia IA incluída:
-    + R$ 19,90/mês
+    {iaAddon
+      ? ` ${iaAddon.textoPreco} - ${iaAddon.limite} simulacoes por mes`
+      : ' pacote IA'}
   </Text>
 )}
         <View style={s.badgeRow}>
@@ -572,6 +667,7 @@ if (
 
       {/* CARTÃO */}
 
+      {!isIA && (
       <TouchableOpacity
         style={[
 
@@ -606,6 +702,7 @@ if (
         </Text>
 
       </TouchableOpacity>
+      )}
 
       {/* QR CODE */}
 

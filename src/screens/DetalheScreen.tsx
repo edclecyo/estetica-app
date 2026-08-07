@@ -2,6 +2,7 @@ import React, { useEffect, useState,useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   TextInput, StyleSheet, ActivityIndicator, Alert, Linking, Image,
+  Platform,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
@@ -12,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/FontAwesome';
 import SeloVerificado from '../assets/selo_verificado.png';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 const DIAS_PADRAO_FUNCIONAMENTO = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -143,6 +145,7 @@ export default function DetalheScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { estabelecimentoId } = route.params;
+  const insets = useSafeAreaInsets();
 
   const [estab, setEstab] = useState<Estabelecimento | null>(null);
   const [loading, setLoading] = useState(true);
@@ -155,7 +158,7 @@ export default function DetalheScreen() {
   const [nome, setNome] = useState('');
   const [confirmado, setConfirmado] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState('');
-  const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | ''>('');
+  const [formaPagamento, setFormaPagamento] = useState<'app' | 'local' | 'sinal' | ''>('');
   const [usuarioLogado, setUsuarioLogado] = useState(auth().currentUser);
   const [authChecking, setAuthChecking] = useState(true);
   const [mostrarInfoEstab, setMostrarInfoEstab] = useState(false);
@@ -164,13 +167,21 @@ const criandoAgendamentoRef = useRef(false);
   (estab?.plano === 'pro' || estab?.plano === 'elite') &&
   estab?.pagamentoAppAtivo === true &&
   !!estab?.pixChave &&
-  !!estab?.responsavelNome &&
-  !!estab?.responsavelTelefone &&
-  !!estab?.responsavelEmail;
+  !!estab?.telefone;
+  const sinalFestivoAtivo = estab?.sinalFestivoAtivo === true;
+  const podePagarSinal =
+    sinalFestivoAtivo &&
+    !!estab?.pixChave &&
+    !!estab?.telefone;
   const datas = getDatas(
     estab?.diasFuncionamento,
     estab?.diasFechados
   );
+  const bottomSafe = Math.max(
+    insets.bottom,
+    Platform.OS === 'ios' || Platform.OS === 'web' ? 24 : 0
+  );
+  const scrollBottomPadding = bottomSafe + (estab?.telefone ? 140 : 72);
 
 
   useEffect(() => {
@@ -224,8 +235,22 @@ const criandoAgendamentoRef = useRef(false);
 
      const ocupados = snap.docs
   .map(doc => {
+    const dados = doc.data() as any;
+    const expiraMs =
+      dados?.pagamentoExpiraEm?.toMillis?.() ||
+      dados?.pagamentoExpiraEm?.toDate?.()?.getTime?.() ||
+      0;
+    const reservaVencida =
+      dados?.status === 'aguardando_pagamento' &&
+      dados?.statusPagamento !== 'approved' &&
+      expiraMs > 0 &&
+      expiraMs <= Date.now();
 
-    const horario = String(doc.data()?.horario || '');
+    if (reservaVencida) {
+      return null;
+    }
+
+    const horario = String(dados?.horario || '');
 
     // evita erro se vier vazio
     if (!horario.includes(':')) {
@@ -260,6 +285,9 @@ return () => unsub();
 const servicoObj = estab?.servicos?.find(
   s => s.nome === servicoSel
 );
+const valorServicoSelecionado = Number(servicoObj?.preco || 0);
+const valorSinal = valorServicoSelecionado * 0.5;
+const valorRestanteSinal = Math.max(valorServicoSelecionado - valorSinal, 0);
 
   const confirmar = async () => {
   if (criandoAgendamentoRef.current || salvando) {
@@ -317,13 +345,14 @@ const servicoObj = estab?.servicos?.find(
 
       await AsyncStorage.setItem('clienteNome', nome);
 
-      if (formaPagamento === 'app') {
+      if (formaPagamento === 'app' || formaPagamento === 'sinal') {
         navigation.navigate('PagamentoCliente', {
           agendamentoId,
           estabelecimentoId,
           servicoNome: servicoSel,
-          valor: servicoObj?.preco,
+          valor: formaPagamento === 'sinal' ? valorSinal : servicoObj?.preco,
           nomeEstabelecimento: estab?.nome,
+          formaPagamento,
         });
         return;
       }
@@ -578,9 +607,11 @@ const semHorarios = todosHorarios.every(h => {
               </Text>
 
               <Text style={s.confirmValue}>
-                {formaPagamento === 'app'
-                  ? 'Pagamento via app'
-                  : 'Pagamento no local'}
+                {formaPagamento === 'sinal'
+                  ? 'Sinal de 50%'
+                  : formaPagamento === 'app'
+                    ? 'Pagamento via app'
+                    : 'Pagamento no local'}
               </Text>
             </View>
           </View>
@@ -641,25 +672,26 @@ const semHorarios = todosHorarios.every(h => {
             <Text style={s.bannerNome}>{estab?.nome}</Text>
 
             {(estab?.verificado === true || estab?.plano === 'elite') && (
-              <Image
-                source={SeloVerificado}
-                style={{
-                  width: 18,
-                  height: 18,
-                  resizeMode: 'contain',
-                }}
-              />
+              <View style={s.bannerSeloWrap}>
+                <Image source={SeloVerificado} style={s.bannerSelo} />
+              </View>
             )}
           </View>
           <Text style={s.bannerTipo}>{estab?.tipo}</Text>
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[
+          s.scrollContent,
+          { paddingBottom: scrollBottomPadding },
+        ]}
+      >
   <View style={s.body}>
 
-    {estab?.plano === 'elite' &&
-      estab?.assinaturaAtiva === true &&
+    {(estab?.assinaturaAtiva === true || estab?.plano === 'trial') &&
       (estab as any)?.iaSimulacaoAtiva === true && (
         <TouchableOpacity
           style={s.iaBtn}
@@ -706,7 +738,9 @@ const semHorarios = todosHorarios.every(h => {
         <View style={s.estabResumoNomeRow}>
           <Text style={s.estabResumoNome} numberOfLines={2}>{estab?.nome}</Text>
           {(estab?.verificado === true || estab?.plano === 'elite') && (
-            <Image source={SeloVerificado} style={s.estabResumoSelo} />
+            <View style={s.estabResumoSeloWrap}>
+              <Image source={SeloVerificado} style={s.estabResumoSelo} />
+            </View>
           )}
         </View>
 
@@ -760,6 +794,22 @@ const semHorarios = todosHorarios.every(h => {
     )}
 
     <>
+    {sinalFestivoAtivo && (
+      <View style={s.sinalDetalheAviso}>
+        <View style={s.sinalDetalheIcon}>
+          <Icon name="bolt" size={18} color="#1A1A1A" />
+        </View>
+        <View style={s.sinalDetalheTextoWrap}>
+          <Text style={s.sinalDetalheTitulo}>Reserva com sinal</Text>
+          <Text style={s.sinalDetalheDesc}>
+            {valorServicoSelecionado > 0
+              ? `Para reservar este horario, pague 50% agora: R$ ${valorSinal.toFixed(2).replace('.', ',')}. O restante fica para o dia do atendimento.`
+              : 'Escolha um servico para ver o valor do sinal antes de reservar.'}
+          </Text>
+        </View>
+      </View>
+    )}
+
     <View style={s.stepsWrap}>
             {[1, 2, 3, 4].map(i => (
               <View key={i} style={s.stepItem}>
@@ -935,17 +985,53 @@ const semHorarios = todosHorarios.every(h => {
   <View style={s.resumoFinalLinha}>
     <Icon name="credit-card" size={16} color="#C9A96E" />
     <Text style={s.resumoFinalTexto}>
-      {formaPagamento === 'app'
-        ? 'Pagamento via app'
-        : 'Pagamento no local'}
+      {formaPagamento === 'sinal'
+        ? `Sinal agora: R$ ${valorSinal.toFixed(2).replace('.', ',')}`
+        : formaPagamento === 'app'
+          ? 'Pagamento via app'
+          : 'Pagamento no local'}
     </Text>
   </View>
+  {formaPagamento === 'sinal' && (
+    <>
+      <View style={s.resumoFinalLinha}>
+        <Icon name="cash-clock" size={16} color="#C9A96E" />
+        <Text style={s.resumoFinalTexto}>
+          Restante no dia: R$ {valorRestanteSinal.toFixed(2).replace('.', ',')}
+        </Text>
+      </View>
+
+      <Text style={s.resumoFinalObs}>
+        O horario so e confirmado depois da aprovacao do PIX. Se precisar cancelar ou remarcar, avise o estabelecimento com antecedencia. Em caso de ausencia no dia, o sinal pode ficar com o estabelecimento pelo horario reservado.
+      </Text>
+    </>
+  )}
 </View>
             </>
           )}
 {step >= 4 && (
   <View style={s.secao}>
     <Text style={s.secaoTitulo}>Pagamento</Text>
+
+   {sinalFestivoAtivo && (
+    <TouchableOpacity
+      disabled={!podePagarSinal}
+      onPress={() => podePagarSinal && setFormaPagamento('sinal')}
+      style={[
+        s.pagamentoCard,
+        formaPagamento === 'sinal' && s.pagamentoCardAtivo,
+        !podePagarSinal && { opacity: 0.4 }
+      ]}
+    >
+      <Text style={s.pagamentoTitulo}>Pagar sinal de 50%</Text>
+
+      <Text style={s.pagamentoDesc}>
+        {podePagarSinal
+          ? `Pague R$ ${valorSinal.toFixed(2).replace('.', ',')} agora e R$ ${valorRestanteSinal.toFixed(2).replace('.', ',')} no dia do atendimento.`
+          : 'Sinal indisponivel no momento.'}
+      </Text>
+    </TouchableOpacity>
+   )}
 
    <TouchableOpacity
     disabled={!podePagarNoApp}
@@ -960,23 +1046,27 @@ const semHorarios = todosHorarios.every(h => {
 
     <Text style={s.pagamentoDesc}>
       {podePagarNoApp
-        ? 'Pague no app e garanta seu horário'
-        : 'Pagamento online indisponível para este estabelecimento'}
+        ? 'Pagamento completo pelo app.'
+        : 'Pagamento completo pelo app disponivel apenas em estabelecimentos Pro ou Elite com PIX e WhatsApp cadastrados.'}
     </Text>
   </TouchableOpacity>
 
   {/* 🏢 PAGAR NO LOCAL (SEMPRE LIBERADO) */}
   <TouchableOpacity
+    disabled={sinalFestivoAtivo}
     onPress={() => setFormaPagamento('local')}
     style={[
       s.pagamentoCard,
-      formaPagamento === 'local' && s.pagamentoCardAtivo
+      formaPagamento === 'local' && s.pagamentoCardAtivo,
+      sinalFestivoAtivo && { opacity: 0.4 }
     ]}
   >
     <Text style={s.pagamentoTitulo}>🏢 Pagar no local</Text>
 
     <Text style={s.pagamentoDesc}>
-      Pague após o atendimento diretamente no estabelecimento
+      {sinalFestivoAtivo
+        ? 'Neste periodo, a reserva e feita somente com sinal de 50%.'
+        : 'Pague apos o atendimento diretamente no estabelecimento'}
     </Text>
   </TouchableOpacity>
 </View>
@@ -1001,7 +1091,17 @@ const semHorarios = todosHorarios.every(h => {
   salvando
 }
             onPress={confirmar}>
-            {salvando ? <ActivityIndicator color="#fff" /> : <Text style={s.btnPrimarioText}>Finalizar Agendamento</Text>}
+            {salvando ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={s.btnPrimarioText}>
+                {formaPagamento === 'sinal'
+                  ? 'Gerar PIX do sinal'
+                  : formaPagamento === 'app'
+                    ? 'Gerar PIX do pagamento'
+                    : 'Finalizar Agendamento'}
+              </Text>
+            )}
           </TouchableOpacity>
     </>
         </View>
@@ -1009,7 +1109,13 @@ const semHorarios = todosHorarios.every(h => {
 
       {/* WHATSAPP FLOAT */}
       {!!estab?.telefone && (
-        <View style={s.whatsappFloatWrap} pointerEvents="box-none">
+        <View
+          style={[
+            s.whatsappFloatWrap,
+            { bottom: bottomSafe + 24 },
+          ]}
+          pointerEvents="box-none"
+        >
           <Text style={s.whatsappHint}>Tire dúvidas pelo WhatsApp</Text>
           <TouchableOpacity
             onPress={abrirWhatsApp}
@@ -1028,12 +1134,15 @@ const semHorarios = todosHorarios.every(h => {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  scrollContent: { flexGrow: 1 },
   banner: { padding: 24, paddingTop: 52, flexDirection: 'row', alignItems: 'center', gap: 16 },
   voltarBtn: { position: 'absolute', top: 52, left: 16, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.8)', borderRadius: 10, width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
   voltarBtnText: { fontSize: 20, color: '#1A1A1A' },
   bannerEmoji: { fontSize: 56, marginLeft: 40, width: 80, height: 80, textAlign: 'center', textAlignVertical: 'center' },
   bannerInfo: { flex: 1 },
   bannerNome: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
+  bannerSeloWrap: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#C9A96E' },
+  bannerSelo: { width: 18, height: 18, resizeMode: 'contain' },
   bannerTipo: { fontSize: 12, color: '#666' },
   body: { padding: 16 },
   loginRequiredCard: { backgroundColor: '#1A1A1A', borderRadius: 20, padding: 18, borderWidth: 1, borderColor: '#C9A96E', marginTop: 8 },
@@ -1127,7 +1236,8 @@ confirmAlertText: {
   estabResumoInfo: { flex: 1 },
   estabResumoNomeRow: { flexDirection: 'row', alignItems: 'center' },
   estabResumoNome: { flex: 1, color: '#1A1A1A', fontSize: 17, fontWeight: '900', lineHeight: 22 },
-  estabResumoSelo: { width: 17, height: 17, resizeMode: 'contain', marginLeft: 6 },
+  estabResumoSeloWrap: { width: 25, height: 25, borderRadius: 13, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#C9A96E', marginLeft: 6 },
+  estabResumoSelo: { width: 18, height: 18, resizeMode: 'contain' },
   avaliacoesRow: { flexDirection: 'row', alignItems: 'center', marginTop: 9 },
   avaliacoesNota: { color: '#C9A96E', fontSize: 16, fontWeight: '900', marginRight: 5 },
   avaliacoesTotal: { color: '#777', fontSize: 13, fontWeight: '600', marginLeft: 7 },
@@ -1147,6 +1257,28 @@ confirmAlertText: {
   maisAgendarBtnAtivo: { backgroundColor: '#fff' },
   maisAgendarText: { color: '#1A1A1A', fontSize: 13, fontWeight: '900' },
   maisAgendarTextAtivo: { color: '#1A1A1A' },
+  sinalDetalheAviso: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.45)',
+    padding: 14,
+    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sinalDetalheIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#C9A96E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  sinalDetalheTextoWrap: { flex: 1 },
+  sinalDetalheTitulo: { color: '#FFF', fontSize: 14, fontWeight: '900' },
+  sinalDetalheDesc: { color: '#DDD', fontSize: 12, lineHeight: 18, marginTop: 4 },
   servicoCard: { backgroundColor: '#fff', borderRadius: 14, padding: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   servicoCardAtivo: { backgroundColor: '#1A1A1A' },
   servicoFoto: { width: 50, height: 50, borderRadius: 10, marginRight: 12 },
@@ -1182,6 +1314,7 @@ horarioChipPassado: {
   resumoFinalTitulo: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
   resumoFinalLinha: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   resumoFinalTexto: { fontSize: 13, color: '#444' },
+  resumoFinalObs: { fontSize: 12, color: '#666', lineHeight: 18, marginTop: 6 },
   btnPrimario: { backgroundColor: '#1A1A1A', borderRadius: 16, padding: 18, alignItems: 'center' },
   btnPrimarioText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   btnDisabled: { backgroundColor: '#ccc' },

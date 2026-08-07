@@ -89,14 +89,18 @@ export default function IADemoScreen({ navigation }: any) {
       </View>
 
       <View style={s.priceCard}>
-        <Text style={s.priceTitle}>Adicionar ao Elite</Text>
+        <Text style={s.priceTitle}>Adicionar ao seu plano</Text>
 
         <Text style={s.price}>
-          + R$ 19,90/mês
+          Pro + R$ 19,99/mês
+        </Text>
+
+        <Text style={s.priceAlt}>
+          Elite + R$ 14,90/mês
         </Text>
 
        <Text style={s.priceSub}>
-  Gere até 2 prévias IA mensais para seus clientes
+  Pro inclui 20 geracoes. Elite inclui 100 geracoes.
 </Text>
       </View>
 
@@ -240,6 +244,13 @@ const s = StyleSheet.create({
     fontSize: 28,
     fontWeight: '900',
     marginTop: 6,
+  },
+
+  priceAlt: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '900',
+    marginTop: 4,
   },
 
   priceSub: {

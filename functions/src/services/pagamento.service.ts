@@ -29,9 +29,136 @@ function parseValor(valor: any): number {
   return isNaN(n) ? 0 : n;
 }
 
+function tlv(id: string, valor: string) {
+  const tamanho = String(valor.length).padStart(2, '0');
+  return `${id}${tamanho}${valor}`;
+}
+
+function limparTextoPix(valor: any, max: number) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9 ]/g, '')
+    .trim()
+    .toUpperCase()
+    .slice(0, max) || 'ESTABELECIMENTO';
+}
+
+function crc16(payload: string) {
+  let crc = 0xffff;
+
+  for (let i = 0; i < payload.length; i++) {
+    crc ^= payload.charCodeAt(i) << 8;
+
+    for (let j = 0; j < 8; j++) {
+      crc = (crc & 0x8000)
+        ? (crc << 1) ^ 0x1021
+        : crc << 1;
+      crc &= 0xffff;
+    }
+  }
+
+  return crc.toString(16).toUpperCase().padStart(4, '0');
+}
+
+function gerarPixCopiaECola(params: {
+  chave: string;
+  nome: string;
+  cidade?: string;
+  valor: number;
+  txid: string;
+}) {
+  const merchantAccount =
+    tlv('00', 'br.gov.bcb.pix') +
+    tlv('01', params.chave.trim());
+
+  const txid = limparTextoPix(params.txid, 25).replace(/\s/g, '') || 'APP';
+
+  const payload =
+    tlv('00', '01') +
+    tlv('26', merchantAccount) +
+    tlv('52', '0000') +
+    tlv('53', '986') +
+    tlv('54', params.valor.toFixed(2)) +
+    tlv('58', 'BR') +
+    tlv('59', limparTextoPix(params.nome, 25)) +
+    tlv('60', limparTextoPix(params.cidade || 'BRASIL', 15)) +
+    tlv('62', tlv('05', txid));
+
+  const payloadSemCrc = `${payload}6304`;
+  return `${payloadSemCrc}${crc16(payloadSemCrc)}`;
+}
+
 const axiosInstance = axios.create({
   timeout: 20000,
 });
+
+const IA_SIMULACAO_DIAS = 30;
+const IA_CREDITO_UNITARIO_VALOR = 2.99;
+
+function getIAPlanoConfig(plano: any) {
+  const id = String(plano || '').toLowerCase().trim();
+
+  if (id === 'pro') {
+    return {
+      valor: 19.99,
+      limiteMensal: 20,
+      pacote: 'pro_ia_20',
+    };
+  }
+
+  if (id === 'elite') {
+    return {
+      valor: 14.90,
+      limiteMensal: 100,
+      pacote: 'elite_ia_100',
+    };
+  }
+
+  return null;
+}
+
+function getIACreditoPacote(pacote: any) {
+  const id = String(pacote || '1').toLowerCase().trim();
+
+  if (id === '1' || id === 'unitario') {
+    return {
+      id: '1',
+      creditos: 1,
+      valor: IA_CREDITO_UNITARIO_VALOR,
+      nome: '1 imagem IA',
+    };
+  }
+
+  if (id === '10') {
+    return {
+      id: '10',
+      creditos: 10,
+      valor: 29.90,
+      nome: '10 imagens IA',
+    };
+  }
+
+  if (id === '50') {
+    return {
+      id: '50',
+      creditos: 50,
+      valor: 149.50,
+      nome: '50 imagens IA',
+    };
+  }
+
+  if (id === '100') {
+    return {
+      id: '100',
+      creditos: 100,
+      valor: 299.00,
+      nome: '100 imagens IA',
+    };
+  }
+
+  return null;
+}
 
 // =====================================================
 // 1. PIX CLIENTE
@@ -73,6 +200,24 @@ export const criarPagamentoCliente = onCall(
 
     const ag = agSnap.data()!;
 
+    const expiraPagamentoMs =
+      ag.pagamentoExpiraEm?.toMillis?.() || 0;
+
+    if (
+      ag.status === 'cancelado' ||
+      ag.statusPagamento === 'expired' ||
+      (
+        expiraPagamentoMs > 0 &&
+        expiraPagamentoMs <= Date.now() &&
+        ag.statusPagamento !== 'approved'
+      )
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Esta reserva expirou. Escolha um novo horario para tentar novamente.'
+      );
+    }
+
     if (ag.clienteUid !== req.auth.uid) {
       throw new HttpsError(
         'permission-denied',
@@ -95,43 +240,51 @@ export const criarPagamentoCliente = onCall(
       );
     }
 
-   if (
-  !estab?.plano ||
-  !['pro', 'elite'].includes(estab.plano)
-) {
-  throw new HttpsError(
-    'failed-precondition',
-    'Este estabelecimento não aceita pagamento pelo app'
-  );
-}
+    const formaPagamento =
+      String(ag.formaPagamento || 'local');
 
-// ✅ NOVO
-if (estab?.pagamentoAppAtivo !== true) {
-  throw new HttpsError(
-    'failed-precondition',
-    'Pagamento pelo app indisponível. O estabelecimento precisa configurar os dados PIX.'
-  );
-}
+    const pagamentoCompleto =
+      formaPagamento === 'app';
 
-// ✅ NOVO
-if (
-  !estab?.pixChave ||
-  !estab?.responsavelNome ||
-  !estab?.responsavelTelefone ||
-  !estab?.responsavelEmail
-) {
-  throw new HttpsError(
-    'failed-precondition',
-    'Estabelecimento precisa completar os dados de recebimento PIX'
-  );
-}
+    const pagamentoSinal =
+      formaPagamento === 'sinal';
 
-if (!estab?.pixChave) {
-  throw new HttpsError(
-    'failed-precondition',
-    'Estabelecimento sem PIX'
-  );
-}
+    if (!pagamentoCompleto && !pagamentoSinal) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Este agendamento não possui pagamento online'
+      );
+    }
+
+    if (
+      pagamentoCompleto &&
+      (
+        !estab?.plano ||
+        !['pro', 'elite'].includes(estab.plano)
+      )
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Este estabelecimento não aceita pagamento pelo app'
+      );
+    }
+
+    if (
+      pagamentoCompleto &&
+      estab?.pagamentoAppAtivo !== true
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Pagamento pelo app indisponível. O estabelecimento precisa configurar os dados PIX.'
+      );
+    }
+
+    if (!estab?.pixChave) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Estabelecimento sem PIX cadastrado'
+      );
+    }
 
     if (!estab?.telefone) {
       throw new HttpsError(
@@ -140,8 +293,41 @@ if (!estab?.pixChave) {
       );
     }
 
-    const valor =
+    if (
+      pagamentoSinal &&
+      estab?.sinalFestivoAtivo !== true
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Sinal de reserva indisponível para este estabelecimento'
+      );
+    }
+
+    const valorServico =
       Number(ag.servicoPreco || 0);
+
+    const valor =
+      pagamentoSinal
+        ? Number(ag.valorPagamento || valorServico * 0.5)
+        : valorServico;
+
+    const valorFinal = parseValor(valor);
+    const valorRestante =
+      pagamentoSinal
+        ? Math.max(valorServico - valorFinal, 0)
+        : 0;
+
+    if (valorFinal <= 0) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Valor do pagamento invalido'
+      );
+    }
+
+    const labelPagamento =
+      pagamentoSinal
+        ? 'Sinal de reserva de 50%'
+        : 'PIX manual pelo app';
 
     const resumo =
 `*COMPROVANTE DE AGENDAMENTO*
@@ -151,12 +337,21 @@ if (!estab?.pixChave) {
 *Serviço:* ${ag.servicoNome || ''}
 *Data:* ${ag.data || ''}
 *Horário:* ${ag.horario || ''}
-*Valor:* R$ ${valor.toFixed(2).replace('.', ',')}
-*Forma de pagamento:* PIX manual pelo app
+*Valor do serviço:* R$ ${valorServico.toFixed(2).replace('.', ',')}
+${pagamentoSinal
+  ? `*Sinal pago agora (50%):* R$ ${valorFinal.toFixed(2).replace('.', ',')}
+*Restante no dia:* R$ ${valorRestante.toFixed(2).replace('.', ',')}`
+  : `*Valor pago:* R$ ${valorFinal.toFixed(2).replace('.', ',')}
+*Restante:* R$ 0,00`}
+*Forma de pagamento:* ${labelPagamento}
 
 *ID do agendamento:* ${agendamentoId}
 
-Olá, realizei o pagamento do agendamento e estou enviando o comprovante em anexo.`;
+${pagamentoSinal
+  ? 'O sinal confirma a reserva. Se precisar cancelar ou remarcar, avise o estabelecimento com antecedência. Em caso de ausência no dia, o sinal pode ficar com o estabelecimento pelo horário reservado.'
+  : 'Pagamento completo realizado pelo app.'}
+
+Ola, realizei o pagamento ${pagamentoSinal ? 'do sinal de reserva' : 'do agendamento'} via PIX direto para o estabelecimento. Segue o resumo; estou enviando o comprovante em anexo.`;
 
     const telefone =
       String(estab.telefone || '')
@@ -168,7 +363,24 @@ Olá, realizei o pagamento do agendamento e estou enviando o comprovante em anex
         : `55${telefone}`;
 
     const whatsappUrl =
-      `https://wa.me/${numeroFinal}?text=${encodeURIComponent(resumo)}`;
+      telefone
+        ? `https://wa.me/${numeroFinal}?text=${encodeURIComponent(resumo)}`
+        : '';
+
+    const userSnap =
+      await db.collection('users')
+        .doc(req.auth.uid)
+        .get();
+
+    const user = userSnap.data() || {};
+
+    const pixCopiaECola = gerarPixCopiaECola({
+      chave: String(estab.pixChave || '').trim(),
+      nome: estab.nome || ag.estabelecimentoNome || 'Estabelecimento',
+      cidade: estab.cidade || 'Brasil',
+      valor: valorFinal,
+      txid: agendamentoId,
+    });
 
     // ✅ marca geração do pagamento
     await agRef.update({
@@ -178,9 +390,48 @@ Olá, realizei o pagamento do agendamento e estou enviando o comprovante em anex
       pixManualGeradoEm:
         FieldValue.serverTimestamp(),
 
+      pixPagamentoId:
+        FieldValue.delete(),
+
+      pixChavePagamento:
+        String(estab.pixChave || ''),
+
+      pixQrCode: pixCopiaECola,
+
+      pixQrCodeBase64:
+        FieldValue.delete(),
+
+      pixValor: valorFinal,
+
+      statusPagamento:
+        'aguardando_comprovante',
+
       atualizadoEm:
         FieldValue.serverTimestamp(),
     });
+
+    await db.collection('pagamentos')
+      .doc(`agendamento_${agendamentoId}`)
+      .set({
+      tipo: pagamentoSinal ? 'sinal_agendamento' : 'agendamento',
+      agendamentoId,
+      estabelecimentoId: ag.estabelecimentoId,
+      adminId: ag.adminId || estab.adminId || null,
+      clienteId: req.auth.uid,
+      clienteEmail: req.auth.token.email || null,
+      clienteNome: ag.clienteNome || user?.nome || '',
+      valor: valorFinal,
+      valorServico,
+      percentualPagamento: pagamentoSinal ? 50 : 100,
+      formaPagamento,
+      status: 'aguardando_comprovante',
+      metodo: 'pix',
+      mercadoPagoId: null,
+      pixChave: String(estab.pixChave || ''),
+      pixCopiaECola,
+      atualizadoEm: FieldValue.serverTimestamp(),
+      criadoEm: FieldValue.serverTimestamp(),
+    }, { merge: true });
 
     return {
 
@@ -188,12 +439,16 @@ Olá, realizei o pagamento do agendamento e estou enviando o comprovante em anex
 
       agendamentoId,
 
-      pixChave: estab.pixChave,
+      pixChave: estab.pixChave || '',
 
       pixTipo:
         estab.pixTipo || 'aleatoria',
 
-      valor,
+      valor: valorFinal,
+      valorServico,
+      percentualPagamento:
+        pagamentoSinal ? 50 : 100,
+      formaPagamento,
 
       estabelecimentoNome:
         estab.nome || '',
@@ -213,6 +468,11 @@ Olá, realizei o pagamento do agendamento e estou enviando o comprovante em anex
       resumo,
 
       whatsappUrl,
+      whatsappNumber: numeroFinal,
+
+      qr_code: pixCopiaECola,
+
+      qr_code_base64: null,
     };
   }
 );
@@ -244,7 +504,10 @@ export const confirmarPagamentoManual = onCall(
       throw new HttpsError('permission-denied', 'Sem permissão');
     }
 
-    if (ag.formaPagamento !== 'app') {
+    if (
+      ag.formaPagamento !== 'app' &&
+      ag.formaPagamento !== 'sinal'
+    ) {
       throw new HttpsError(
         'failed-precondition',
         'Este agendamento não é pagamento pelo app'
@@ -259,9 +522,24 @@ export const confirmarPagamentoManual = onCall(
       };
     }
 
+    if (
+      ag.status === 'cancelado' ||
+      ag.statusPagamento === 'expired'
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Esta reserva ja foi cancelada ou expirou.'
+      );
+    }
+
     await agRef.update({
       status: 'confirmado',
       statusPagamento: 'approved',
+      pixStatus: 'approved',
+      pagamentoAprovadoId:
+        ag.pixPagamentoId || agendamentoId,
+      reservaTemporaria: false,
+      pagamentoExpiraEm: FieldValue.delete(),
 
       pagamentoConfirmadoManual: true,
       pagamentoConfirmadoPor: req.auth.uid,
@@ -269,6 +547,16 @@ export const confirmarPagamentoManual = onCall(
 
       atualizadoEm: FieldValue.serverTimestamp(),
     });
+
+    await db.collection('pagamentos')
+      .doc(`agendamento_${agendamentoId}`)
+      .set({
+        status: 'approved',
+        aprovadoManual: true,
+        aprovadoPor: req.auth.uid,
+        aprovadoEm: FieldValue.serverTimestamp(),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      }, { merge: true });
 
     await db.collection('notificacoes').add({
       tipo: 'cliente',
@@ -286,8 +574,12 @@ export const confirmarPagamentoManual = onCall(
       servicoNome: ag.servicoNome || '',
       formaPagamento: ag.formaPagamento || '',
 
-      titulo: 'Pagamento confirmado',
-      mensagem: `Seu pagamento foi confirmado e seu horário de ${ag.servicoNome || 'serviço'} está liberado.`,
+      titulo: ag.formaPagamento === 'sinal'
+        ? 'Sinal confirmado'
+        : 'Pagamento confirmado',
+      mensagem: ag.formaPagamento === 'sinal'
+        ? `Seu sinal de 50% foi confirmado e seu horário de ${ag.servicoNome || 'serviço'} está liberado. O restante deve ser pago no dia do atendimento.`
+        : `Seu pagamento foi confirmado e seu horário de ${ag.servicoNome || 'serviço'} está liberado.`,
 
       lida: false,
       apagada: false,
@@ -375,6 +667,15 @@ export const criarPagamentoPixAssinatura = onCall(
       throw new HttpsError(
         'already-exists',
         'Plano já ativo'
+      );
+    }
+
+    const iaConfig = addIA === true ? getIAPlanoConfig(plano) : null;
+
+    if (addIA === true && !iaConfig) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Previa IA disponivel apenas para os planos Pro e Elite.'
       );
     }
 
@@ -555,12 +856,10 @@ export const criarPagamentoPixAssinatura = onCall(
   paymentType: 'pix',
 
   iaSimulacaoPendente:
-    plano === 'elite' && addIA === true,
+    addIA === true,
 
   iaSimulacaoValor:
-    plano === 'elite' && addIA === true
-      ? 19.90
-      : 0,
+    iaConfig ? iaConfig.valor : 0,
 
   pixPagamentoId:
     String(data?.id),
@@ -602,7 +901,424 @@ export const criarPagamentoPixAssinatura = onCall(
   }
 );
 // =====================================================
-// 4. PIX IMPULSIONAMENTO / DESTAQUE
+// 4. PIX PREVIA IA
+// =====================================================
+
+export const criarPagamentoPixIA = onCall(
+  {
+    region: REGION,
+    secrets: [MP_ACCESS_TOKEN],
+  },
+
+  async (req) => {
+    if (!req.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
+
+    const { estabelecimentoId } = req.data || {};
+
+    if (!estabelecimentoId) {
+      throw new HttpsError('invalid-argument', 'Estabelecimento obrigatorio');
+    }
+
+    const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      throw new HttpsError('not-found', 'Estabelecimento nao encontrado');
+    }
+
+    const est = snap.data()!;
+
+    if (est.adminId !== req.auth.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissao');
+    }
+
+    const agora = new Date();
+    const plano = String(est.planoAprovado || est.plano || '').toLowerCase();
+    const expiraPlano = est.expiraEm?.toDate?.() || null;
+    const planoAtivo =
+      plano === 'trial'
+        ? expiraPlano instanceof Date && expiraPlano > agora
+        : est.assinaturaAtiva === true &&
+          ['pro', 'elite'].includes(plano) &&
+          (!expiraPlano || expiraPlano > agora);
+
+    if (!planoAtivo) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Ative o plano Pro ou Elite antes de contratar a Previa IA.'
+      );
+    }
+
+    const iaConfig = getIAPlanoConfig(plano);
+
+    if (!iaConfig) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Previa IA disponivel apenas para os planos Pro e Elite.'
+      );
+    }
+
+    const iaExpira = est.iaSimulacaoExpiraEm?.toDate?.() || null;
+
+    if (
+      est.iaSimulacaoAtiva === true &&
+      iaExpira instanceof Date &&
+      iaExpira > agora
+    ) {
+      throw new HttpsError(
+        'already-exists',
+        'A Previa IA ja esta ativa para este estabelecimento.'
+      );
+    }
+
+    const pendente = est.iaSimulacaoPagamentoPendente || null;
+    const pendenteExpira = pendente?.expiraEm?.toDate?.() || null;
+
+    if (
+      pendente?.status === 'pending' &&
+      pendenteExpira instanceof Date &&
+      pendenteExpira > agora
+    ) {
+      return {
+        qr_code: pendente.qrCode || null,
+        qr_code_base64: pendente.qrCodeBase64 || null,
+        mercadoPagoId: pendente.mercadoPagoId || null,
+      };
+    }
+
+    const lockRef = db
+      .collection('locks')
+      .doc(`pix_ia_${estabelecimentoId}`);
+
+    const lockSnap = await lockRef.get();
+
+    if (lockSnap.exists) {
+      const created = lockSnap.data()?.createdAt?.toMillis?.() || 0;
+
+      if (Date.now() - created < 60000) {
+        throw new HttpsError('resource-exhausted', 'Em processamento');
+      }
+
+      await lockRef.delete();
+    }
+
+    await lockRef.set({
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    try {
+      const accessToken = String(MP_ACCESS_TOKEN.value() || '').trim();
+
+      if (!accessToken) {
+        throw new HttpsError('internal', 'MP nao configurado');
+      }
+
+      const userSnap = await db.collection('users').doc(req.auth.uid).get();
+      const user = userSnap.data();
+
+      const response = await axiosInstance.post(
+        'https://api.mercadopago.com/v1/payments',
+        {
+          transaction_amount: iaConfig.valor,
+          payment_method_id: 'pix',
+          description: `Previa IA ${plano.toUpperCase()} por 30 dias`,
+          external_reference: estabelecimentoId,
+          notification_url:
+            'https://webhookmercadopago-eoqa32y7ca-rj.a.run.app',
+
+          payer: {
+            email:
+              user?.email ||
+              req.auth.token.email ||
+              est.responsavelEmail ||
+              'cliente@app.com',
+
+            first_name:
+              user?.nome ||
+              est.responsavelNome ||
+              'Cliente',
+
+            identification: user?.cpf
+              ? {
+                  type: 'CPF',
+                  number: String(user.cpf).replace(/\D/g, ''),
+                }
+              : est.responsavelCpf
+              ? {
+                  type: 'CPF',
+                  number: String(est.responsavelCpf).replace(/\D/g, ''),
+                }
+              : undefined,
+
+            phone: user?.telefone
+              ? {
+                  number: String(user.telefone).replace(/\D/g, ''),
+                }
+              : est.responsavelTelefone
+              ? {
+                  number: String(est.responsavelTelefone).replace(/\D/g, ''),
+                }
+              : undefined,
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'X-Idempotency-Key': `ia_${estabelecimentoId}_${Date.now()}`,
+          },
+        }
+      );
+
+      const data: any = response.data;
+      const qr = data?.point_of_interaction?.transaction_data;
+      const qrBase64 = qr?.qr_code_base64 || null;
+      const qrText = qr?.qr_code || null;
+
+      if (!qrBase64 && !qrText) {
+        throw new HttpsError('internal', 'PIX invalido');
+      }
+
+      const expira = new Date();
+      expira.setMinutes(expira.getMinutes() + 30);
+
+      const pagamentoRef = await db.collection('pagamentos').add({
+        tipo: 'ia_simulacao',
+        estabelecimentoId,
+        plano,
+        valor: iaConfig.valor,
+        dias: IA_SIMULACAO_DIAS,
+        limiteMensal: iaConfig.limiteMensal,
+        pacote: iaConfig.pacote,
+        clienteId: req.auth.uid,
+        clienteEmail: req.auth.token.email || null,
+        clienteNome:
+          user?.nome ||
+          est.responsavelNome ||
+          'Estabelecimento',
+        status: 'pending',
+        metodo: 'pix',
+        mercadoPagoId: String(data.id),
+        qrCode: qrText,
+        qrCodeBase64: qrBase64,
+        criadoEm: FieldValue.serverTimestamp(),
+        expiraEm: Timestamp.fromDate(expira),
+      });
+
+      await ref.update({
+        iaSimulacaoPaymentStatus: 'pending',
+        iaSimulacaoPagamentoPendente: {
+          pagamentoDocId: pagamentoRef.id,
+          mercadoPagoId: String(data.id),
+          valor: iaConfig.valor,
+          dias: IA_SIMULACAO_DIAS,
+          limiteMensal: iaConfig.limiteMensal,
+          pacote: iaConfig.pacote,
+          status: 'pending',
+          qrCode: qrText,
+          qrCodeBase64: qrBase64,
+          criadoEm: FieldValue.serverTimestamp(),
+          expiraEm: Timestamp.fromDate(expira),
+        },
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+
+      await lockRef.delete();
+
+      return {
+        qr_code: qrText,
+        qr_code_base64: qrBase64,
+        pagamentoId: pagamentoRef.id,
+        mercadoPagoId: String(data.id),
+      };
+    } catch (error: any) {
+      console.error('ERRO PIX IA:', error?.response?.data || error);
+
+      await lockRef.delete();
+
+      throw new HttpsError('internal', 'Erro ao criar PIX da Previa IA');
+    }
+  }
+);
+
+// =====================================================
+// 5. PIX CREDITOS PREVIA IA
+// =====================================================
+
+export const criarPagamentoPixCreditosIA = onCall(
+  {
+    region: REGION,
+    secrets: [MP_ACCESS_TOKEN],
+  },
+
+  async (req) => {
+    if (!req.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
+
+    const {
+      estabelecimentoId,
+      pacote,
+    } = req.data || {};
+
+    if (!estabelecimentoId) {
+      throw new HttpsError('invalid-argument', 'Estabelecimento obrigatorio');
+    }
+
+    const pacoteCredito = getIACreditoPacote(pacote);
+
+    if (!pacoteCredito) {
+      throw new HttpsError('invalid-argument', 'Pacote de creditos invalido');
+    }
+
+    const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      throw new HttpsError('not-found', 'Estabelecimento nao encontrado');
+    }
+
+    const est = snap.data()!;
+
+    if (est.adminId !== req.auth.uid) {
+      throw new HttpsError('permission-denied', 'Sem permissao');
+    }
+
+    const agora = new Date();
+    const plano = String(est.planoAprovado || est.plano || '').toLowerCase();
+    const expiraPlano = est.expiraEm?.toDate?.() || null;
+    const iaExpira = est.iaSimulacaoExpiraEm?.toDate?.() || null;
+    const planoAtivo =
+      est.assinaturaAtiva === true &&
+      ['pro', 'elite'].includes(plano) &&
+      (!expiraPlano || expiraPlano > agora);
+    const iaAtiva =
+      est.iaSimulacaoAtiva === true &&
+      (!iaExpira || iaExpira > agora);
+
+    if (!planoAtivo || !iaAtiva) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Ative a Previa IA em um plano Pro ou Elite antes de comprar creditos.'
+      );
+    }
+
+    const accessToken = String(MP_ACCESS_TOKEN.value() || '').trim();
+
+    if (!accessToken) {
+      throw new HttpsError('internal', 'MP nao configurado');
+    }
+
+    try {
+      const userSnap = await db.collection('users').doc(req.auth.uid).get();
+      const user = userSnap.data();
+
+      const response = await axiosInstance.post(
+        'https://api.mercadopago.com/v1/payments',
+        {
+          transaction_amount: pacoteCredito.valor,
+          payment_method_id: 'pix',
+          description: `Creditos Previa IA - ${pacoteCredito.nome}`,
+          external_reference: estabelecimentoId,
+          notification_url:
+            'https://webhookmercadopago-eoqa32y7ca-rj.a.run.app',
+
+          payer: {
+            email:
+              user?.email ||
+              req.auth.token.email ||
+              est.responsavelEmail ||
+              'cliente@app.com',
+
+            first_name:
+              user?.nome ||
+              est.responsavelNome ||
+              'Cliente',
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'X-Idempotency-Key':
+              `ia_creditos_${estabelecimentoId}_${pacoteCredito.id}_${Date.now()}`,
+          },
+        }
+      );
+
+      const data: any = response.data;
+      const qr = data?.point_of_interaction?.transaction_data;
+      const qrBase64 = qr?.qr_code_base64 || null;
+      const qrText = qr?.qr_code || null;
+
+      if (!qrBase64 && !qrText) {
+        throw new HttpsError('internal', 'PIX invalido');
+      }
+
+      const expira = new Date();
+      expira.setMinutes(expira.getMinutes() + 30);
+
+      const pagamentoRef = await db.collection('pagamentos').add({
+        tipo: 'ia_creditos',
+        estabelecimentoId,
+        plano,
+        pacote: pacoteCredito.id,
+        pacoteNome: pacoteCredito.nome,
+        creditos: pacoteCredito.creditos,
+        valor: pacoteCredito.valor,
+        clienteId: req.auth.uid,
+        clienteEmail: req.auth.token.email || null,
+        clienteNome:
+          user?.nome ||
+          est.responsavelNome ||
+          'Estabelecimento',
+        status: 'pending',
+        metodo: 'pix',
+        mercadoPagoId: String(data.id),
+        qrCode: qrText,
+        qrCodeBase64: qrBase64,
+        criadoEm: FieldValue.serverTimestamp(),
+        expiraEm: Timestamp.fromDate(expira),
+      });
+
+      await ref.update({
+        iaCreditosPaymentStatus: 'pending',
+         iaCreditosPagamentoPendente: {
+          tipo: 'ia_creditos',
+          pagamentoDocId: pagamentoRef.id,
+          mercadoPagoId: String(data.id),
+          pacote: pacoteCredito.id,
+          pacoteNome: pacoteCredito.nome,
+          creditos: pacoteCredito.creditos,
+          valor: pacoteCredito.valor,
+          status: 'pending',
+          qrCode: qrText,
+          qrCodeBase64: qrBase64,
+          criadoEm: FieldValue.serverTimestamp(),
+          expiraEm: Timestamp.fromDate(expira),
+        },
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+
+      return {
+        qr_code: qrText,
+        qr_code_base64: qrBase64,
+        pagamentoId: pagamentoRef.id,
+        mercadoPagoId: String(data.id),
+      };
+    } catch (error: any) {
+      console.error('ERRO PIX CREDITOS IA:', error?.response?.data || error);
+
+      throw new HttpsError(
+        'internal',
+        'Erro ao criar PIX dos creditos IA'
+      );
+    }
+  }
+);
+
+// =====================================================
+// 6. PIX IMPULSIONAMENTO / DESTAQUE
 // =====================================================
 
 export const criarPagamentoPixImpulsionamento = onCall(
@@ -1161,6 +1877,15 @@ export const criarAssinaturaCartao = onCall(
       );
     }
 
+    const iaConfig = addIA === true ? getIAPlanoConfig(plano) : null;
+
+    if (addIA === true && !iaConfig) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Previa IA disponivel apenas para os planos Pro e Elite.'
+      );
+    }
+
     try {
 
       const accessToken =
@@ -1290,12 +2015,10 @@ export const criarAssinaturaCartao = onCall(
     data.status_detail || null,
 
   iaSimulacaoPendente:
-    plano === 'elite' && addIA === true,
+    addIA === true,
 
   iaSimulacaoValor:
-    plano === 'elite' && addIA === true
-      ? 19.90
-      : 0,
+    iaConfig ? iaConfig.valor : 0,
 
   ...(aprovado && {
 
@@ -1312,19 +2035,23 @@ export const criarAssinaturaCartao = onCall(
     paymentStatus: 'approved',
 
     iaSimulacaoAtiva:
-      plano === 'elite' &&
       addIA === true,
 
     iaSimulacaoLimiteMensal:
-      plano === 'elite' &&
-      addIA === true
-        ? 2
+      iaConfig
+        ? iaConfig.limiteMensal
         : 0,
 
     iaSimulacaoPacote:
-      plano === 'elite' &&
-      addIA === true
-        ? 'elite_ia_2'
+      iaConfig
+        ? iaConfig.pacote
+        : null,
+
+    iaSimulacaoExpiraEm:
+      iaConfig
+        ? Timestamp.fromDate(
+            new Date(Date.now() + IA_SIMULACAO_DIAS * 24 * 60 * 60 * 1000)
+          )
         : null,
 
     expiraEm: Timestamp.fromDate(

@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import PDFDocument from 'pdfkit';
+import { randomUUID } from 'crypto';
 
 import { db, bucket } from '../config/firebase';
 import { REGION } from '../config/region';
@@ -11,9 +12,45 @@ const moeda = (v: number) =>
 const dataBR = (d: Date) =>
   d.toLocaleDateString('pt-BR');
 
-function parseDataBR(data: string) {
-  const [dia, mes, ano] = String(data).split('/').map(Number);
+function parseDataBR(data: any) {
+  if (data?.toDate) return data.toDate();
+  if (data instanceof Date) return data;
+
+  const texto = String(data || '').trim();
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(texto)) {
+    return new Date(texto);
+  }
+
+  const [dia, mes, ano] = texto.split('/').map(Number);
   return new Date(ano, mes - 1, dia);
+}
+
+function dataValida(data: Date) {
+  return data instanceof Date && !Number.isNaN(data.getTime());
+}
+
+function normalizarPlano(est: any) {
+  const candidatos = [
+    est?.planoAprovado,
+    est?.plano,
+    est?.planoPendente,
+  ].map(plano => String(plano || '').toLowerCase().trim());
+
+  return candidatos.find(item =>
+    ['elite', 'pro', 'essencial', 'trial'].includes(item)
+  ) || '';
+}
+
+function assinaturaRelatorioAtiva(est: any) {
+  const statusPagamento = String(est?.paymentStatus || '').toLowerCase();
+  const statusPlano = String(est?.statusPlano || '').toLowerCase();
+
+  return (
+    est?.assinaturaAtiva === true ||
+    statusPlano === 'ativo' ||
+    ['approved', 'authorized', 'accredited'].includes(statusPagamento)
+  );
 }
 
 export const gerarRelatorioFinanceiro = onCall(
@@ -55,9 +92,9 @@ export const gerarRelatorioFinanceiro = onCall(
       throw new HttpsError('permission-denied', 'Sem permissão');
     }
 
-    const plano = String(est.plano || '');
+    const plano = normalizarPlano(est);
 
-    if (!['pro', 'elite'].includes(plano) || est.assinaturaAtiva !== true) {
+    if (!['pro', 'elite'].includes(plano) || !assinaturaRelatorioAtiva(est)) {
       throw new HttpsError(
         'failed-precondition',
         'Relatório financeiro disponível apenas para planos Pro e Elite ativos'
@@ -66,6 +103,14 @@ export const gerarRelatorioFinanceiro = onCall(
 
     const inicio = parseDataBR(dataInicio);
     const fim = parseDataBR(dataFim);
+
+    if (!dataValida(inicio) || !dataValida(fim)) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Use datas no formato DD/MM/AAAA'
+      );
+    }
+
     fim.setHours(23, 59, 59, 999);
 
     const snap = await db
@@ -80,6 +125,8 @@ export const gerarRelatorioFinanceiro = onCall(
 
     const filtrados = agendamentos.filter(a => {
       const dataAg = parseDataBR(a.data);
+      if (!dataValida(dataAg)) return false;
+
       const statusOk =
         a.status === 'confirmado' ||
         a.status === 'concluido';
@@ -93,6 +140,8 @@ export const gerarRelatorioFinanceiro = onCall(
 
     const cancelados = agendamentos.filter(a => {
       const dataAg = parseDataBR(a.data);
+      if (!dataValida(dataAg)) return false;
+
       return (
         a.status === 'cancelado' &&
         dataAg >= inicio &&
@@ -129,6 +178,7 @@ export const gerarRelatorioFinanceiro = onCall(
 
     agendamentos.forEach(a => {
       const dataAg = parseDataBR(a.data);
+      if (!dataValida(dataAg)) return;
 
       if (dataAg < inicio || dataAg > fim) return;
 
@@ -258,16 +308,21 @@ export const gerarRelatorioFinanceiro = onCall(
 
     const file = bucket.file(nomeArquivo);
 
+    const downloadToken = randomUUID();
+
     await file.save(pdfBuffer, {
+      resumable: false,
       metadata: {
         contentType: 'application/pdf',
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+        },
       },
     });
 
-    const [url] = await file.getSignedUrl({
-      action: 'read',
-      expires: Date.now() + 1000 * 60 * 60 * 24 * 7,
-    });
+    const url =
+      `https://firebasestorage.googleapis.com/v0/b/${bucket.name}` +
+      `/o/${encodeURIComponent(nomeArquivo)}?alt=media&token=${downloadToken}`;
 
     await db.collection('relatoriosFinanceiros').add({
       adminId: req.auth.uid,

@@ -23,6 +23,20 @@ type MediaItem = {
   fileSize?: number;
 };
 
+const normalizarPlano = (plano?: string) =>
+  String(plano || 'free').toLowerCase().trim();
+
+const normalizarDuracaoSegundos = (duration?: number) => {
+  const valor = Number(duration || 0);
+  return valor > 1000 ? valor / 1000 : valor;
+};
+
+const limiteMidiasPorPlano = (plano: string) => {
+  if (plano === 'trial' || plano === 'essencial') return 5;
+  if (plano === 'pro' || plano === 'elite') return 10;
+  return 0;
+};
+
 const DICAS = [
   "📸 Mostre seus trabalhos mais recentes",
   "🎨 Antes e depois transformam seguidores em clientes",
@@ -42,6 +56,7 @@ export default function PostarStory() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dicaIdx] = useState(Math.floor(Math.random() * DICAS.length));
+  const [planoStory, setPlanoStory] = useState(normalizarPlano(admin?.plano as any));
 
   const progressAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -60,6 +75,24 @@ export default function PostarStory() {
   }, [admin?.id]);
 
   useEffect(() => {
+    if (!estabId) {
+      setPlanoStory(normalizarPlano(admin?.plano as any));
+      return;
+    }
+
+    firestore().collection('estabelecimentos').doc(estabId).get()
+      .then(snap => {
+        const data = snap.data() as any;
+        setPlanoStory(normalizarPlano(
+          data?.planoAprovado ||
+            data?.plano ||
+            admin?.plano
+        ));
+      })
+      .catch(console.error);
+  }, [admin?.plano, estabId]);
+
+  useEffect(() => {
     Animated.timing(progressAnim, {
       toValue: uploadProgress,
       duration: 300,
@@ -67,17 +100,86 @@ export default function PostarStory() {
     }).start();
   }, [uploadProgress]);
   
+const planoAtual = normalizarPlano(planoStory || (admin?.plano as any));
 const permiteVideo =
-  admin?.plano === 'pro' ||
-  admin?.plano === 'elite';
+  planoAtual === 'pro' ||
+  planoAtual === 'elite';
+const limiteMidias = limiteMidiasPorPlano(planoAtual);
+const limiteVideoSegundos =
+  planoAtual === 'pro'
+    ? 15
+    : planoAtual === 'elite'
+    ? 30
+    : 0;
+const textoPlanoStory =
+  planoAtual === 'essencial'
+    ? 'Essencial: ate 5 fotos por postagem'
+    : planoAtual === 'trial'
+    ? 'Teste Essencial: ate 5 fotos'
+    : planoAtual === 'pro'
+    ? 'Pro: fotos e videos ate 15 segundos'
+    : planoAtual === 'elite'
+    ? 'Elite: fotos e videos ate 30 segundos'
+    : 'Ative um plano para publicar';
+
+  const adicionarMidias = (novas: MediaItem[]) => {
+    if (!limiteMidias) {
+      Alert.alert('Plano necessario', 'Ative um plano para publicar stories.');
+      return;
+    }
+
+    const videos = novas.filter(m => m.type === 'video');
+
+    if (videos.length && !permiteVideo) {
+      Alert.alert(
+        'Video indisponivel',
+        'Seu plano atual permite publicar fotos. Para postar videos, use Pro ou Elite.'
+      );
+      return;
+    }
+
+    const videoLongo = videos.find(m =>
+      normalizarDuracaoSegundos(m.duration) > limiteVideoSegundos
+    );
+
+    if (videoLongo) {
+      Alert.alert(
+        'Video muito longo',
+        `Publique videos com ate ${limiteVideoSegundos} segundos.`
+      );
+      return;
+    }
+
+    setMidias(prev => {
+      const total = [...prev, ...novas].slice(0, limiteMidias);
+
+      if (prev.length + novas.length > limiteMidias) {
+        Alert.alert(
+          'Limite do plano',
+          `Seu plano permite ate ${limiteMidias} midia(s) por postagem.`
+        );
+      }
+
+      return total;
+    });
+
+    if (midias.length === 0) setIndexAtivo(0);
+  };
   
-  const abrirCamera = async () => {
-    const res = await launchCamera({
-      mediaType: permiteVideo ? 'mixed' : 'photo',
+  const abrirCameraModo = async (mediaType: 'photo' | 'video') => {
+    const cameraOptions: any = {
+      mediaType,
       quality: 0.85 as any,
       videoQuality: 'high',
       saveToPhotos: true,
-    });
+    };
+
+    if (mediaType === 'video') {
+      cameraOptions.durationLimit = limiteVideoSegundos;
+    }
+
+    const res = await launchCamera(cameraOptions);
+
     if (res.assets && res.assets.length > 0) {
       const nova: MediaItem = {
   uri: res.assets[0].uri || '',
@@ -97,17 +199,44 @@ const permiteVideo =
   fileSize:
     res.assets[0].fileSize || 0,
 };
-      setMidias(prev => [...prev, nova].slice(0, 10));
-      if (midias.length === 0) setIndexAtivo(0);
+      adicionarMidias([nova]);
     }
   };
 
+  const abrirCamera = async () => {
+    if (!permiteVideo) {
+      await abrirCameraModo('photo');
+      return;
+    }
+
+    Alert.alert(
+      'Camera',
+      'Escolha o tipo de story que deseja criar.',
+      [
+        {
+          text: 'Tirar foto',
+          onPress: () => abrirCameraModo('photo'),
+        },
+        {
+          text: 'Gravar video',
+          onPress: () => abrirCameraModo('video'),
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
+  };
+
   const escolherMidias = async () => {
+    if (!limiteMidias) {
+      Alert.alert('Plano necessario', 'Ative um plano para publicar stories.');
+      return;
+    }
+
     const res = await launchImageLibrary({
       mediaType: permiteVideo ? 'mixed' : 'photo',
       quality: 0.85 as any,
       videoQuality: 'high',
-      selectionLimit: 10,
+      selectionLimit: Math.max(1, limiteMidias - midias.length),
     });
     if (res.assets && res.assets.length > 0) {
       const novas: MediaItem[] = res.assets.map(a => ({
@@ -128,8 +257,7 @@ const permiteVideo =
   fileSize:
     a.fileSize || 0,
 }));
-      setMidias(prev => [...prev, ...novas].slice(0, 10));
-      if (midias.length === 0) setIndexAtivo(0);
+      adicionarMidias(novas);
     }
   };
 
@@ -161,6 +289,17 @@ if (!estabId) {
 }
 
 const estId = estabId;
+const totalFotos = midias.filter(m => m.type === 'image').length;
+const totalVideos = midias.filter(m => m.type === 'video').length;
+const quantidade = midias.length;
+
+if (limiteMidias && quantidade > limiteMidias) {
+  throw new Error(`Seu plano permite ate ${limiteMidias} midia(s) por postagem.`);
+}
+
+if (totalVideos > 0 && !permiteVideo) {
+  throw new Error('Seu plano atual permite publicar fotos. Para postar videos, use Pro ou Elite.');
+}
 
       for (let i = 0; i < midias.length; i++) {
         const m = midias[i];
@@ -213,7 +352,11 @@ if (!sizeMB) try {
 
 // duração vídeo
 const duration =
-  Number(m.duration || 0);
+  normalizarDuracaoSegundos(m.duration);
+
+if (m.type === 'video' && duration > limiteVideoSegundos) {
+  throw new Error(`Publique videos com ate ${limiteVideoSegundos} segundos.`);
+}
 
 const validacao = await fetch(
   'https://southamerica-east1-agenda-beleza-75106.cloudfunctions.net/validarPostagemStoryHttp',
@@ -228,6 +371,9 @@ const validacao = await fetch(
       type: m.type,
       duration,
       sizeMB,
+      totalFotos,
+      totalVideos,
+      quantidade,
     }),
   }
 );
@@ -254,7 +400,13 @@ const uploadUri = m.uri.startsWith('file://')
 (await (ref as any).putFile(
   Platform.OS === 'web' && m.file
     ? { file: m.file }
-    : uploadUri
+    : uploadUri,
+  {
+    contentType:
+      m.type === 'video'
+        ? 'video/mp4'
+        : 'image/jpeg',
+  }
 ));
         const url = await ref.getDownloadURL();
 
@@ -273,6 +425,8 @@ const uploadUri = m.uri.startsWith('file://')
 
   type: m.type,
   caption: m.caption || '',
+  duration,
+  sizeMB,
 
   likesCount: 0,
   visualizacoes: 0,
@@ -341,7 +495,7 @@ const uploadUri = m.uri.startsWith('file://')
           <View style={s.headerCenter}>
             <Text style={s.headerTitle}>Novo Story</Text>
             {midias.length > 0 && (
-              <Text style={s.headerSub}>{midias.length}/10 mídias</Text>
+              <Text style={s.headerSub}>{midias.length}/{limiteMidias || 0} mídias</Text>
             )}
           </View>
           {midias.length > 0 ? (
@@ -364,7 +518,8 @@ const uploadUri = m.uri.startsWith('file://')
               </View>
               <Text style={s.bannerTitulo}>Stories que vendem</Text>
               <Text style={s.bannerDesc}>
-			  <Text style={s.planoInfo}>
+        <Text style={s.planoInfo}>{textoPlanoStory}</Text>
+			  <Text style={[s.planoInfo, { display: 'none' }]}>
   {admin?.plano === 'essencial'
     ? '📸 Seu plano permite apenas fotos'
     : admin?.plano === 'trial'
@@ -383,7 +538,7 @@ const uploadUri = m.uri.startsWith('file://')
               </View>
               <View style={s.featuresRow}>
                 {[
-                  { icon: '🖼️', label: 'Até 10\nmídias' },
+                  { icon: '🖼️', label: `Ate ${limiteMidias || 0}\nmidias` },
                   { icon: '✍️', label: 'Texto\npersonalizado' },
                   { icon: '⏱️', label: '24h\nvisível' },
                   { icon: '📊', label: 'Ver\natividade' },
@@ -465,7 +620,7 @@ const uploadUri = m.uri.startsWith('file://')
           {/* THUMBNAILS */}
           {midias.length > 0 && (
             <FlatList
-              data={[...midias, ...(midias.length < 10 ? [{ uri: '__add__', type: 'image' as const, caption: '' }] : [])]}
+              data={[...midias, ...(midias.length < limiteMidias ? [{ uri: '__add__', type: 'image' as const, caption: '' }] : [])]}
               horizontal
               showsHorizontalScrollIndicator={false}
               keyExtractor={(_, i) => i.toString()}

@@ -8,7 +8,7 @@ const CACHE_MS = 10 * 60 * 1000;
 const precosPlano: Record<string, number> = {
   essencial: 29.9,
   pro: 49.9,
-  elite: 89.99,
+  elite: 89.90,
 };
 
 function dataBRHoje() {

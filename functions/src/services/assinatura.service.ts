@@ -10,6 +10,26 @@ import { dataKey, gerarSlots } from '../utils/helpers';
 // 🚀 CACHE SIMPLES (reduz reads)
 // ─────────────────────────────
 const cachePlano = new Map<string, any>();
+const LIMITE_ILIMITADO = 999999;
+
+function limparUndefined(valor: any): any {
+  if (Array.isArray(valor)) {
+    return valor
+      .filter(item => item !== undefined)
+      .map(limparUndefined);
+  }
+
+  if (valor && typeof valor === 'object') {
+    return Object.entries(valor).reduce((acc, [chave, item]) => {
+      if (item !== undefined) {
+        acc[chave] = limparUndefined(item);
+      }
+      return acc;
+    }, {} as Record<string, any>);
+  }
+
+  return valor;
+}
 
 // ─────────────────────────────
 // 🔒 LOCK LEVE (ANTI DUPLICAÇÃO)
@@ -169,7 +189,7 @@ function limiteEstabelecimentosPorPlano(plano: string) {
       return 5;
 
     case 'elite':
-      return Infinity;
+      return LIMITE_ILIMITADO;
 
     default:
       return 1;
@@ -186,7 +206,7 @@ function limiteServicosPorPlano(plano: string) {
       return 80;
 
     case 'elite':
-      return Infinity;
+      return LIMITE_ILIMITADO;
 
     default:
       return 5;
@@ -267,7 +287,7 @@ export const salvarEstabelecimento = onCall(
       : db.collection('estabelecimentos').doc();
 
     const clean = {
-      ...data,
+      ...limparUndefined(data),
       adminId: uid,
       atualizadoEm: FieldValue.serverTimestamp(),
     };
@@ -358,7 +378,7 @@ export const cancelarAgendamento = onCall({ region: REGION }, async (req) => {
     if (!ag || ag.adminId !== req.auth.uid) {
       throw new HttpsError('permission-denied', 'Sem permissao');
     }
-    if (!['pendente', 'confirmado'].includes(ag.status)) {
+    if (!['pendente', 'confirmado', 'aguardando_pagamento'].includes(ag.status)) {
   throw new HttpsError(
     'failed-precondition',
     'Estado inválido'

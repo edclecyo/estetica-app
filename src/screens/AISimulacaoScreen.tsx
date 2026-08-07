@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from 'react-native';
 
-import { launchImageLibrary } from 'react-native-image-picker';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
 import { getAuth } from '@react-native-firebase/auth';
@@ -41,6 +41,115 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
       setResultado(null);
     }
   };
+
+  const abrirCamera = async () => {
+    const res = await launchCamera({
+      mediaType: 'photo',
+      quality: 0.8,
+      cameraType: 'front',
+      saveToPhotos: false,
+    } as any);
+
+    if (res.didCancel) return;
+
+    const uri = res.assets?.[0]?.uri;
+
+    if (uri) {
+      setImagem(uri);
+      setResultado(null);
+    }
+  };
+
+  const abrirCameraAoVivo = () => {
+    Alert.alert(
+      'Camera em tempo real',
+      'A previa ao vivo precisa de filtros nativos de camera. Por enquanto, tire uma foto pela camera e gere a previa IA em seguida.',
+      [
+        { text: 'Tirar foto agora', onPress: abrirCamera },
+        { text: 'OK' },
+      ]
+    );
+  };
+
+ const getMensagemErroIA = (error: any) => {
+  const code = String(error?.code || '').toLowerCase();
+
+  const msg = String(
+    error?.message ||
+    error?.nativeErrorMessage ||
+    error?.details ||
+    ''
+  );
+
+  const lower = msg.toLowerCase();
+
+  console.log('ERRO IA COMPLETO:', {
+    code: error?.code,
+    message: error?.message,
+    nativeErrorMessage: error?.nativeErrorMessage,
+    details: error?.details,
+  });
+
+  if (
+    lower.includes('incorrect api key') ||
+    lower.includes('invalid api key') ||
+    lower.includes('invalid_api_key') ||
+    lower.includes('401')
+  ) {
+    return 'A chave da OpenAI é inválida ou foi revogada.';
+  }
+
+  if (
+    lower.includes('insufficient_quota') ||
+    lower.includes('quota') ||
+    lower.includes('billing') ||
+    lower.includes('credit balance')
+  ) {
+    return 'A conta da OpenAI está sem saldo ou com o faturamento indisponível.';
+  }
+
+  if (
+    lower.includes('rate limit') ||
+    lower.includes('too many requests') ||
+    code.includes('resource-exhausted')
+  ) {
+    return 'Muitas solicitações foram feitas. Aguarde alguns segundos e tente novamente.';
+  }
+
+  if (
+    lower.includes('organization must be verified') ||
+    lower.includes('verification')
+  ) {
+    return 'A organização da OpenAI precisa ser verificada para usar a geração de imagens.';
+  }
+
+  if (
+    lower.includes('model') &&
+    (
+      lower.includes('not found') ||
+      lower.includes('does not exist') ||
+      lower.includes('access')
+    )
+  ) {
+    return 'Sua conta ainda não possui acesso ao modelo de geração de imagens configurado.';
+  }
+
+  if (code.includes('unauthenticated')) {
+    return 'Sua sessão expirou. Faça login novamente.';
+  }
+
+  if (code.includes('permission-denied')) {
+    return 'Você não tem permissão para gerar essa simulação.';
+  }
+
+  if (code.includes('failed-precondition')) {
+    return msg.replace(/^.*?\]\s*/, '') ||
+      'Os requisitos para gerar a prévia IA não foram atendidos.';
+  }
+
+  return msg.replace(/^.*?\]\s*/, '') ||
+    'Não foi possível gerar a simulação.';
+};
 
   const gerar = async () => {
     if (!imagem) {
@@ -89,7 +198,7 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
     } catch (e: any) {
       Alert.alert(
         'Erro',
-        e?.message || 'Não foi possível gerar a simulação.'
+        getMensagemErroIA(e)
       );
     } finally {
       setLoading(false);
@@ -132,8 +241,19 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
         ))}
       </View>
 
-      <TouchableOpacity style={s.btn} onPress={escolherImagem}>
-        <Text style={s.btnText}>Escolher foto</Text>
+      <View style={s.actionGrid}>
+        <TouchableOpacity style={s.btn} onPress={escolherImagem}>
+          <Text style={s.btnText}>Escolher foto</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={s.btn} onPress={abrirCamera}>
+          <Text style={s.btnText}>Tirar foto</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity style={s.liveBtn} onPress={abrirCameraAoVivo}>
+        <Text style={s.liveBtnText}>Camera ao vivo</Text>
+        <Text style={s.liveHint}>em breve com filtros em tempo real</Text>
       </TouchableOpacity>
 
       {imagem && (
@@ -242,6 +362,7 @@ const s = StyleSheet.create({
   },
 
   btn: {
+    flex: 1,
     backgroundColor: '#1A1A1A',
     borderRadius: 14,
     padding: 15,
@@ -253,6 +374,32 @@ const s = StyleSheet.create({
   btnText: {
     color: GOLD,
     fontWeight: '900',
+  },
+
+  actionGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  liveBtn: {
+    backgroundColor: '#111',
+    borderRadius: 14,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    marginTop: 10,
+  },
+
+  liveBtnText: {
+    color: '#FFF',
+    fontWeight: '900',
+  },
+
+  liveHint: {
+    color: '#777',
+    fontSize: 11,
+    marginTop: 3,
   },
 
   btnGerar: {

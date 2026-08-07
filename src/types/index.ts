@@ -82,6 +82,7 @@ export interface Estabelecimento {
   planoAprovado?: PlanoId;
   statusPlano?: 'ativo' | 'trial' | 'inativo' | string;
   pagamentoAppAtivo?: boolean;
+  sinalFestivoAtivo?: boolean;
   pixChave?: string;
   pixTipo?: string;
   responsavelNome?: string;
@@ -144,11 +145,17 @@ export interface Agendamento {
   data: string;
   horario: string;
   status: StatusAgendamento;
-  formaPagamento?: 'app' | 'local' | string;
+  formaPagamento?: 'app' | 'local' | 'sinal' | string;
+  valorPagamento?: number;
+  percentualPagamento?: number;
+  reservaTemporaria?: boolean;
+  pagamentoExpiraEm?: any;
+  pagamentoExpirado?: boolean;
   statusPagamento?:
     | 'aguardando_comprovante'
     | 'approved'
     | 'pending'
+    | 'expired'
     | 'rejected'
     | string;
   concluidoEm?: any;

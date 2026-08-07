@@ -36,7 +36,7 @@ type SubscriptionFilter = 'todas' | 'ativas' | 'vencendo' | 'pendentes' | 'venci
 const PLAN_PRICES: Record<string, number> = {
   essencial: 29.9,
   pro: 49.9,
-  elite: 89.99,
+  elite: 89.90,
 };
 
 const PAID_PLANS = Object.keys(PLAN_PRICES);

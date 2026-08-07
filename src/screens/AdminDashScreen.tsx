@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, Dimensions,
-  StatusBar, Image, Linking, ScrollView, Platform
+  StatusBar, Image, Linking, ScrollView, Platform, Switch
 } from 'react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
@@ -114,6 +114,8 @@ export default function AdminDashScreen() {
 
  const [loadingAcao, setLoadingAcao] =
   useState<{ id: string; acao: 'concluido' | 'cancelado' } | null>(null);
+  const [loadingSinalFestivo, setLoadingSinalFestivo] = useState(false);
+  const [mostrarAvisoContaSinal, setMostrarAvisoContaSinal] = useState(false);
   
   const [periodoGrafico, setPeriodoGrafico] =
   useState<'dia' | 'mes' | 'ano'>('dia');
@@ -1082,6 +1084,117 @@ const mostrarCardSelo = planoAtual === 'pro' || planoAtual === 'elite';
 const temSelo =
   verificado === true ||
   planoAtual === 'elite';
+const sinalFestivoAtivo = principal?.sinalFestivoAtivo === true;
+const contaRecebimentoOk =
+  Boolean(principal?.pixChave) &&
+  Boolean(principal?.responsavelNome);
+const planoPedeConta =
+  temEstabelecimento &&
+  !contaRecebimentoOk &&
+  (planoAtual === 'pro' || planoAtual === 'elite');
+const mostrarCardContaRecebimento =
+  temEstabelecimento &&
+  !contaRecebimentoOk &&
+  (planoPedeConta || mostrarAvisoContaSinal);
+
+const alternarSinalFestivo = async (ativo: boolean) => {
+  if (!principal?.id || loadingSinalFestivo) return;
+
+  if (ativo && !contaRecebimentoOk) {
+    setMostrarAvisoContaSinal(true);
+
+    Alert.alert(
+      'Cadastre sua conta',
+      'Para ativar a reserva com 50%, cadastre os dados de recebimento PIX do estabelecimento.',
+      [
+        { text: 'Depois', style: 'cancel' },
+        {
+          text: 'Cadastrar agora',
+          onPress: () =>
+            navigation.navigate('ContaBancariaScreen', {
+              estabelecimentoId: principal.id,
+            }),
+        },
+      ]
+    );
+
+    return;
+  }
+
+  const estadoAnterior = sinalFestivoAtivo;
+
+  try {
+    setLoadingSinalFestivo(true);
+    setEstabs(lista =>
+      lista.map(item =>
+        item.id === principal.id
+          ? { ...item, sinalFestivoAtivo: ativo }
+          : item
+      )
+    );
+
+    await firestore()
+      .collection('estabelecimentos')
+      .doc(principal.id)
+      .update({
+        sinalFestivoAtivo: ativo,
+      });
+  } catch (e) {
+    setEstabs(lista =>
+      lista.map(item =>
+        item.id === principal.id
+          ? { ...item, sinalFestivoAtivo: estadoAnterior }
+          : item
+      )
+    );
+    Alert.alert('Erro', 'Nao foi possivel alterar o sinal de 50%.');
+  } finally {
+    setLoadingSinalFestivo(false);
+  }
+};
+
+const renderStoryCard = () => (
+  <TouchableOpacity
+    style={[s.storyBtnPremium, isBloqueado && { opacity: 0.6 }]}
+    activeOpacity={0.8}
+    onPress={() => {
+      if (isBloqueado) {
+        Alert.alert('Recurso bloqueado 📸', 'Ative seu período de teste ou plano.');
+      } else {
+        navigation.navigate('PostarStory');
+      }
+    }}
+  >
+    <View style={[s.storyGradientBorder, isBloqueado && { backgroundColor: '#666' }]}>
+      <View style={s.storyIconInner}>
+        <Text style={s.storyEmoji}>{isBloqueado ? '🔒' : '📸'}</Text>
+      </View>
+    </View>
+
+    <View style={s.storyTextContent}>
+      <Text style={s.storyTitlePremium}>Postar novo Story</Text>
+      <Text style={s.storySubPremium}>
+        {isBloqueado
+          ? 'Ative seu plano para liberar'
+          : planoAtual === 'essencial'
+          ? 'Seu plano permite stories com foto'
+          : planoAtual === 'pro'
+          ? 'Foto e vídeo até 15 segundos'
+          : planoAtual === 'elite'
+          ? 'Foto e vídeo até 30 segundos'
+          : planoAtual === 'trial'
+          ? 'Teste liberado: fotos'
+          : 'Divulgue novidades para os clientes'}
+      </Text>
+    </View>
+
+    {!isBloqueado && (
+      <View style={s.storyBadgeNovo}>
+        <Text style={s.storyBadgeNovoText}>NOVO</Text>
+      </View>
+    )}
+  </TouchableOpacity>
+);
 
   return (
     <View style={s.container}>
@@ -1140,6 +1253,30 @@ const temSelo =
       {/* ─── ABA DASH ─── */}
       {aba === 'dash' && (
         <ScrollView contentContainerStyle={s.lista} showsVerticalScrollIndicator={false}>
+
+          {temEstabelecimento && (
+            <View style={[s.sinalFestivoDashCard, sinalFestivoAtivo && s.sinalFestivoDashCardAtivo]}>
+              <View style={s.sinalFestivoDashTexto}>
+                <Text style={[s.sinalFestivoDashTitulo, sinalFestivoAtivo && s.sinalFestivoDashTituloAtivo]}>
+                  Reserva com 50% antecipado
+                </Text>
+                <Text style={[s.sinalFestivoDashDesc, sinalFestivoAtivo && s.sinalFestivoDashDescAtivo]}>
+                  Use em datas festivas ou de alta procura.
+                </Text>
+                <Text style={s.sinalFestivoDashHint}>
+                  Ao ativar, o cliente reserva pagando metade do servico.
+                </Text>
+              </View>
+
+              <Switch
+                value={sinalFestivoAtivo}
+                onValueChange={alternarSinalFestivo}
+                disabled={loadingSinalFestivo}
+                thumbColor={sinalFestivoAtivo ? '#1A1A1A' : '#777'}
+                trackColor={{ false: '#D8D8D8', true: GOLD }}
+              />
+            </View>
+          )}
 
           <TouchableOpacity
   style={[s.planoCard, { borderColor: badge.cor, backgroundColor: badge.bg }]}
@@ -1221,6 +1358,31 @@ const temSelo =
             </View>
            <Text style={{ color: badge.cor, fontSize: 18, fontWeight: 'bold' }}>→</Text>
 </TouchableOpacity>
+
+{mostrarCardContaRecebimento && (
+  <TouchableOpacity
+    style={s.contaObrigatoriaCard}
+    activeOpacity={0.86}
+    onPress={() =>
+      navigation.navigate('ContaBancariaScreen', {
+        estabelecimentoId: principal?.id,
+      })
+    }
+  >
+    <View style={s.contaObrigatoriaIcon}>
+      <Text style={{ color: '#1A1A1A', fontSize: 13, fontWeight: '900' }}>PIX</Text>
+    </View>
+
+    <View style={{ flex: 1 }}>
+      <Text style={s.contaObrigatoriaTitulo}>Cadastre sua conta de recebimento</Text>
+      <Text style={s.contaObrigatoriaTexto}>
+        Para usar reserva com 50% ou receber pagamentos pelo app, informe a chave PIX do estabelecimento.
+      </Text>
+    </View>
+
+    <Text style={s.contaObrigatoriaArrow}>{'>'}</Text>
+  </TouchableOpacity>
+)}
 
 {isBloqueado ? (
   <View style={s.dashBloqueadoCard}>
@@ -1305,34 +1467,7 @@ const temSelo =
     <Text style={s.impulsionarArrow}>→</Text>
   </TouchableOpacity>
 )}
-{temEstabelecimento && (
-  <TouchableOpacity
-    style={s.simulacaoBtn}
-    activeOpacity={0.85}
-    onPress={() =>
-      navigation.navigate('SimulacaoDivulgacaoScreen', {
-        estabelecimentoId: principal?.id,
-        estabelecimentoNome: principal?.nome,
-      })
-    }
-  >
-    <View style={s.simulacaoIcon}>
-      <Text style={{ fontSize: 24, color: GOLD, fontWeight: '900' }}>Play</Text>
-    </View>
-
-    <View style={{ flex: 1 }}>
-      <Text style={s.simulacaoTitulo}>
-        Simular divulgacao e agendamento
-      </Text>
-
-      <Text style={s.simulacaoSub}>
-        Veja como o cliente encontra seu espaco e marca horario
-      </Text>
-    </View>
-
-    <Text style={s.simulacaoArrow}>{'>'}</Text>
-  </TouchableOpacity>
-)}
+{temEstabelecimento && renderStoryCard()}
           {/* FATURAMENTO */}
           <View style={s.financeiroCardDash}>
             <Text style={s.financeiroTitulo}>RESUMO DE FATURAMENTO</Text>
@@ -1449,44 +1584,6 @@ const temSelo =
     style={s.chartStyle}
   />
 </View>
-
-          {/* POSTAR STORY COM BLOQUEIO */}
-          <TouchableOpacity
-            style={[s.storyBtnPremium, isBloqueado && { opacity: 0.6 }]}
-            activeOpacity={0.8}
-            onPress={() => {
-  if (isBloqueado) {
-    Alert.alert('Recurso Bloqueado 📸', 'Ative seu período de teste ou plano.');
-  } else {
-    navigation.navigate('PostarStory');
-  }
-}}
-          >
-            <View style={[s.storyGradientBorder, isBloqueado && { backgroundColor: '#666' }]}>
-              <View style={s.storyIconInner}>
-                <Text style={s.storyEmoji}>{isBloqueado ? '🔒' : '📸'}</Text>
-              </View>
-            </View>
-            <View style={s.storyTextContent}>
-              <Text style={s.storyTitlePremium}>Postar novo Story</Text>
-              <Text style={s.storySubPremium}>
-  {isBloqueado
-    ? 'Ative seu plano para liberar'
-    : planoAtual === 'essencial'
-    ? 'Seu plano permite stories com foto'
-    : planoAtual === 'pro'
-    ? 'Foto e vídeo até 15 segundos'
-    : planoAtual === 'elite'
-    ? 'Foto e vídeo até 30 segundos'
-    : planoAtual === 'trial'
-    ? 'Teste liberado: foto e vídeo até 15s'
-    : 'Divulgue novidades para os clientes'}
-</Text>
-            </View>
-            {!isBloqueado && (
-              <View style={s.storyBadgeNovo}><Text style={s.storyBadgeNovoText}>NOVO</Text></View>
-            )}
-          </TouchableOpacity>
 
           {/* STATS */}
           <View style={s.statsRow}>
@@ -1714,17 +1811,33 @@ const temSelo =
 </View>
 
 {/* ✅ NOVO BOTÃO */}
-{item.formaPagamento === 'app' &&
+{(item.formaPagamento === 'app' || item.formaPagamento === 'sinal') &&
   item.status === 'aguardando_pagamento' &&
   item.statusPagamento !== 'approved' && (
     <TouchableOpacity
       style={s.btnConfirmarPagamento}
-      onPress={() =>
-        confirmarPagamentoManual(item.id)
-      }
+      onPress={() => {
+        Alert.alert(
+          item.formaPagamento === 'sinal'
+            ? 'Confirmar sinal'
+            : 'Confirmar pagamento',
+          item.formaPagamento === 'sinal'
+            ? 'Confirme somente depois de conferir o comprovante do PIX de 50% enviado pelo cliente. Ao confirmar, o horario sera liberado como agendado.'
+            : 'Confirme somente depois de conferir o comprovante do PIX enviado pelo cliente. Ao confirmar, o horario sera liberado como agendado.',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+              text: 'Confirmar',
+              onPress: () => confirmarPagamentoManual(item.id),
+            },
+          ]
+        );
+      }}
     >
       <Text style={s.btnConfirmarPagamentoText}>
-        ✅ Confirmar pagamento
+        {item.formaPagamento === 'sinal'
+          ? 'Confirmar sinal recebido'
+          : 'Confirmar pagamento recebido'}
       </Text>
     </TouchableOpacity>
 )}
@@ -2064,6 +2177,51 @@ seloVerificacaoArrow: {
   abaText: { color: '#999', fontSize: 13, fontWeight: '600' },
   abaTextAtiva: { color: GOLD, fontWeight: '800' },
   lista: { padding: 20, paddingBottom: 120 },
+  sinalFestivoDashCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.35)',
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    elevation: 2,
+  },
+  sinalFestivoDashCardAtivo: {
+    backgroundColor: '#1A1A1A',
+    borderColor: GOLD,
+  },
+  sinalFestivoDashTexto: { flex: 1 },
+  sinalFestivoDashTitulo: { color: '#1A1A1A', fontSize: 15, fontWeight: '900' },
+  sinalFestivoDashTituloAtivo: { color: '#FFF' },
+  sinalFestivoDashDesc: { color: '#666', fontSize: 12, lineHeight: 18, marginTop: 5 },
+  sinalFestivoDashDescAtivo: { color: '#DDD' },
+  sinalFestivoDashHint: { color: GOLD, fontSize: 11, fontWeight: '800', marginTop: 8 },
+  contaObrigatoriaCard: {
+    backgroundColor: '#FFF8E8',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(201,169,110,0.45)',
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    elevation: 2,
+  },
+  contaObrigatoriaIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: GOLD,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contaObrigatoriaTitulo: { color: '#1A1A1A', fontSize: 14, fontWeight: '900' },
+  contaObrigatoriaTexto: { color: '#5F5544', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  contaObrigatoriaArrow: { color: GOLD, fontSize: 22, fontWeight: '900' },
   planoCard: { borderRadius: 18, borderWidth: 1.5, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   planoCardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   planoBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },

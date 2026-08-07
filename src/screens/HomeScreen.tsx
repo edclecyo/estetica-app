@@ -59,7 +59,7 @@ const GOLD3 = '#8C6A3B';
 const SeloVerificado = React.memo(({ size = 20 }: { size?: number }) => (
   <Image
     source={require('../assets/selo_verificado.png')}
-    style={{ width: size, height: size, tintColor: GOLD }}
+    style={{ width: size, height: size }}
     resizeMode="contain"
   />
 ));

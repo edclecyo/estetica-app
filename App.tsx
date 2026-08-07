@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider } from './src/contexts/AuthContext';
 import Navigation from './src/navigation';
@@ -39,8 +40,10 @@ export default function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <Navigation />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <Navigation />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

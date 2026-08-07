@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -26,6 +26,10 @@ const getStoryType = (story: any) => {
   return /\.(mp4|mov|m4v|webm)$/i.test(uri) ? "video" : "image";
 };
 
+const pwaBottomInset = "calc(34px + env(safe-area-inset-bottom))" as any;
+const pwaSheetPaddingBottom = "calc(34px + env(safe-area-inset-bottom))" as any;
+const IMAGE_STORY_DURATION_MS = 5000;
+
 export default function StoryViewWeb() {
   const route: any = useRoute();
   const navigation: any = useNavigation();
@@ -38,6 +42,14 @@ export default function StoryViewWeb() {
   const [loadingStats, setLoadingStats] = useState(false);
   const [stats, setStats] = useState({ views: 0, likes: 0, shares: 0 });
   const [isLiked, setIsLiked] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [storyDurationMs, setStoryDurationMs] = useState(IMAGE_STORY_DURATION_MS);
+  const timerRef = useRef<any>(null);
+  const holdTimeoutRef = useRef<any>(null);
+  const didHoldRef = useRef(false);
+  const progressRef = useRef(0);
+  const videoElementRef = useRef<any>(null);
+  const startedAtRef = useRef(0);
 
   const storiesFiltrados = useMemo(
     () => stories.filter((s: any) => s && s.id),
@@ -49,8 +61,103 @@ export default function StoryViewWeb() {
   const user = auth().currentUser;
   const isAdmin = user?.uid === story?.adminId;
 
+  function stopTimer() {
+    if (timerRef.current) {
+      (globalThis as any).clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+
+  function stopHoldTimer() {
+    if (holdTimeoutRef.current) {
+      (globalThis as any).clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+  }
+
+  function fechar() {
+    stopTimer();
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate("HomeTabs");
+  }
+
+  function voltarStory() {
+    stopTimer();
+    if (index > 0) setIndex(index - 1);
+    else setProgress(0);
+  }
+
+  function proximoStory() {
+    stopTimer();
+    if (index + 1 < storiesFiltrados.length) {
+      setIndex(index + 1);
+    } else {
+      fechar();
+    }
+  }
+
+  function startTimer(durationMs = IMAGE_STORY_DURATION_MS, initialProgress = 0) {
+    stopTimer();
+    const safeDuration = Math.max(Number(durationMs) || IMAGE_STORY_DURATION_MS, 1500);
+    const safeProgress = Math.min(Math.max(Number(initialProgress) || 0, 0), 0.98);
+    setStoryDurationMs(safeDuration);
+    progressRef.current = safeProgress;
+    setProgress(safeProgress);
+    startedAtRef.current = Date.now() - safeProgress * safeDuration;
+
+    timerRef.current = (globalThis as any).setInterval(() => {
+      const elapsed = Date.now() - startedAtRef.current;
+      const nextProgress = Math.min(elapsed / safeDuration, 1);
+      progressRef.current = nextProgress;
+      setProgress(nextProgress);
+
+      if (nextProgress >= 1) {
+        proximoStory();
+      }
+    }, 80);
+  }
+
+  function pauseStoryTimer() {
+    stopTimer();
+    videoElementRef.current?.pause?.();
+  }
+
+  function resumeStoryTimer() {
+    if (!story?.id || showStats) return;
+    if (progressRef.current >= 1) return;
+    if (storyType === "video") {
+      videoElementRef.current?.play?.().catch?.(() => {});
+    }
+    startTimer(storyDurationMs, progressRef.current);
+  }
+
+  function handleStoryPressIn() {
+    didHoldRef.current = false;
+    pauseStoryTimer();
+    stopHoldTimer();
+    holdTimeoutRef.current = (globalThis as any).setTimeout(() => {
+      didHoldRef.current = true;
+    }, 220);
+  }
+
+  function handleStoryPressOut(action: () => void) {
+    stopHoldTimer();
+    if (didHoldRef.current) {
+      didHoldRef.current = false;
+      resumeStoryTimer();
+      return;
+    }
+
+    action();
+  }
+
   useEffect(() => {
     setMediaError(false);
+    setProgress(0);
+    progressRef.current = 0;
+    setStoryDurationMs(IMAGE_STORY_DURATION_MS);
+    stopTimer();
+    stopHoldTimer();
     if (!story?.id || !user?.uid) return;
 
     const registrar = async () => {
@@ -74,6 +181,25 @@ export default function StoryViewWeb() {
   }, [story?.id, user?.uid]);
 
   useEffect(() => {
+    if (!story?.id || showStats) {
+      stopTimer();
+      return;
+    }
+
+    if (storyType !== "video") {
+      startTimer(IMAGE_STORY_DURATION_MS, progressRef.current);
+    } else if (progressRef.current > 0) {
+      videoElementRef.current?.play?.().catch?.(() => {});
+      startTimer(storyDurationMs, progressRef.current);
+    }
+
+    return () => {
+      stopTimer();
+      stopHoldTimer();
+    };
+  }, [story?.id, storyType, showStats]);
+
+  useEffect(() => {
     if (!story?.id || !user?.uid) {
       setIsLiked(false);
       return;
@@ -90,20 +216,17 @@ export default function StoryViewWeb() {
     return () => unsub();
   }, [story?.id, user?.uid]);
 
-  const fechar = () => {
-    if (navigation.canGoBack()) navigation.goBack();
-    else navigation.navigate("HomeTabs");
-  };
-
   const abrirAgendamento = () => {
+    stopTimer();
     if (!story?.estabelecimentoId) return;
-    navigation.navigate(user ? "Detalhe" : "ClienteLogin", {
+    navigation.replace(user ? "Detalhe" : "ClienteLogin", {
       estabelecimentoId: story.estabelecimentoId,
     });
   };
 
   const abrirStats = async () => {
     if (!story?.id || !isAdmin) return;
+    stopTimer();
     setShowStats(true);
     setLoadingStats(true);
     try {
@@ -211,14 +334,6 @@ export default function StoryViewWeb() {
     }
   };
 
-  const voltarStory = () => {
-    if (index > 0) setIndex(index - 1);
-  };
-
-  const proximoStory = () => {
-    if (index + 1 < storiesFiltrados.length) setIndex(index + 1);
-  };
-
   if (!story?.id) {
     return (
       <View style={s.container}>
@@ -241,9 +356,19 @@ export default function StoryViewWeb() {
                 controls: true,
                 autoPlay: true,
                 playsInline: true,
-                muted: false,
+                muted: true,
+                preload: "auto",
+                "webkit-playsinline": "true",
                 style: videoStyle,
-                onError: () => setMediaError(true),
+                ref: (element: any) => {
+                  videoElementRef.current = element;
+                },
+                onLoadedMetadata: (event: any) => {
+                  const duration = Number(event?.currentTarget?.duration || 5) * 1000;
+                  startTimer(duration);
+                },
+                onEnded: proximoStory,
+                onError: () => setMediaError(false),
               })
             : React.createElement("img" as any, {
                 key: `story-img-${story.id}`,
@@ -252,7 +377,8 @@ export default function StoryViewWeb() {
                 decoding: "sync",
                 loading: "eager",
                 style: imageStyle,
-                onError: () => setMediaError(true),
+                onLoad: () => startTimer(IMAGE_STORY_DURATION_MS),
+                onError: () => setMediaError(false),
               })}
         </View>
       ) : (
@@ -264,6 +390,25 @@ export default function StoryViewWeb() {
       )}
 
       <View style={s.topShade} />
+      <View style={s.progressRow}>
+        {storiesFiltrados.map((_: any, i: number) => (
+          <View key={i} style={s.progressTrack}>
+            <View
+              style={[
+                s.progressFill,
+                {
+                  width:
+                    i < index
+                      ? "100%"
+                      : i === index
+                        ? `${Math.round(progress * 100)}%`
+                        : "0%",
+                },
+              ]}
+            />
+          </View>
+        ))}
+      </View>
       <View style={s.header}>
         <Text style={s.title}>{story.nome || story.nomeAdmin || "Story"}</Text>
         <TouchableOpacity style={s.iconBtn} onPress={fechar}>
@@ -272,8 +417,18 @@ export default function StoryViewWeb() {
       </View>
 
       <View style={s.touchLayer} pointerEvents="box-none">
-        <TouchableOpacity style={s.touchHalf} onPress={voltarStory} />
-        <TouchableOpacity style={s.touchHalf} onPress={proximoStory} />
+        <TouchableOpacity
+          style={s.touchHalf}
+          activeOpacity={1}
+          onPressIn={handleStoryPressIn}
+          onPressOut={() => handleStoryPressOut(voltarStory)}
+        />
+        <TouchableOpacity
+          style={s.touchHalf}
+          activeOpacity={1}
+          onPressIn={handleStoryPressIn}
+          onPressOut={() => handleStoryPressOut(proximoStory)}
+        />
       </View>
 
       {story.caption ? (
@@ -295,7 +450,7 @@ export default function StoryViewWeb() {
         </TouchableOpacity>
       </View>
 
-      <View style={s.bottom}>
+      <View style={[s.bottom, { bottom: pwaBottomInset }]}>
         {isAdmin ? (
           <TouchableOpacity style={s.adminBtn} onPress={abrirStats}>
             <Ionicons name="chevron-up" size={20} color="#FFF" />
@@ -311,8 +466,13 @@ export default function StoryViewWeb() {
 
       {showStats ? (
         <View style={s.statsOverlay}>
-          <TouchableOpacity style={s.statsBackdrop} onPress={() => setShowStats(false)} />
-          <View style={s.statsSheet}>
+          <TouchableOpacity
+            style={s.statsBackdrop}
+            onPress={() => {
+              setShowStats(false);
+            }}
+          />
+          <View style={[s.statsSheet, { paddingBottom: pwaSheetPaddingBottom }]}>
             <View style={s.sheetHandle} />
             <Text style={s.sheetTitle}>Atividade do Story</Text>
             {loadingStats ? (
@@ -414,6 +574,28 @@ const s = StyleSheet.create({
     height: 130,
     backgroundColor: "rgba(0,0,0,0.35)",
     zIndex: 4,
+  },
+  progressRow: {
+    position: "absolute",
+    top: "calc(8px + env(safe-area-inset-top))" as any,
+    left: 10,
+    right: 10,
+    height: 3,
+    zIndex: 16,
+    flexDirection: "row",
+    gap: 4,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 3,
+    borderRadius: 3,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 3,
+    backgroundColor: "#FFF",
   },
   header: {
     position: "absolute",

@@ -10,17 +10,48 @@ import { REGION } from '../config/region';
 
 type Plano = 'free' | 'trial' | 'essencial' | 'pro' | 'elite';
 
+function normalizarPlano(est: any): Plano {
+  const candidatos = [
+    est?.planoAprovado,
+    est?.plano,
+    est?.planoPendente,
+  ].map(plano => String(plano || '').toLowerCase().trim());
+
+  const plano =
+    candidatos.find(item =>
+      ['elite', 'pro', 'essencial', 'trial'].includes(item)
+    ) || 'free';
+
+  if (['trial', 'essencial', 'pro', 'elite'].includes(plano)) {
+    return plano as Plano;
+  }
+
+  return 'free';
+}
+
+function assinaturaPagaAtiva(est: any) {
+  const statusPagamento = String(est?.paymentStatus || '').toLowerCase();
+  const statusPlano = String(est?.statusPlano || '').toLowerCase();
+
+  return (
+    est?.assinaturaAtiva === true ||
+    statusPlano === 'ativo' ||
+    ['approved', 'authorized', 'accredited'].includes(statusPagamento)
+  );
+}
+
 function planoAtivo(est: any) {
   const agora = Date.now();
   const expira = est?.expiraEm?.toMillis?.() || 0;
+  const plano = normalizarPlano(est);
 
-  if (est?.plano === 'trial') {
+  if (plano === 'trial') {
     return expira > agora;
   }
 
   return (
-    est?.assinaturaAtiva === true &&
-    ['essencial', 'pro', 'elite'].includes(est?.plano)
+    assinaturaPagaAtiva(est) &&
+    ['essencial', 'pro', 'elite'].includes(plano)
   );
 }
 
@@ -30,6 +61,8 @@ function getLimites(plano: Plano) {
       return {
         podeFoto: true,
         podeVideo: false,
+        maxFotos: 5,
+        maxMidias: 5,
         maxVideoSegundos: 0,
         maxArquivoMB: 10,
       };
@@ -38,6 +71,8 @@ function getLimites(plano: Plano) {
       return {
         podeFoto: true,
         podeVideo: false,
+        maxFotos: 5,
+        maxMidias: 5,
         maxVideoSegundos: 0,
         maxArquivoMB: 10,
       };
@@ -46,6 +81,8 @@ function getLimites(plano: Plano) {
       return {
         podeFoto: true,
         podeVideo: true,
+        maxFotos: 10,
+        maxMidias: 10,
         maxVideoSegundos: 15,
         maxArquivoMB: 30,
       };
@@ -54,6 +91,8 @@ function getLimites(plano: Plano) {
       return {
         podeFoto: true,
         podeVideo: true,
+        maxFotos: 10,
+        maxMidias: 10,
         maxVideoSegundos: 30,
         maxArquivoMB: 60,
       };
@@ -62,6 +101,8 @@ function getLimites(plano: Plano) {
       return {
         podeFoto: false,
         podeVideo: false,
+        maxFotos: 0,
+        maxMidias: 0,
         maxVideoSegundos: 0,
         maxArquivoMB: 0,
       };
@@ -108,6 +149,9 @@ export const validarPostagemStory = onCall(
       type,
       duration = 0,
       sizeMB = 0,
+      totalFotos = type === 'image' ? 1 : 0,
+      totalVideos = type === 'video' ? 1 : 0,
+      quantidade = Number(totalFotos || 0) + Number(totalVideos || 0),
     } = req.data || {};
 
     if (!estabelecimentoId) {
@@ -141,8 +185,32 @@ export const validarPostagemStory = onCall(
       );
     }
 
-    const plano = (est?.plano || 'free') as Plano;
+    const plano = normalizarPlano(est);
     const limites = getLimites(plano);
+    const qtdFotos = Number(totalFotos || 0);
+    const qtdVideos = Number(totalVideos || 0);
+    const qtdMidias = Number(quantidade || (qtdFotos + qtdVideos));
+
+    if (qtdMidias > limites.maxMidias) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Seu plano permite ate ${limites.maxMidias} midia(s) por postagem.`
+      );
+    }
+
+    if (qtdFotos > limites.maxFotos) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Seu plano permite ate ${limites.maxFotos} foto(s) por postagem.`
+      );
+    }
+
+    if (qtdVideos > 0 && !limites.podeVideo) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Seu plano permite apenas fotos. Faca upgrade para postar videos.'
+      );
+    }
 
     if (type === 'image' && !limites.podeFoto) {
       throw new HttpsError(

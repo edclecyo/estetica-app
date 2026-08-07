@@ -63,6 +63,7 @@ const rotasRaiz = new Set([
 function HomeTabs() {
   return (
     <Tab.Navigator
+      detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
@@ -100,6 +101,7 @@ export default function Navigation() {
   const { loading, isAdmin, isSuperAdmin, isResolvingAdmin } = useAuth();
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const [mostrarVoltarWeb, setMostrarVoltarWeb] = useState(false);
+  const navigatorKey = isSuperAdmin ? 'super-admin' : isAdmin ? 'admin' : 'public';
 
   const atualizarVoltarWeb = () => {
     if (!isIPhoneWeb() || !navigationRef.current) {
@@ -166,7 +168,11 @@ export default function Navigation() {
         onReady={atualizarVoltarWeb}
         onStateChange={atualizarVoltarWeb}
       >
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator
+          key={navigatorKey}
+          detachInactiveScreens={false}
+          screenOptions={{ headerShown: false }}
+        >
 
         {/* ─── SUPER ADMIN ─── */}
         {isSuperAdmin ? (

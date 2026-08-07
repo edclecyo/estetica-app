@@ -5,12 +5,15 @@ import {
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import { getApp } from '@react-native-firebase/app';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useNavigation } from '@react-navigation/native';
 import type { Agendamento } from '../types';
 
 const FILTROS = [
   { label: 'Todos', value: 'todos' },
+  { label: 'Pagamento', value: 'aguardando_pagamento' },
   { label: 'Confirmado', value: 'confirmado' },
   { label: 'Concluído', value: 'concluido' },
   { label: 'Cancelado', value: 'cancelado' },
@@ -23,6 +26,7 @@ export default function AgendamentosScreen() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(auth().currentUser);
   const [filtro, setFiltro] = useState('todos');
+  const [apagandoId, setApagandoId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribeAuth = auth().onAuthStateChanged(u => {
@@ -51,7 +55,7 @@ export default function AgendamentosScreen() {
             id: d.id,
             ...d.data(),
           }))
-          .filter((a: any) => a.deletado !== true)
+          .filter((a: any) => a.deletado !== true && a.deletadoCliente !== true)
           .sort((a: any, b: any) => {
             const aTime = a.criadoEm?.toMillis?.() || 0;
             const bTime = b.criadoEm?.toMillis?.() || 0;
@@ -99,6 +103,8 @@ export default function AgendamentosScreen() {
     switch (status) {
       case 'confirmado':
         return { cor: '#4CAF50', bg: '#E8F5E9', label: '✓ Confirmado' };
+      case 'aguardando_pagamento':
+        return { cor: '#FF9800', bg: '#FFF3E0', label: 'Aguardando pagamento' };
       case 'cancelado':
         return { cor: '#F44336', bg: '#FFEBEE', label: '✕ Cancelado' };
       case 'concluido':
@@ -114,6 +120,49 @@ export default function AgendamentosScreen() {
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
 
     return date.toLocaleDateString('pt-BR');
+  };
+
+  const getTimestampMs = (timestamp: any) => {
+    if (!timestamp) return 0;
+    if (timestamp.toMillis) return timestamp.toMillis();
+    if (timestamp.toDate) return timestamp.toDate().getTime();
+
+    return new Date(timestamp).getTime() || 0;
+  };
+
+  const apagarAgendamento = (item: Agendamento) => {
+    Alert.alert(
+      'Apagar agendamento',
+      'Este card sera removido de vez. Deseja continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setApagandoId(item.id);
+
+              const fn = httpsCallable(
+                getFunctions(getApp(), 'southamerica-east1'),
+                'apagarAgendamentoCliente'
+              );
+
+              await fn({
+                agendamentoId: item.id,
+              });
+            } catch (e: any) {
+              Alert.alert(
+                'Erro',
+                e?.message || 'Nao foi possivel apagar este agendamento.'
+              );
+            } finally {
+              setApagandoId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const filtrados = agendamentos.filter(a => {
@@ -200,6 +249,26 @@ export default function AgendamentosScreen() {
         }
         renderItem={({ item }) => {
           const st = statusConfig(item.status);
+          const aguardandoPagamento =
+            item.status === 'aguardando_pagamento' &&
+            (item.formaPagamento === 'app' || item.formaPagamento === 'sinal') &&
+            item.statusPagamento !== 'approved';
+          const expiraMs = getTimestampMs(item.pagamentoExpiraEm);
+          const reservaExpirada =
+            aguardandoPagamento &&
+            expiraMs > 0 &&
+            expiraMs <= Date.now();
+          const podeApagar =
+            item.status === 'cancelado' ||
+            item.statusPagamento === 'expired' ||
+            reservaExpirada;
+          const valorPagamento =
+            Number(
+              item.valorPagamento ||
+              (item.formaPagamento === 'sinal'
+                ? Number(item.servicoPreco || 0) * 0.5
+                : item.servicoPreco || 0)
+            );
 
           const jaAvaliado =
             (item as any).avaliacao ||
@@ -240,7 +309,17 @@ export default function AgendamentosScreen() {
 
                   {item.formaPagamento === 'app' && (
                     <Text style={s.pagoApp}>
-                      💳 Pago pelo app
+                      {item.statusPagamento === 'approved'
+                        ? 'Pago pelo app'
+                        : 'Pagamento aguardando PIX'}
+                    </Text>
+                  )}
+
+                  {item.formaPagamento === 'sinal' && (
+                    <Text style={s.pagoApp}>
+                      {item.statusPagamento === 'approved'
+                        ? 'Sinal de 50% pago'
+                        : 'Sinal de 50% aguardando PIX'}
                     </Text>
                   )}
 
@@ -253,6 +332,12 @@ export default function AgendamentosScreen() {
                   {item.status === 'concluido' && item.concluidoEm && (
                     <Text style={s.concluidoData}>
                       Finalizado em: {formatarDataConclusao(item.concluidoEm)}
+                    </Text>
+                  )}
+
+                  {reservaExpirada && (
+                    <Text style={s.expiradoText}>
+                      Reserva expirada. Escolha um novo horario.
                     </Text>
                   )}
                 </View>
@@ -281,6 +366,36 @@ export default function AgendamentosScreen() {
                     }}
                   >
                     <Text style={s.avaliarBtnText}>⭐ Avaliar</Text>
+                  </TouchableOpacity>
+                )}
+
+                {aguardandoPagamento && !reservaExpirada && (
+                  <TouchableOpacity
+                    style={s.pagarBtn}
+                    onPress={() => {
+                      navigation.navigate('PagamentoCliente', {
+                        agendamentoId: item.id,
+                        estabelecimentoId: item.estabelecimentoId,
+                        servicoNome: item.servicoNome,
+                        valor: valorPagamento,
+                        nomeEstabelecimento: item.estabelecimentoNome,
+                        formaPagamento: item.formaPagamento,
+                      });
+                    }}
+                  >
+                    <Text style={s.pagarBtnText}>Pagar agora</Text>
+                  </TouchableOpacity>
+                )}
+
+                {podeApagar && (
+                  <TouchableOpacity
+                    style={s.apagarBtn}
+                    disabled={apagandoId === item.id}
+                    onPress={() => apagarAgendamento(item)}
+                  >
+                    <Text style={s.apagarBtnText}>
+                      {apagandoId === item.id ? 'Apagando...' : 'Apagar'}
+                    </Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -320,6 +435,7 @@ const s = StyleSheet.create({
   pagoApp: { fontSize: 11, color: '#C9A96E', marginTop: 4 },
   pagoLocal: { fontSize: 11, color: '#999', marginTop: 4 },
   concluidoData: { fontSize: 10, color: '#2196F3', marginTop: 4, fontWeight: '600' },
+  expiradoText: { fontSize: 11, color: '#F44336', marginTop: 5, fontWeight: '700' },
   cardDireita: { alignItems: 'flex-end' },
   cardPreco: { fontSize: 14, fontWeight: 'bold', color: '#1A1A1A' },
   cardRodape: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F5F5F5', alignItems: 'center' },
@@ -327,6 +443,10 @@ const s = StyleSheet.create({
   statusText: { fontSize: 11, fontWeight: '700' },
   avaliarBtn: { backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
   avaliarBtnText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+  pagarBtn: { backgroundColor: '#C9A96E', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
+  pagarBtnText: { color: '#1A1A1A', fontSize: 12, fontWeight: '900' },
+  apagarBtn: { backgroundColor: '#FFEBEE', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
+  apagarBtnText: { color: '#F44336', fontSize: 12, fontWeight: '900' },
   emptyCard: { alignItems: 'center', marginTop: 50 },
   emptyEmoji: { fontSize: 40 },
   emptyTitulo: { color: '#999', marginTop: 10 },

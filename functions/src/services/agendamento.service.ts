@@ -3,7 +3,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
-import { parseDataHoraBR, planoAtivo, dataKey } from '../utils/helpers';
+import { parseDataHoraBR, planoAtivo, dataKey, gerarSlots } from '../utils/helpers';
 import { RATE_LIMIT_MS } from '../config/rateLimit';
 
 const toMinutes = (h: string) => {
@@ -266,9 +266,21 @@ if (conflitoComBloqueio) {
         )
       );
 
-      const existeConflito = conflitoSnaps.some(
-        (s) => s.exists
-      );
+      const existeConflito = conflitoSnaps.some((s) => {
+        if (!s.exists) {
+          return false;
+        }
+
+        const ocupado = s.data() as any;
+        const expiraMs = ocupado?.pagamentoExpiraEm?.toMillis?.() || 0;
+        const reservaVencida =
+          ocupado?.status === 'aguardando_pagamento' &&
+          ocupado?.statusPagamento !== 'approved' &&
+          expiraMs > 0 &&
+          expiraMs <= Date.now();
+
+        return !reservaVencida;
+      });
 
       if (existeConflito) {
         throw new HttpsError(
@@ -282,37 +294,109 @@ if (conflitoComBloqueio) {
       agendamentoId = agRef.id;
 
       const adminId = est?.adminId || '';
-const pagamentoViaApp =
-  formaPagamento === 'app';
+const formaPagamentoFinal =
+  formaPagamento === 'app' || formaPagamento === 'sinal'
+    ? formaPagamento
+    : 'local';
+
+const sinalFestivoAtivo =
+  est?.sinalFestivoAtivo === true;
+
+if (sinalFestivoAtivo && formaPagamentoFinal === 'local') {
+  throw new HttpsError(
+    'failed-precondition',
+    'Este estabelecimento exige sinal de 50% para reservar.'
+  );
+}
+
+if (
+  formaPagamentoFinal === 'sinal' &&
+  (
+    !sinalFestivoAtivo ||
+    !est?.pixChave ||
+    !est?.telefone
+  )
+) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Sinal de reserva indisponivel. O estabelecimento precisa ter PIX e WhatsApp cadastrados.'
+  );
+}
+
+if (
+  formaPagamentoFinal === 'app' &&
+  (
+    !['pro', 'elite'].includes(String(est?.plano || '')) ||
+    est?.pagamentoAppAtivo !== true ||
+    !est?.pixChave ||
+    !est?.telefone
+  )
+) {
+  throw new HttpsError(
+    'failed-precondition',
+    'Pagamento completo pelo app disponivel apenas para Pro ou Elite com PIX e WhatsApp cadastrados.'
+  );
+}
+
+const pagamentoOnline =
+  formaPagamentoFinal === 'app' ||
+  formaPagamentoFinal === 'sinal';
+
+const percentualPagamento =
+  formaPagamentoFinal === 'sinal'
+    ? 50
+    : formaPagamentoFinal === 'app'
+      ? 100
+      : 0;
+
+const valorPagamento =
+  formaPagamentoFinal === 'sinal'
+    ? Number(servico.preco || 0) * 0.5
+    : formaPagamentoFinal === 'app'
+      ? Number(servico.preco || 0)
+      : 0;
+
+const pagamentoExpiraEm =
+  pagamentoOnline
+    ? Timestamp.fromDate(new Date(Date.now() + 15 * 60 * 1000))
+    : null;
 
 const statusInicial =
-  pagamentoViaApp
+  pagamentoOnline
     ? 'aguardando_pagamento'
     : 'confirmado';
 
 const statusPagamentoInicial =
-  pagamentoViaApp
-    ? 'aguardando_comprovante'
+  pagamentoOnline
+    ? 'pending'
     : 'nao_aplicavel';
 
 const tituloCliente =
-  pagamentoViaApp
-    ? 'Aguardando pagamento'
+  pagamentoOnline
+    ? formaPagamentoFinal === 'sinal'
+      ? 'Aguardando sinal de reserva'
+      : 'Aguardando pagamento'
     : 'Agendamento confirmado';
 
 const mensagemCliente =
-  pagamentoViaApp
-    ? `Seu horário de ${servicoNome} foi reservado para ${dataBr} às ${horarioNormalizado}. Envie o comprovante para o estabelecimento confirmar.`
+  pagamentoOnline
+    ? formaPagamentoFinal === 'sinal'
+      ? `Seu horário de ${servicoNome} ficou reservado por 15 minutos aguardando o PIX do sinal de 50%. Ele só será confirmado após o estabelecimento conferir o comprovante.`
+      : `Seu horário de ${servicoNome} ficou reservado por 15 minutos aguardando pagamento. O agendamento só será confirmado após o estabelecimento conferir o comprovante.`
     : `Seu horário de ${servicoNome} foi confirmado para ${dataBr} às ${horarioNormalizado}.`;
 
 const tituloAdmin =
-  pagamentoViaApp
-    ? 'Novo agendamento aguardando pagamento'
+  pagamentoOnline
+    ? formaPagamentoFinal === 'sinal'
+      ? 'Novo agendamento aguardando sinal'
+      : 'Novo agendamento aguardando pagamento'
     : 'Novo agendamento';
 
 const mensagemAdmin =
-  pagamentoViaApp
-    ? `${clienteNome} reservou ${servicoNome} para ${dataBr} às ${horarioNormalizado} e precisa enviar o comprovante.`
+  pagamentoOnline
+    ? formaPagamentoFinal === 'sinal'
+      ? `${clienteNome} iniciou uma reserva de ${servicoNome} para ${dataBr} às ${horarioNormalizado}. Confirme somente depois do PIX de 50% aprovado.`
+      : `${clienteNome} iniciou uma reserva de ${servicoNome} para ${dataBr} às ${horarioNormalizado}. Confirme somente depois do pagamento aprovado.`
     : `${clienteNome} marcou ${servicoNome} para ${dataBr} às ${horarioNormalizado}.`;
       t.set(
         rateRef,
@@ -348,7 +432,11 @@ const mensagemAdmin =
 
 statusPagamento: statusPagamentoInicial,
 
-formaPagamento: formaPagamento || 'local',
+formaPagamento: formaPagamentoFinal,
+valorPagamento,
+percentualPagamento,
+reservaTemporaria: pagamentoOnline,
+pagamentoExpiraEm,
 
         notificado: false,
         notificarEm: Timestamp.fromDate(notificarEm),
@@ -374,6 +462,9 @@ formaPagamento: formaPagamento || 'local',
             clienteNome,
 
             servicoNome,
+            status: statusInicial,
+            statusPagamento: statusPagamentoInicial,
+            pagamentoExpiraEm,
 
             data: dataBr,
             dataKey: key,
@@ -409,7 +500,7 @@ formaPagamento: formaPagamento || 'local',
         data: dataBr,
         horario: horarioNormalizado,
 
-        formaPagamento: formaPagamento || 'local',
+        formaPagamento: formaPagamentoFinal,
 
        titulo: tituloCliente,
 mensagem: mensagemCliente,
@@ -437,7 +528,7 @@ mensagem: mensagemCliente,
         data: dataBr,
         horario: horarioNormalizado,
 
-        formaPagamento: formaPagamento || 'local',
+        formaPagamento: formaPagamentoFinal,
 
       titulo: tituloAdmin,
 mensagem: mensagemAdmin,
@@ -453,6 +544,106 @@ mensagem: mensagemAdmin,
       ok: true,
       id: agendamentoId,
       slotsOcupados,
+    };
+  }
+);
+
+export const apagarAgendamentoCliente = onCall(
+  {
+    region: REGION,
+    maxInstances: 50,
+  },
+
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
+
+    const { agendamentoId } = request.data || {};
+
+    if (!agendamentoId) {
+      throw new HttpsError('invalid-argument', 'Agendamento obrigatorio');
+    }
+
+    const agRef = db.collection('agendamentos').doc(agendamentoId);
+    let agendamento: any = null;
+
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(agRef);
+
+      if (!snap.exists) {
+        throw new HttpsError('not-found', 'Agendamento nao encontrado');
+      }
+
+      const ag = snap.data() as any;
+
+      if (ag.clienteUid !== request.auth.uid && ag.clienteId !== request.auth.uid) {
+        throw new HttpsError('permission-denied', 'Sem permissao');
+      }
+
+      const expiraMs = ag.pagamentoExpiraEm?.toMillis?.() || 0;
+      const expirado =
+        ag.pagamentoExpirado === true ||
+        ag.statusPagamento === 'expired' ||
+        (
+          ag.status === 'aguardando_pagamento' &&
+          ag.statusPagamento !== 'approved' &&
+          expiraMs > 0 &&
+          expiraMs <= Date.now()
+        );
+
+      if (ag.status !== 'cancelado' && !expirado) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Apenas reservas expiradas ou canceladas podem ser apagadas.'
+        );
+      }
+
+      t.update(agRef, {
+        deletadoCliente: true,
+        apagadoClienteEm: FieldValue.serverTimestamp(),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+      agendamento = ag;
+    });
+
+    const [pagamentosSnap, notificacoesSnap] = await Promise.all([
+      db.collection('pagamentos')
+        .where('agendamentoId', '==', agendamentoId)
+        .limit(20)
+        .get(),
+      db.collection('notificacoes')
+        .where('agendamentoId', '==', agendamentoId)
+        .limit(50)
+        .get(),
+    ]);
+
+    const batch = db.batch();
+
+    pagamentosSnap.docs.forEach(doc => {
+      if (doc.data()?.status !== 'approved') {
+        batch.delete(doc.ref);
+      }
+    });
+
+    notificacoesSnap.docs.forEach(doc => {
+      const n = doc.data() as any;
+
+      if (
+        n.userId === request.auth?.uid ||
+        n.clienteId === request.auth?.uid ||
+        n.tipo === 'cliente'
+      ) {
+        batch.delete(doc.ref);
+      }
+    });
+
+    await batch.commit();
+
+    return {
+      ok: true,
+      id: agendamentoId,
+      estabelecimentoId: agendamento?.estabelecimentoId || '',
     };
   }
 );

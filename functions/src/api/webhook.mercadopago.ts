@@ -22,6 +22,66 @@ type MercadoPagoPayment = {
 const isElite = (plano: any) =>
   String(plano || '').toLowerCase() === 'elite';
 
+function getIAPlanoConfig(plano: any) {
+  const id = String(plano || '').toLowerCase().trim();
+
+  if (id === 'pro') {
+    return {
+      valor: 19.99,
+      limiteMensal: 20,
+      pacote: 'pro_ia_20',
+    };
+  }
+
+  if (id === 'elite') {
+    return {
+      valor: 14.90,
+      limiteMensal: 100,
+      pacote: 'elite_ia_100',
+    };
+  }
+
+  return null;
+}
+
+function getIACreditoPacote(pacote: any) {
+  const id = String(pacote || '1').toLowerCase().trim();
+
+  if (id === '1' || id === 'unitario') {
+    return {
+      id: '1',
+      creditos: 1,
+      valor: 2.99,
+    };
+  }
+
+  if (id === '10') {
+    return {
+      id: '10',
+      creditos: 10,
+      valor: 29.90,
+    };
+  }
+
+  if (id === '50') {
+    return {
+      id: '50',
+      creditos: 50,
+      valor: 149.50,
+    };
+  }
+
+  if (id === '100') {
+    return {
+      id: '100',
+      creditos: 100,
+      valor: 299.00,
+    };
+  }
+
+  return null;
+}
+
 export const webhookMercadoPago = onRequest(
   {
     region: REGION,
@@ -273,6 +333,365 @@ export const webhookMercadoPago = onRequest(
             res.sendStatus(200);
             return;
           }
+
+          if (pagamentoData?.tipo === 'ia_simulacao') {
+            const estabelecimentoId = pagamentoData.estabelecimentoId;
+
+            if (!estabelecimentoId) {
+              console.log('IA SEM ESTABELECIMENTO');
+              res.sendStatus(200);
+              return;
+            }
+
+            if (!isApproved) {
+              await pagamentoRef.update({
+                status,
+                atualizadoEm:
+                  admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              await db
+                .collection('estabelecimentos')
+                .doc(estabelecimentoId)
+                .update({
+                  iaSimulacaoPaymentStatus: status,
+                  atualizadoEm:
+                    admin.firestore.FieldValue.serverTimestamp(),
+                });
+
+              console.log('IA STATUS:', status);
+              res.sendStatus(200);
+              return;
+            }
+
+            const iaConfig = getIAPlanoConfig(pagamentoData.plano);
+            const dias = Number(pagamentoData.dias || 30);
+            const limiteMensal = Number(
+              pagamentoData.limiteMensal ||
+              iaConfig?.limiteMensal ||
+              0
+            );
+            const expira = new Date();
+            expira.setDate(expira.getDate() + dias);
+
+            await db
+              .collection('estabelecimentos')
+              .doc(estabelecimentoId)
+              .update({
+                iaSimulacaoAtiva: true,
+                iaSimulacaoLimiteMensal: limiteMensal,
+                iaSimulacaoPacote:
+                  pagamentoData.pacote ||
+                  iaConfig?.pacote ||
+                  null,
+                iaSimulacaoValor: Number(
+                  pagamentoData.valor ||
+                  iaConfig?.valor ||
+                  0
+                ),
+                iaSimulacaoAtivadoEm:
+                  admin.firestore.FieldValue.serverTimestamp(),
+                iaSimulacaoExpiraEm:
+                  admin.firestore.Timestamp.fromDate(expira),
+                iaSimulacaoPaymentStatus: 'approved',
+                iaSimulacaoPagamentoPendente:
+                  admin.firestore.FieldValue.delete(),
+                atualizadoEm:
+                  admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+            await pagamentoRef.update({
+              status: 'approved',
+              aprovadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+              atualizadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            console.log('IA ATIVADA:', estabelecimentoId);
+            res.sendStatus(200);
+            return;
+          }
+
+          if (pagamentoData?.tipo === 'ia_creditos') {
+  const estabelecimentoId =
+    pagamentoData.estabelecimentoId;
+
+  if (!estabelecimentoId) {
+    console.log(
+      'CREDITOS IA SEM ESTABELECIMENTO'
+    );
+
+    res.sendStatus(200);
+    return;
+  }
+
+  const pacote = getIACreditoPacote(
+    pagamentoData.pacote
+  );
+
+  const creditos = Number(
+    pagamentoData.creditos ||
+    pacote?.creditos ||
+    0
+  );
+
+  // ============================================
+  // PAGAMENTO AINDA NÃO APROVADO
+  // ============================================
+
+  if (!isApproved) {
+    await pagamentoRef.update({
+      status,
+
+      atualizadoEm:
+        admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await db
+      .collection('estabelecimentos')
+      .doc(estabelecimentoId)
+      .update({
+        iaCreditosPaymentStatus: status,
+
+        atualizadoEm:
+          admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    console.log(
+      'CREDITOS IA STATUS:',
+      status
+    );
+
+    res.sendStatus(200);
+    return;
+  }
+
+  // ============================================
+  // VALIDA QUANTIDADE
+  // ============================================
+
+  if (creditos <= 0) {
+    console.log(
+      'CREDITOS IA INVALIDO:',
+      pagamentoData
+    );
+
+    res.sendStatus(200);
+    return;
+  }
+
+  const estRef = db
+    .collection('estabelecimentos')
+    .doc(estabelecimentoId);
+
+  // ============================================
+  // TRANSAÇÃO
+  // Evita liberar o mesmo pagamento 2x
+  // ============================================
+
+  await db.runTransaction(async transaction => {
+    const pagamentoAtualSnap =
+      await transaction.get(pagamentoRef);
+
+    if (!pagamentoAtualSnap.exists) {
+      throw new Error(
+        'Pagamento de créditos IA não encontrado.'
+      );
+    }
+
+    const pagamentoAtual =
+      pagamentoAtualSnap.data() as any;
+
+    // ============================================
+    // JÁ FOI LIBERADO?
+    // ============================================
+
+    if (
+      pagamentoAtual.creditosLiberados === true
+    ) {
+      console.log(
+        'CREDITOS IA JA LIBERADOS:',
+        paymentId
+      );
+
+      return;
+    }
+
+    // ============================================
+    // LIBERA OS CRÉDITOS
+    // ============================================
+
+    transaction.update(estRef, {
+      iaCreditosDisponiveis:
+        admin.firestore.FieldValue.increment(
+          creditos
+        ),
+
+      iaCreditosComprados:
+        admin.firestore.FieldValue.increment(
+          creditos
+        ),
+
+      iaUltimoPacoteCreditos:
+        pagamentoAtual.pacote ||
+        pacote?.id ||
+        null,
+
+      iaUltimoPagamentoCreditosId:
+        paymentId,
+
+      iaCreditosPaymentStatus:
+        'approved',
+
+      iaCreditosPagamentoPendente:
+        admin.firestore.FieldValue.delete(),
+
+      atualizadoEm:
+        admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // ============================================
+    // MARCA PAGAMENTO COMO PROCESSADO
+    // ============================================
+
+    transaction.update(pagamentoRef, {
+      status: 'approved',
+
+      creditosLiberados: true,
+
+      quantidadeCreditosLiberados:
+        creditos,
+
+      aprovadoEm:
+        admin.firestore.FieldValue.serverTimestamp(),
+
+      creditosLiberadosEm:
+        admin.firestore.FieldValue.serverTimestamp(),
+
+      atualizadoEm:
+        admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  console.log(
+    'CREDITOS IA APROVADOS:',
+    {
+      estabelecimentoId,
+      creditos,
+      paymentId,
+    }
+  );
+
+  res.sendStatus(200);
+  return;
+}
+
+          if (
+            pagamentoData?.tipo === 'agendamento' ||
+            pagamentoData?.tipo === 'sinal_agendamento'
+          ) {
+            const agendamentoId = String(
+              pagamentoData.agendamentoId ||
+              mpData.external_reference ||
+              ''
+            ).trim();
+
+            await pagamentoRef.update({
+              status: isApproved ? 'approved' : status,
+              aprovadoEm: isApproved
+                ? admin.firestore.FieldValue.serverTimestamp()
+                : admin.firestore.FieldValue.delete(),
+              atualizadoEm:
+                admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            if (!agendamentoId) {
+              console.log('AGENDAMENTO SEM REFERENCIA:', paymentId);
+              res.sendStatus(200);
+              return;
+            }
+
+            const agRef = db
+              .collection('agendamentos')
+              .doc(agendamentoId);
+
+            const agSnap = await agRef.get();
+
+            if (!agSnap.exists) {
+              console.log('AGENDAMENTO NAO ENCONTRADO:', agendamentoId);
+              res.sendStatus(200);
+              return;
+            }
+
+            const ag = agSnap.data() as any;
+
+            if (isApproved) {
+              if (
+                ag?.webhookProcessedPix === paymentId &&
+                ag?.statusPagamento === 'approved'
+              ) {
+                console.log('AGENDAMENTO PIX DUPLICADO:', paymentId);
+                res.sendStatus(200);
+                return;
+              }
+
+              await agRef.update({
+                status: 'confirmado',
+                statusPagamento: 'approved',
+                pixStatus: 'approved',
+                pagamentoAprovadoId: paymentId,
+                webhookProcessedPix: paymentId,
+                reservaTemporaria: false,
+                pagamentoExpiraEm:
+                  admin.firestore.FieldValue.delete(),
+                pagamentoConfirmadoEm:
+                  admin.firestore.FieldValue.serverTimestamp(),
+                atualizadoEm:
+                  admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              await db.collection('notificacoes').add({
+                tipo: 'cliente',
+                type: 'PAGAMENTO_CONFIRMADO',
+                clienteId: ag.clienteUid,
+                userId: ag.clienteUid,
+                adminId: ag.adminId,
+                agendamentoId,
+                estabelecimentoId: ag.estabelecimentoId || '',
+                estabelecimentoNome: ag.estabelecimentoNome || '',
+                clienteNome: ag.clienteNome || '',
+                servicoNome: ag.servicoNome || '',
+                formaPagamento: ag.formaPagamento || '',
+                titulo: ag.formaPagamento === 'sinal'
+                  ? 'Sinal confirmado'
+                  : 'Pagamento confirmado',
+                mensagem: ag.formaPagamento === 'sinal'
+                  ? `Seu sinal de 50% foi confirmado e seu horario de ${ag.servicoNome || 'servico'} esta liberado. O restante deve ser pago no dia do atendimento.`
+                  : `Seu pagamento foi confirmado e seu horario de ${ag.servicoNome || 'servico'} esta liberado.`,
+                lida: false,
+                apagada: false,
+                criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              console.log('AGENDAMENTO PIX APROVADO:', agendamentoId);
+            } else {
+              await agRef.update({
+                statusPagamento: status || 'pending',
+                pixStatus: status || 'pending',
+                atualizadoEm:
+                  admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              console.log('AGENDAMENTO PIX STATUS:', {
+                agendamentoId,
+                status,
+              });
+            }
+
+            res.sendStatus(200);
+            return;
+          }
         }
 
         const snap = await db
@@ -304,10 +723,10 @@ export const webhookMercadoPago = onRequest(
         if (isApproved) {
           const planoFinal = data?.planoPendente ?? data?.plano;
           const elite = isElite(planoFinal);
+          const iaConfig = getIAPlanoConfig(planoFinal);
 
           const iaAtiva =
-            data?.iaSimulacaoPendente === true &&
-            elite;
+            data?.iaSimulacaoPendente === true && !!iaConfig;
 
           await ref.update({
             plano: planoFinal,
@@ -326,10 +745,24 @@ export const webhookMercadoPago = onRequest(
             destaqueBasicoAtivo: elite,
             destaqueBasicoOrigem: elite ? 'plano_elite' : null,
 
-            iaSimulacaoAtiva: iaAtiva,
-            iaSimulacaoLimiteMensal: iaAtiva ? 2 : 0,
-            iaSimulacaoPacote: iaAtiva ? 'elite_ia_2' : null,
-            iaSimulacaoValor: iaAtiva ? 19.9 : 0,
+            iaSimulacaoAtiva:
+              iaAtiva ? true : data?.iaSimulacaoAtiva === true,
+            iaSimulacaoLimiteMensal:
+              iaAtiva ? iaConfig!.limiteMensal : Number(data?.iaSimulacaoLimiteMensal || 0),
+            iaSimulacaoPacote:
+              iaAtiva ? iaConfig!.pacote : data?.iaSimulacaoPacote || null,
+            iaSimulacaoValor:
+              iaAtiva ? iaConfig!.valor : Number(data?.iaSimulacaoValor || 0),
+            iaSimulacaoExpiraEm:
+              iaAtiva
+                ? admin.firestore.Timestamp.fromDate(
+                    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+                  )
+                : data?.iaSimulacaoExpiraEm || null,
+            iaSimulacaoAtivadoEm:
+              iaAtiva
+                ? admin.firestore.FieldValue.serverTimestamp()
+                : data?.iaSimulacaoAtivadoEm || null,
             iaSimulacaoPendente: admin.firestore.FieldValue.delete(),
 
             paymentStatus: 'approved',
@@ -425,10 +858,10 @@ export const webhookMercadoPago = onRequest(
         if (isApproved) {
           const planoFinal = data?.planoPendente ?? data?.plano;
           const elite = isElite(planoFinal);
+          const iaConfig = getIAPlanoConfig(planoFinal);
 
           const iaAtiva =
-            data?.iaSimulacaoPendente === true &&
-            elite;
+            data?.iaSimulacaoPendente === true && !!iaConfig;
 
           await ref.update({
             plano: planoFinal,
@@ -447,10 +880,24 @@ export const webhookMercadoPago = onRequest(
             destaqueBasicoAtivo: elite,
             destaqueBasicoOrigem: elite ? 'plano_elite' : null,
 
-            iaSimulacaoAtiva: iaAtiva,
-            iaSimulacaoLimiteMensal: iaAtiva ? 2 : 0,
-            iaSimulacaoPacote: iaAtiva ? 'elite_ia_2' : null,
-            iaSimulacaoValor: iaAtiva ? 19.9 : 0,
+            iaSimulacaoAtiva:
+              iaAtiva ? true : data?.iaSimulacaoAtiva === true,
+            iaSimulacaoLimiteMensal:
+              iaAtiva ? iaConfig!.limiteMensal : Number(data?.iaSimulacaoLimiteMensal || 0),
+            iaSimulacaoPacote:
+              iaAtiva ? iaConfig!.pacote : data?.iaSimulacaoPacote || null,
+            iaSimulacaoValor:
+              iaAtiva ? iaConfig!.valor : Number(data?.iaSimulacaoValor || 0),
+            iaSimulacaoExpiraEm:
+              iaAtiva
+                ? admin.firestore.Timestamp.fromDate(
+                    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+                  )
+                : data?.iaSimulacaoExpiraEm || null,
+            iaSimulacaoAtivadoEm:
+              iaAtiva
+                ? admin.firestore.FieldValue.serverTimestamp()
+                : data?.iaSimulacaoAtivadoEm || null,
             iaSimulacaoPendente: admin.firestore.FieldValue.delete(),
 
             paymentStatus: 'approved',

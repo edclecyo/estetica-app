@@ -90,7 +90,7 @@ estabs.forEach(e => {
   }
 
   if (plano === 'elite' && e.assinaturaAtiva) {
-    receitaEstimada += 89.99;
+    receitaEstimada += 89.90;
   }
 
   const destaqueExpira =

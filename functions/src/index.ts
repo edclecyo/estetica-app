@@ -30,6 +30,7 @@ export * from './triggers/superAdminEstabelecimento.trigger';
 export * from './schedules/lembretes.schedule';
 export * from './schedules/manutencao.schedule';
 export * from './schedules/autoConcluirAgendamentos';
+export * from './schedules/cancelarReservasPagamento';
 export * from './schedules/destaqueVencimento.schedule';
 
 

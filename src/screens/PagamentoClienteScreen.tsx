@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Linking,
   ScrollView,
+  Image,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -15,6 +15,8 @@ import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
 import QRCode from 'react-native-qrcode-svg';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { launchImageLibrary } from 'react-native-image-picker';
+import Share from 'react-native-share';
 
 export default function PagamentoClienteScreen() {
   const route = useRoute<any>();
@@ -25,12 +27,25 @@ export default function PagamentoClienteScreen() {
     valor,
     servicoNome,
     nomeEstabelecimento,
+    formaPagamento,
   } = route.params;
 
   const [loading, setLoading] = useState(false);
   const [dadosPix, setDadosPix] = useState<any>(null);
   const [copiado, setCopiado] = useState(false);
   const [mostrarResumo, setMostrarResumo] = useState(false);
+  const pagamentoEhSinal =
+    dadosPix?.formaPagamento === 'sinal' || formaPagamento === 'sinal';
+  const codigoPix =
+    dadosPix?.qr_code ||
+    dadosPix?.pixCopiaECola ||
+    dadosPix?.pixChave ||
+    '';
+  const valorPagoAgora = Number(dadosPix?.valor || valor || 0);
+  const valorServico = Number(dadosPix?.valorServico || valor || 0);
+  const valorRestante = pagamentoEhSinal
+    ? Math.max(valorServico - valorPagoAgora, 0)
+    : 0;
 
   useEffect(() => {
     gerarPixManual();
@@ -54,7 +69,7 @@ export default function PagamentoClienteScreen() {
         agendamentoId,
       });
 
-      if (!res?.data?.pixChave) {
+      if (!res?.data?.pixChave && !res?.data?.qr_code) {
         Alert.alert(
           'Erro',
           'O estabelecimento não possui PIX cadastrado.'
@@ -75,9 +90,9 @@ export default function PagamentoClienteScreen() {
   };
 
   const copiarPix = () => {
-    if (!dadosPix?.pixChave) return;
+    if (!codigoPix) return;
 
-    Clipboard.setString(dadosPix.pixChave);
+    Clipboard.setString(codigoPix);
     setCopiado(true);
 
     setTimeout(() => {
@@ -85,26 +100,62 @@ export default function PagamentoClienteScreen() {
     }, 2200);
   };
 
-  const abrirWhatsapp = async () => {
+  const enviarComprovanteWhatsapp = async () => {
     if (!dadosPix?.whatsappUrl) {
       Alert.alert(
         'Erro',
-        'WhatsApp do estabelecimento não encontrado.'
+        'WhatsApp do estabelecimento nao encontrado.'
       );
       return;
     }
 
-    const canOpen = await Linking.canOpenURL(dadosPix.whatsappUrl);
+    try {
+      const imagem = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.8,
+        selectionLimit: 1,
+      });
 
-    if (!canOpen) {
+      if (imagem.didCancel) {
+        return;
+      }
+
+      const asset = imagem.assets?.[0];
+
+      if (!asset?.uri) {
+        Alert.alert(
+          'Comprovante obrigatorio',
+          'Selecione a foto ou print do comprovante para enviar ao estabelecimento.'
+        );
+        return;
+      }
+
+      const mensagem =
+        dadosPix?.resumo ||
+        'Segue o comprovante do pagamento do agendamento.';
+
+      try {
+        await Share.open({
+          title: 'Comprovante de pagamento',
+          message: mensagem,
+          url: asset.uri,
+          type: asset.type || 'image/jpeg',
+          social: Share.Social.WHATSAPP,
+          whatsAppNumber: dadosPix?.whatsappNumber,
+          failOnCancel: false,
+        } as any);
+      } catch (shareError: any) {
+        Alert.alert(
+          'Erro',
+          shareError?.message || 'Nao foi possivel abrir o WhatsApp com o comprovante.'
+        );
+      }
+    } catch (e: any) {
       Alert.alert(
         'Erro',
-        'Não foi possível abrir o WhatsApp.'
+        e?.message || 'Nao foi possivel enviar o comprovante.'
       );
-      return;
     }
-
-    await Linking.openURL(dadosPix.whatsappUrl);
   };
 
   if (loading && !dadosPix) {
@@ -144,33 +195,51 @@ export default function PagamentoClienteScreen() {
           </View>
 
           <View style={s.linha}>
-            <Text style={s.label}>Total</Text>
+            <Text style={s.label}>
+              {pagamentoEhSinal ? 'Sinal de 50%' : 'Total'}
+            </Text>
             <Text style={s.preco}>
-              R$ {Number(dadosPix?.valor || valor || 0)
+              R$ {valorPagoAgora
                 .toFixed(2)
                 .replace('.', ',')}
             </Text>
           </View>
+
+          {pagamentoEhSinal && (
+            <View style={s.linha}>
+              <Text style={s.label}>Restante no dia</Text>
+              <Text style={s.valor}>
+                R$ {valorRestante.toFixed(2).replace('.', ',')}
+              </Text>
+            </View>
+          )}
         </View>
 
-        {dadosPix?.pixChave && (
+        {(dadosPix?.qr_code || dadosPix?.qr_code_base64 || dadosPix?.pixChave) && (
           <View style={s.pixCard}>
             <Text style={s.pixTitulo}>Escaneie o QR Code</Text>
 
             <View style={s.qrBox}>
-              <QRCode
-                value={String(dadosPix.pixChave)}
-                size={210}
-              />
+              {dadosPix?.qr_code_base64 ? (
+                <Image
+                  source={{ uri: `data:image/png;base64,${dadosPix.qr_code_base64}` }}
+                  style={s.qrImage}
+                />
+              ) : (
+                <QRCode
+                  value={String(codigoPix)}
+                  size={210}
+                />
+              )}
             </View>
 
             <Text style={s.pixLabel}>
-              Chave PIX
+              Pix copia e cola
             </Text>
 
             <View style={s.chaveBox}>
-              <Text style={s.chaveText} numberOfLines={2}>
-                {dadosPix.pixChave}
+              <Text style={s.chaveText} numberOfLines={4}>
+                {codigoPix}
               </Text>
             </View>
 
@@ -185,7 +254,7 @@ export default function PagamentoClienteScreen() {
               />
 
               <Text style={s.copiarTxt}>
-                {copiado ? 'Chave copiada!' : 'Copiar chave PIX'}
+                {copiado ? 'PIX copiado!' : 'Copiar PIX'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -218,16 +287,18 @@ export default function PagamentoClienteScreen() {
           </View>
         )}
 
-        <TouchableOpacity
-          style={s.whatsBtn}
-          onPress={abrirWhatsapp}
-        >
-          <Icon name="whatsapp" size={22} color="#FFF" />
+        {!!dadosPix?.whatsappUrl && (
+          <TouchableOpacity
+            style={s.whatsBtn}
+            onPress={enviarComprovanteWhatsapp}
+          >
+            <Icon name="whatsapp" size={22} color="#FFF" />
 
-          <Text style={s.whatsBtnText}>
-            Enviar resumo para o estabelecimento
-          </Text>
-        </TouchableOpacity>
+            <Text style={s.whatsBtnText}>
+              Enviar comprovante pelo WhatsApp
+            </Text>
+          </TouchableOpacity>
+        )}
 
         <View style={s.avisoCard}>
           <Icon
@@ -237,7 +308,9 @@ export default function PagamentoClienteScreen() {
           />
 
           <Text style={s.avisoText}>
-            Seu agendamento só será confirmado após o estabelecimento conferir o comprovante de pagamento enviado pelo WhatsApp.
+            {pagamentoEhSinal
+              ? `Pague o PIX de 50% direto para o estabelecimento e envie o comprovante pelo WhatsApp em ate 15 minutos. Seu horario so sera confirmado depois que o estabelecimento conferir. Os R$ ${valorRestante.toFixed(2).replace('.', ',')} restantes ficam para o dia do atendimento.`
+              : 'Pague o PIX direto para o estabelecimento e envie o comprovante pelo WhatsApp em ate 15 minutos. Seu agendamento so sera confirmado depois que o estabelecimento conferir.'}
           </Text>
         </View>
       </ScrollView>
@@ -346,6 +419,10 @@ const s = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
     marginBottom: 16,
+  },
+  qrImage: {
+    width: 210,
+    height: 210,
   },
 
   pixLabel: {

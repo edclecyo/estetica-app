@@ -72,8 +72,8 @@ const PLANOS = [
 
     popular: true,
 
-    storyLimite: 'Fotos + vídeos até 15s',
-    videoLimite: 'Vídeos até 15 segundos',
+    storyLimite: 'Fotos + videos ate 15s',
+    videoLimite: 'Videos ate 15 segundos',
 
     resumo:
       'Venda pelo app, receba pagamentos via PIX e aumente sua autoridade.',
@@ -88,7 +88,7 @@ const PLANOS = [
       'Confirmação manual de pagamentos',
       'Relatório financeiro profissional em PDF',
       'Stories com vídeos',
-      'Vídeos até 15 segundos',
+      'Videos ate 15 segundos',
       'Métricas de visualização',
       'Solicitação de selo verificado',
       'Mais alcance e reputação',
@@ -103,7 +103,7 @@ const PLANOS = [
 
     nome: 'ELITE VIP',
 
-    preco: '89,99',
+    preco: '89,90',
 
     cor: '#FFD700',
 
@@ -134,6 +134,33 @@ const PLANOS = [
   },
 ];
 
+const getIAAddon = (planoId: PlanoId | string) => {
+  if (planoId === 'pro') {
+    return {
+      valor: 19.99,
+      limite: 20,
+      textoPreco: '+ R$ 19,99/mes',
+    };
+  }
+
+  if (planoId === 'elite') {
+    return {
+      valor: 14.90,
+      limite: 100,
+      textoPreco: '+ R$ 14,90/mes',
+    };
+  }
+
+  return null;
+};
+
+const IA_CREDIT_PACKS = [
+  { id: '1', label: '1 imagem', valor: 2.99 },
+  { id: '10', label: '10 imagens', valor: 29.90 },
+  { id: '50', label: '50 imagens', valor: 149.50 },
+  { id: '100', label: '100 imagens', valor: 299.00 },
+];
+
 export default function AssinaturaScreen({ navigation }: any) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [loadingDados, setLoadingDados] = useState(true);
@@ -142,7 +169,10 @@ export default function AssinaturaScreen({ navigation }: any) {
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [trialUsado, setTrialUsado] = useState(false);
   const [trialAtivo, setTrialAtivo] = useState(false);
+  const [iaSimulacaoAtiva, setIaSimulacaoAtiva] = useState(false);
+  const [iaCreditosDisponiveis, setIaCreditosDisponiveis] = useState(0);
 const [addIA, setAddIA] = useState(false);
+  const iaPlanoAtual = getIAAddon(planoAtualId);
   useEffect(() => {
     const user = auth().currentUser;
     if (!user) return;
@@ -174,9 +204,17 @@ const [addIA, setAddIA] = useState(false);
           const assinaturaAtivaCalc =
             !!data.assinaturaAtiva &&
             (!expira || expira > agora);
+          const iaExpira =
+            data.iaSimulacaoExpiraEm?.toDate?.() ??
+            (data.iaSimulacaoExpiraEm ? new Date(data.iaSimulacaoExpiraEm) : null);
+          const iaAtivaCalc =
+            data.iaSimulacaoAtiva === true &&
+            (!iaExpira || iaExpira > agora);
 
           setTrialAtivo(trialAtivoCalc);
           setAssinaturaAtiva(assinaturaAtivaCalc);
+          setIaSimulacaoAtiva(iaAtivaCalc);
+          setIaCreditosDisponiveis(Number(data.iaCreditosDisponiveis || 0));
         }
         setLoadingDados(false);
       });
@@ -272,10 +310,83 @@ const res = await fn({
           </TouchableOpacity>
         )}
 
+        {(assinaturaAtiva || trialAtivo) && iaPlanoAtual && (
+          <TouchableOpacity
+            style={styles.iaStandaloneCard}
+            activeOpacity={0.86}
+            disabled={iaSimulacaoAtiva}
+            onPress={() =>
+              navigation.navigate('CheckoutPagamentoScreen', {
+                tipoCheckout: 'ia',
+                planoId: 'ia',
+                estabelecimentoId: estId,
+                planoNome: 'Previa IA',
+                valor: iaPlanoAtual.valor,
+              })
+            }
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.iaStandaloneTitle}>
+                {iaSimulacaoAtiva
+                  ? 'Previa IA ativa'
+                  : 'Adicionar Previa IA'}
+              </Text>
+              <Text style={styles.iaStandaloneDesc}>
+                {iaPlanoAtual.textoPreco} por 30 dias com {iaPlanoAtual.limite} simulacoes.
+              </Text>
+            </View>
+            <Icon
+              name={iaSimulacaoAtiva ? 'check-circle' : 'sparkles'}
+              size={26}
+              color={iaSimulacaoAtiva ? '#25D366' : '#000'}
+            />
+          </TouchableOpacity>
+        )}
+
+        {assinaturaAtiva && iaSimulacaoAtiva && iaPlanoAtual && (
+          <View style={styles.iaCreditsCard}>
+            <View style={styles.iaCreditsHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.iaStandaloneTitle}>Creditos extras IA</Text>
+                <Text style={styles.iaStandaloneDesc}>
+                  Saldo atual: {iaCreditosDisponiveis} imagens extras.
+                </Text>
+              </View>
+              <Icon name="image-plus" size={24} color={GOLD} />
+            </View>
+
+            <View style={styles.iaCreditsGrid}>
+              {IA_CREDIT_PACKS.map(pack => (
+                <TouchableOpacity
+                  key={pack.id}
+                  style={styles.iaCreditBtn}
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    navigation.navigate('CheckoutPagamentoScreen', {
+                      tipoCheckout: 'ia_creditos',
+                      planoId: 'ia_creditos',
+                      estabelecimentoId: estId,
+                      planoNome: pack.label,
+                      valor: pack.valor,
+                      pacoteIAId: pack.id,
+                    })
+                  }
+                >
+                  <Text style={styles.iaCreditLabel}>{pack.label}</Text>
+                  <Text style={styles.iaCreditValue}>
+                    R$ {pack.valor.toFixed(2).replace('.', ',')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* PLANOS */}
         <View style={styles.listContainer}>
           {PLANOS.map((plano) => {
             const isAtivo = plano.id === planoAtualId && assinaturaAtiva;
+            const iaAddon = getIAAddon(plano.id);
 
             return (
               <LinearGradient key={plano.id} colors={DARK_GRADIENT} style={styles.planCard}>
@@ -308,7 +419,7 @@ const res = await fn({
                   </View>
                 ))}
 				
-{plano.id === 'elite' && (
+{iaAddon && (
   <TouchableOpacity
     style={styles.iaAddonBox}
     onPress={() => setAddIA(!addIA)}
@@ -330,14 +441,14 @@ const res = await fn({
       </Text>
 
       <Text style={styles.iaAddonPrice}>
-        + R$ 19,90/mês • 2 simulações por cliente/mês
+        {iaAddon.textoPreco} - {iaAddon.limite} simulacoes por mes
       </Text>
     </View>
 	
   </TouchableOpacity>
   
 )}
-{plano.id === 'elite' && (
+{iaAddon && (
   <TouchableOpacity
     style={styles.iaDemoBtn}
     onPress={() => navigation.navigate('IADemoScreen')}
@@ -353,8 +464,8 @@ const res = await fn({
                     const valorBase = Number(plano.preco.replace(',', '.'));
 
 const valorFinal =
-  plano.id === 'elite' && addIA
-    ? valorBase + 19.90
+  addIA && iaAddon
+    ? valorBase + iaAddon.valor
     : valorBase;
 
 navigation.navigate('CheckoutPagamentoScreen', {
@@ -362,7 +473,7 @@ navigation.navigate('CheckoutPagamentoScreen', {
   estabelecimentoId: estId,
   planoNome: plano.nome,
   valor: valorFinal,
-  addIA: plano.id === 'elite' ? addIA : false,
+  addIA: addIA && !!iaAddon,
 });
                   }}
                 >
@@ -458,6 +569,27 @@ limitText: {
   trialIconCol: { width: 50, alignItems: 'flex-end' },
   trialTitle: { color: '#000', fontWeight: '900', fontSize: IS_WEB ? 18 : 22 },
   trialSub: { color: 'rgba(0,0,0,0.7)', fontSize: IS_WEB ? 12 : 13, fontWeight: '700', marginTop: 2 },
+  iaStandaloneCard: {
+    marginHorizontal: IS_WEB ? 14 : 20,
+    marginBottom: 18,
+    backgroundColor: GOLD,
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iaStandaloneTitle: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  iaStandaloneDesc: {
+    color: '#1A1A1A',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '700',
+  },
 
   // Listagem de Planos
   listContainer: { paddingHorizontal: IS_WEB ? 14 : 20 },
@@ -563,5 +695,52 @@ iaAddonPrice: {
   fontSize: 12,
   fontWeight: '800',
   marginTop: 6,
+},
+
+iaCreditsCard: {
+  marginHorizontal: 20,
+  marginBottom: 20,
+  backgroundColor: '#111',
+  borderWidth: 1,
+  borderColor: 'rgba(212,175,55,0.24)',
+  borderRadius: IS_WEB ? 12 : 16,
+  padding: IS_WEB ? 12 : 14,
+},
+
+iaCreditsHead: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+  marginBottom: 12,
+},
+
+iaCreditsGrid: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  gap: 8,
+},
+
+iaCreditBtn: {
+  width: IS_WEB ? '48%' : '48%',
+  minHeight: 58,
+  borderRadius: IS_WEB ? 10 : 12,
+  backgroundColor: 'rgba(212,175,55,0.10)',
+  borderWidth: 1,
+  borderColor: 'rgba(212,175,55,0.28)',
+  justifyContent: 'center',
+  paddingHorizontal: 10,
+},
+
+iaCreditLabel: {
+  color: '#FFF',
+  fontSize: 12,
+  fontWeight: '900',
+},
+
+iaCreditValue: {
+  color: GOLD,
+  fontSize: 12,
+  fontWeight: '800',
+  marginTop: 4,
 },
 });

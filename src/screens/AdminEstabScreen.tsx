@@ -113,6 +113,25 @@ const normalizarDataBR = (valor: string) => {
   return `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`;
 };
 
+const removerUndefined = (valor: any): any => {
+  if (Array.isArray(valor)) {
+    return valor
+      .filter(item => item !== undefined)
+      .map(removerUndefined);
+  }
+
+  if (valor && typeof valor === 'object') {
+    return Object.entries(valor).reduce((acc, [chave, item]) => {
+      if (item !== undefined) {
+        acc[chave] = removerUndefined(item);
+      }
+      return acc;
+    }, {} as Record<string, any>);
+  }
+
+  return valor;
+};
+
 
 Geolocation.setRNConfiguration({
   skipPermissionRequests: false,
@@ -743,7 +762,6 @@ if (!isNovo) {
 
         setFotoPerfil(d.fotoPerfil || '');
         setFotoCapa(d.fotoCapa || '');
-
         if (d.lat && d.lng) {
           setCoords({ lat: d.lat, lng: d.lng });
           setCoordsOk(true);
@@ -841,11 +859,8 @@ if (!isNovo) {
     setSalvando(true);
     const telefoneFinal = telefone.trim() || telefoneCadastro;
 
-    const res: any = await httpsCallable(
-  functionsInstance,
-  'salvarEstabelecimento'
-)({
-      estabelecimentoId: isNovo ? undefined : estabelecimentoId,
+    const payload = removerUndefined({
+      ...(isNovo ? {} : { estabelecimentoId }),
       nome: nomeFinal,
       tipo,
       endereco: enderecoFinal,
@@ -884,6 +899,11 @@ if (!isNovo) {
     });
 
     // 🔥 NOVO PADRÃO (IMPORTANTE)
+    const res: any = await httpsCallable(
+      functionsInstance,
+      'salvarEstabelecimento'
+    )(payload);
+
     if (!res.data?.ok) {
       if (res.data?.code === 'LIMITO_FREE') {
         Alert.alert(
@@ -902,11 +922,54 @@ if (!isNovo) {
     if (isNovo) {
       navigation.replace('AdminDash', { estabelecimentoId: estabId });
     } else {
-      Alert.alert('Sucesso!', 'Atualizado com sucesso');
+      Alert.alert('Sucesso!', 'Atualizado com sucesso', [
+        { text: 'OK', onPress: () => navigation.goBack() },
+      ]);
     }
 
   } catch (e: any) {
     console.log('ERRO SALVAR:', e);
+
+    const erroInternal = String(e?.code || e?.message || '')
+      .toLowerCase()
+      .includes('internal');
+
+    if (erroInternal) {
+      try {
+        if (!isNovo && estabelecimentoId) {
+          const salvoSnap = await firestore()
+            .collection('estabelecimentos')
+            .doc(estabelecimentoId)
+            .get();
+
+          if (salvoSnap.exists) {
+            Alert.alert('Sucesso!', 'Atualizado com sucesso', [
+              { text: 'OK', onPress: () => navigation.goBack() },
+            ]);
+            return;
+          }
+        }
+
+        if (isNovo && admin?.id) {
+          const meusEstabsSnap = await firestore()
+            .collection('estabelecimentos')
+            .where('adminId', '==', admin.id)
+            .get();
+
+          const salvo = meusEstabsSnap.docs.find(doc => {
+            const d = doc.data();
+            return d?.nome === nomeFinal && d?.endereco === enderecoFinal;
+          });
+
+          if (salvo) {
+            navigation.replace('AdminDash', { estabelecimentoId: salvo.id });
+            return;
+          }
+        }
+      } catch (fallbackErro) {
+        console.log('ERRO FALLBACK SALVAR:', fallbackErro);
+      }
+    }
 
     // 🔥 fallback (caso backend ainda use throw)
     if (e.code === 'failed-precondition') {

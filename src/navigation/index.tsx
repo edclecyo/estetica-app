@@ -17,6 +17,7 @@ import NotificacoesCliente from '../screens/NotificacoesCliente';
 import StoryView from '../screens/StoryView';
 import PagamentoClienteScreen from '../screens/PagamentoClienteScreen';
 import AISimulacaoScreen from '../screens/AISimulacaoScreen';
+import IACameraScreen from '../screens/IACameraScreen';
 
 // Telas Admin
 import AdminLoginScreen from '../screens/AdminLoginScreen';
@@ -236,6 +237,13 @@ export default function Navigation() {
   name="AISimulacaoScreen"
   component={AISimulacaoScreen}
   options={{ headerShown: false }}
+/>
+<Stack.Screen
+  name="IACameraScreen"
+  component={IACameraScreen}
+  options={{
+    headerShown: false,
+  }}
 />
           </Stack.Group>
         )}

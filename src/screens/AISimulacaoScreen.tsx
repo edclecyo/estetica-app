@@ -15,16 +15,44 @@ import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
 import { getAuth } from '@react-native-firebase/auth';
 import storage from '@react-native-firebase/storage';
-
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
+import RNFS from 'react-native-fs';
+import { PermissionsAndroid, Platform } from 'react-native';
 const GOLD = '#C9A96E';
 
 export default function AISimulacaoScreen({ route, navigation }: any) {
-  const { estabelecimentoId } = route.params || {};
+  const {
+    estabelecimentoId,
+    imagemInicial,
+    categoriaInicial,
+    estilo: estiloInicial,
+    formato: formatoInicial,
+    cor: corInicial,
+  } = route.params || {};
 
-  const [imagem, setImagem] = useState<string | null>(null);
+  const [imagem, setImagem] = useState<string | null>(
+    imagemInicial || null
+  );
+
   const [resultado, setResultado] = useState<string | null>(null);
-  const [categoria, setCategoria] = useState('cabelo');
+
+  const [categoria, setCategoria] = useState(
+    categoriaInicial || 'cabelo'
+  );
+
   const [loading, setLoading] = useState(false);
+
+  const [estilo, setEstilo] = useState(
+    estiloInicial || 'esmalte'
+  );
+
+  const [formato, setFormato] = useState(
+    formatoInicial || 'natural'
+  );
+
+  const [cor, setCor] = useState(
+    corInicial || '#E53935'
+  );
 
   const escolherImagem = async () => {
     const res = await launchImageLibrary({
@@ -41,7 +69,6 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
       setResultado(null);
     }
   };
-
   const abrirCamera = async () => {
     const res = await launchCamera({
       mediaType: 'photo',
@@ -61,15 +88,14 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
   };
 
   const abrirCameraAoVivo = () => {
-    Alert.alert(
-      'Camera em tempo real',
-      'A previa ao vivo precisa de filtros nativos de camera. Por enquanto, tire uma foto pela camera e gere a previa IA em seguida.',
-      [
-        { text: 'Tirar foto agora', onPress: abrirCamera },
-        { text: 'OK' },
-      ]
-    );
-  };
+  navigation.navigate(
+    'IACameraScreen',
+    {
+      estabelecimentoId,
+      categoriaInicial: categoria,
+    }
+  );
+};
 
  const getMensagemErroIA = (error: any) => {
   const code = String(error?.code || '').toLowerCase();
@@ -189,10 +215,27 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
       );
 
       const res: any = await fn({
-        estabelecimentoId,
-        categoria,
-        imagemUrl,
-      });
+  estabelecimentoId,
+  categoria,
+  imagemUrl,
+
+  estilo:
+    categoria === 'unhas_maos' ||
+    categoria === 'unhas_pes'
+      ? estilo
+      : null,
+
+  formato:
+    categoria === 'unhas_maos'
+      ? formato
+      : null,
+
+  cor:
+    categoria === 'unhas_maos' ||
+    categoria === 'unhas_pes'
+      ? cor
+      : null,
+});
 
       setResultado(res.data?.imagemGerada || imagem);
     } catch (e: any) {
@@ -204,7 +247,82 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
       setLoading(false);
     }
   };
+const salvarImagem = async () => {
+  if (!resultado) {
+    Alert.alert(
+      'Atenção',
+      'Nenhuma imagem foi gerada ainda.'
+    );
+    return;
+  }
 
+  try {
+    // Android antigo precisa de permissão explícita
+    if (
+      Platform.OS === 'android' &&
+      Number(Platform.Version) <= 28
+    ) {
+      const permissao =
+        await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE
+        );
+
+      if (
+        permissao !== PermissionsAndroid.RESULTS.GRANTED
+      ) {
+        Alert.alert(
+          'Permissão necessária',
+          'Permita o acesso ao armazenamento para salvar a imagem.'
+        );
+        return;
+      }
+    }
+
+    const nomeArquivo =
+      `beautyhub_ia_${Date.now()}.png`;
+
+    const caminhoLocal =
+      `${RNFS.CachesDirectoryPath}/${nomeArquivo}`;
+
+    const download =
+      await RNFS.downloadFile({
+        fromUrl: resultado,
+        toFile: caminhoLocal,
+      }).promise;
+
+    if (
+      download.statusCode < 200 ||
+      download.statusCode >= 300
+    ) {
+      throw new Error(
+        `Erro ao baixar imagem: ${download.statusCode}`
+      );
+    }
+
+    await CameraRoll.saveAsset(
+      `file://${caminhoLocal}`,
+      {
+        type: 'photo',
+        album: 'BeautyHub',
+      }
+    );
+
+    Alert.alert(
+      'Imagem salva',
+      'A simulação foi salva na galeria do seu celular.'
+    );
+  } catch (error: any) {
+    console.log(
+      'ERRO AO SALVAR IMAGEM:',
+      error
+    );
+
+    Alert.alert(
+      'Erro',
+      'Não foi possível salvar a imagem na galeria.'
+    );
+  }
+};
   return (
     <ScrollView style={s.container} contentContainerStyle={s.content}>
       <View style={s.header}>
@@ -220,27 +338,142 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
       </Text>
 
       <View style={s.categorias}>
-        {['cabelo', 'maquiagem', 'sobrancelha'].map(c => (
-          <TouchableOpacity
-            key={c}
-            style={[
-              s.chip,
-              categoria === c && s.chipAtivo,
-            ]}
-            onPress={() => setCategoria(c)}
-          >
-            <Text
-              style={[
-                s.chipText,
-                categoria === c && s.chipTextAtivo,
-              ]}
-            >
-              {c}
-            </Text>
-          </TouchableOpacity>
-        ))}
+     {[
+  'cabelo',
+  'maquiagem',
+  'sobrancelha',
+  'unhas_maos',
+  'unhas_pes',
+].map(c => (
+  <TouchableOpacity
+    key={c}
+    style={[
+      s.chip,
+      categoria === c && s.chipAtivo,
+    ]}
+    onPress={() => {
+      setCategoria(c);
+      setResultado(null);
+    }}
+  >
+    <Text
+      style={[
+        s.chipText,
+        categoria === c && s.chipTextAtivo,
+      ]}
+    >
+      {c === 'unhas_maos'
+        ? 'Unhas'
+        : c === 'unhas_pes'
+        ? 'Pedicure'
+        : c}
+    </Text>
+  </TouchableOpacity>
+))}
       </View>
+{(categoria === 'unhas_maos' ||
+  categoria === 'unhas_pes') && (
+  <View style={s.opcoesIA}>
+    <Text style={s.optionTitle}>
+      Tipo
+    </Text>
 
+    <View style={s.optionRow}>
+      {[
+        'esmalte',
+        'gel',
+        'fibra',
+        'francesinha',
+      ].map(item => (
+        <TouchableOpacity
+          key={item}
+          style={[
+            s.optionBtn,
+            estilo === item && s.optionBtnAtivo,
+          ]}
+          onPress={() => setEstilo(item)}
+        >
+          <Text
+            style={[
+              s.optionBtnText,
+              estilo === item &&
+                s.optionBtnTextAtivo,
+            ]}
+          >
+            {item}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+
+    {categoria === 'unhas_maos' && (
+      <>
+        <Text style={s.optionTitle}>
+          Formato
+        </Text>
+
+        <View style={s.optionRow}>
+          {[
+            'natural',
+            'quadrada',
+            'almond',
+            'bailarina',
+            'stiletto',
+          ].map(item => (
+            <TouchableOpacity
+              key={item}
+              style={[
+                s.optionBtn,
+                formato === item &&
+                  s.optionBtnAtivo,
+              ]}
+              onPress={() => setFormato(item)}
+            >
+              <Text
+                style={[
+                  s.optionBtnText,
+                  formato === item &&
+                    s.optionBtnTextAtivo,
+                ]}
+              >
+                {item}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </>
+    )}
+
+    <Text style={s.optionTitle}>
+      Cor
+    </Text>
+
+    <View style={s.cores}>
+      {[
+        '#E53935',
+        '#000000',
+        '#FFFFFF',
+        '#F4C2C2',
+        '#8D6E63',
+        '#7B1FA2',
+        '#1565C0',
+        '#D4AF37',
+      ].map(item => (
+        <TouchableOpacity
+          key={item}
+          onPress={() => setCor(item)}
+          style={[
+            s.corBtn,
+            {
+              backgroundColor: item,
+            },
+            cor === item && s.corAtiva,
+          ]}
+        />
+      ))}
+    </View>
+  </View>
+)}
       <View style={s.actionGrid}>
         <TouchableOpacity style={s.btn} onPress={escolherImagem}>
           <Text style={s.btnText}>Escolher foto</Text>
@@ -276,18 +509,39 @@ export default function AISimulacaoScreen({ route, navigation }: any) {
       </TouchableOpacity>
 
       {resultado && (
-        <>
-          <Text style={s.resultTitle}>Resultado</Text>
-          <Image source={{ uri: resultado }} style={s.preview} />
+  <>
+    <Text style={s.resultTitle}>
+      Resultado
+    </Text>
 
-          <TouchableOpacity
-            style={s.agendarBtn}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={s.agendarText}>Agendar agora</Text>
-          </TouchableOpacity>
-        </>
-      )}
+    <Image
+      source={{ uri: resultado }}
+      style={s.preview}
+    />
+
+    <View style={s.resultActions}>
+      <TouchableOpacity
+        style={s.salvarBtn}
+        onPress={salvarImagem}
+      >
+        <Text style={s.salvarText}>
+          ↓ Salvar imagem
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={s.agendarBtn}
+        onPress={() =>
+          navigation.goBack()
+        }
+      >
+        <Text style={s.agendarText}>
+          Agendar agora
+        </Text>
+      </TouchableOpacity>
+    </View>
+  </>
+)}
 
       <Text style={s.aviso}>
         A prévia é uma simulação aproximada. O resultado real pode variar conforme técnica, pele, cabelo, produto e avaliação profissional.
@@ -301,7 +555,24 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0D0D0D',
   },
+resultActions: {
+  marginTop: 14,
+  gap: 10,
+},
 
+salvarBtn: {
+  backgroundColor: '#1A1A1A',
+  borderWidth: 1,
+  borderColor: GOLD,
+  padding: 15,
+  borderRadius: 14,
+  alignItems: 'center',
+},
+
+salvarText: {
+  color: GOLD,
+  fontWeight: '900',
+},
   content: {
     padding: 20,
     paddingBottom: 40,
@@ -414,7 +685,72 @@ const s = StyleSheet.create({
     color: '#000',
     fontWeight: '900',
   },
+opcoesIA: {
+  backgroundColor: '#111',
+  borderWidth: 1,
+  borderColor: 'rgba(201,169,110,0.25)',
+  borderRadius: 18,
+  padding: 14,
+  marginBottom: 16,
+},
 
+optionTitle: {
+  color: '#FFF',
+  fontSize: 13,
+  fontWeight: '900',
+  marginTop: 8,
+  marginBottom: 10,
+},
+
+optionRow: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  gap: 8,
+},
+
+optionBtn: {
+  backgroundColor: '#1A1A1A',
+  borderRadius: 14,
+  paddingHorizontal: 12,
+  paddingVertical: 9,
+  borderWidth: 1,
+  borderColor: '#333',
+},
+
+optionBtnAtivo: {
+  backgroundColor: GOLD,
+  borderColor: GOLD,
+},
+
+optionBtnText: {
+  color: '#AAA',
+  fontSize: 12,
+  fontWeight: '800',
+  textTransform: 'capitalize',
+},
+
+optionBtnTextAtivo: {
+  color: '#000',
+},
+
+cores: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  gap: 10,
+},
+
+corBtn: {
+  width: 38,
+  height: 38,
+  borderRadius: 19,
+  borderWidth: 2,
+  borderColor: '#333',
+},
+
+corAtiva: {
+  borderColor: GOLD,
+  borderWidth: 4,
+},
   label: {
     color: '#AAA',
     fontSize: 12,

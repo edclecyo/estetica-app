@@ -10,53 +10,183 @@ import { REGION } from '../config/region';
 
 const OPENAI_API_KEY = defineSecret('OPENAI_API_KEY');
 
-const gerarPromptIA = (categoria: string) => {
+const gerarPromptIA = (
+  categoria: string,
+  opcoes: {
+    estilo?: string | null;
+    formato?: string | null;
+    cor?: string | null;
+  } = {}
+) => {
+  const estilo = String(opcoes.estilo || '').trim();
+  const formato = String(opcoes.formato || '').trim();
+  const cor = String(opcoes.cor || '').trim();
+
   const base = `
-Crie uma simulação estética realista e profissional.
+Edite a fotografia fornecida de maneira localizada e extremamente realista.
 
-Preserve a identidade da pessoa, rosto, expressão, idade,
-tom de pele, iluminação e fundo o máximo possível.
+REGRA MAIS IMPORTANTE:
+A pessoa da imagem final deve continuar sendo exatamente a mesma pessoa
+da fotografia original.
 
-A alteração deve ser exclusivamente estética e relacionada
-à categoria solicitada.
+Preserve:
+- identidade
+- formato do rosto
+- olhos
+- nariz
+- boca
+- mandíbula
+- idade aparente
+- tom e textura da pele
+- expressão
+- pose
+- corpo
+- roupas
+- acessórios
+- iluminação
+- cenário
+- enquadramento
 
-Não altere roupas.
-Não altere o corpo.
-Não altere pose.
+Não recrie a pessoa.
+Não substitua o rosto.
+Não transforme em desenho.
+Não altere partes que não fazem parte do procedimento.
 Não crie nudez.
 Não sexualize a imagem.
-Não transforme em desenho.
-Não mude a identidade da pessoa.
-Não exagere nas alterações.
 
-O resultado deve parecer uma prévia profissional de salão
-ou clínica de estética.
+Faça SOMENTE a alteração estética solicitada.
+O resultado deve parecer uma fotografia real após um procedimento profissional.
 `;
 
   if (categoria === 'cabelo') {
     return `${base}
-Altere somente o cabelo.
-Simule cabelo tratado, alinhado, brilhante e com acabamento profissional.
-Preserve completamente rosto, roupas e corpo.`;
+
+PROCEDIMENTO: CABELO
+
+Edite SOMENTE o cabelo existente.
+
+Faça um acabamento profissional:
+- fios tratados
+- alinhamento natural
+- brilho realista
+- aparência saudável
+- acabamento profissional de salão
+
+Não altere rosto, pele, olhos, nariz, boca, sobrancelhas,
+corpo, roupa ou cenário.
+`;
   }
 
   if (categoria === 'maquiagem') {
     return `${base}
-Altere somente a maquiagem facial.
-Simule maquiagem profissional elegante e natural.
-Uniformize levemente a pele e destaque olhos e lábios sem alterar a identidade.
-Preserve completamente roupas e corpo.`;
+
+PROCEDIMENTO: MAQUIAGEM
+
+Aplique maquiagem SOBRE o rosto existente.
+
+Faça:
+- maquiagem profissional natural
+- acabamento elegante
+- pele levemente uniformizada
+- olhos valorizados
+- lábios harmoniosos
+
+Não altere a estrutura facial.
+Não altere olhos, nariz, boca, mandíbula ou idade.
+Não altere cabelo, corpo, roupa ou cenário.
+`;
   }
 
   if (categoria === 'sobrancelha') {
     return `${base}
-Altere somente as sobrancelhas.
-Simule design profissional natural, alinhado e harmonioso com o rosto.
-Não altere nenhuma outra parte da imagem.`;
+
+PROCEDIMENTO: SOBRANCELHA
+
+Edite SOMENTE as sobrancelhas existentes.
+
+Faça:
+- design natural
+- alinhamento
+- definição profissional
+- formato harmonioso
+
+Não modifique nenhuma outra região da fotografia.
+`;
   }
 
-  return `${base}
-Simule uma melhoria estética profissional para a categoria: ${categoria}.`;
+  if (categoria === 'unhas_maos') {
+    return `${base}
+
+PROCEDIMENTO: UNHAS DAS MÃOS
+
+Edite SOMENTE as unhas visíveis.
+
+Estilo: ${estilo || 'esmalte'}
+Formato: ${formato || 'natural'}
+Cor: ${cor || 'natural'}
+
+Preserve exatamente:
+- mãos
+- dedos
+- quantidade de dedos
+- posição dos dedos
+- pele
+- anéis
+- pulseiras
+- objetos
+- cenário
+
+NUNCA crie dedos extras.
+NUNCA remova dedos.
+NUNCA altere a anatomia da mão.
+
+Se estilo = gel:
+simule unhas em gel profissionais e realistas.
+
+Se estilo = fibra:
+simule alongamento em fibra de vidro.
+
+Se estilo = francesinha:
+faça francesinha profissional.
+
+Se estilo = nail_art:
+adicione nail art elegante.
+
+Se estilo = esmalte:
+aplique apenas esmaltação profissional.
+
+Modifique comprimento e formato SOMENTE das unhas.
+`;
+  }
+
+  if (categoria === 'unhas_pes') {
+    return `${base}
+
+PROCEDIMENTO: UNHAS DOS PÉS
+
+Edite SOMENTE as unhas visíveis dos pés.
+
+Estilo: ${estilo || 'esmalte'}
+Cor: ${cor || 'natural'}
+
+Preserve exatamente:
+- pés
+- dedos
+- quantidade de dedos
+- anatomia
+- posição
+- pele
+- acessórios
+- cenário
+
+NUNCA crie ou remova dedos.
+Não altere a anatomia dos pés.
+
+Faça somente a pedicure/esmaltação solicitada.
+`;
+  }
+
+  return base;
 };
 
 async function baixarImagem(imagemUrl: string) {
@@ -102,47 +232,141 @@ export const gerarSimulacaoIA = onCall(
       );
     }
 
-    const {
-      estabelecimentoId,
-      categoria,
-      imagemUrl,
-    } = req.data || {};
+   const {
+  estabelecimentoId,
+  categoria,
+  imagemUrl,
+  estilo,
+  formato,
+  cor,
+} = req.data || {};
 
-    if (
-      !estabelecimentoId ||
-      !categoria ||
-      !imagemUrl
-    ) {
-      throw new HttpsError(
-        'invalid-argument',
-        'Dados obrigatórios ausentes.'
-      );
-    }
+if (
+  !estabelecimentoId ||
+  !categoria ||
+  !imagemUrl
+) {
+  throw new HttpsError(
+    'invalid-argument',
+    'Dados obrigatórios ausentes.'
+  );
+}
 
-    if (
-      ![
-        'cabelo',
-        'maquiagem',
-        'sobrancelha',
-      ].includes(String(categoria))
-    ) {
-      throw new HttpsError(
-        'invalid-argument',
-        'Categoria de Prévia IA inválida.'
-      );
-    }
+const CATEGORIAS_VALIDAS = [
+  'cabelo',
+  'maquiagem',
+  'sobrancelha',
+  'unhas_maos',
+  'unhas_pes',
+];
 
-    if (
-      !String(imagemUrl).includes(
-        'firebasestorage.googleapis.com'
-      )
-    ) {
-      throw new HttpsError(
-        'permission-denied',
-        'Imagem inválida. Envie uma imagem do Firebase Storage.'
-      );
-    }
+if (
+  !CATEGORIAS_VALIDAS.includes(
+    String(categoria)
+  )
+) {
+  throw new HttpsError(
+    'invalid-argument',
+    'Categoria de Prévia IA inválida.'
+  );
+}
 
+if (
+  !String(imagemUrl).includes(
+    'firebasestorage.googleapis.com'
+  )
+) {
+  throw new HttpsError(
+    'permission-denied',
+    'Imagem inválida. Envie uma imagem do Firebase Storage.'
+  );
+}
+
+const ESTILOS_VALIDOS = [
+  'esmalte',
+  'gel',
+  'fibra',
+  'francesinha',
+  'nail_art',
+];
+
+const FORMATOS_VALIDOS = [
+  'natural',
+  'quadrada',
+  'almond',
+  'bailarina',
+  'stiletto',
+];
+
+let estiloSeguro: string | null = null;
+let formatoSeguro: string | null = null;
+let corSegura: string | null = null;
+
+if (
+  categoria === 'unhas_maos' ||
+  categoria === 'unhas_pes'
+) {
+  const valor = String(
+    estilo || 'esmalte'
+  )
+    .toLowerCase()
+    .trim();
+
+  if (
+    !ESTILOS_VALIDOS.includes(valor)
+  ) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Estilo de unha inválido.'
+    );
+  }
+
+  estiloSeguro = valor;
+
+  const corRecebida = String(
+    cor || ''
+  )
+    .trim()
+    .toUpperCase();
+
+  if (
+    corRecebida &&
+    !/^#[0-9A-F]{6}$/.test(
+      corRecebida
+    )
+  ) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Cor inválida.'
+    );
+  }
+
+  corSegura =
+    corRecebida || null;
+}
+
+if (
+  categoria === 'unhas_maos'
+) {
+  const valor = String(
+    formato || 'natural'
+  )
+    .toLowerCase()
+    .trim();
+
+  if (
+    !FORMATOS_VALIDOS.includes(
+      valor
+    )
+  ) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Formato de unha inválido.'
+    );
+  }
+
+  formatoSeguro = valor;
+}
     // =====================================================
     // RATE LIMIT
     // =====================================================
@@ -476,9 +700,14 @@ if (limiteSalvo !== limite) {
           ),
 
           prompt:
-            gerarPromptIA(
-              String(categoria)
-            ),
+  gerarPromptIA(
+    String(categoria),
+    {
+      estilo: estiloSeguro,
+      formato: formatoSeguro,
+      cor: corSegura,
+    }
+  ),
 
           size: '1024x1024',
           quality: 'low',
@@ -553,8 +782,17 @@ if (limiteSalvo !== limite) {
 
             categoria,
 
-            imagemOriginal:
-              imagemUrl,
+estilo:
+  estiloSeguro,
+
+formato:
+  formatoSeguro,
+
+cor:
+  corSegura,
+
+imagemOriginal:
+  imagemUrl,
 
             imagemGerada,
 

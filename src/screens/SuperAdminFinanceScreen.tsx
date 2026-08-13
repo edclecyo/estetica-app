@@ -352,11 +352,8 @@ export default function SuperAdminFinanceScreen() {
 
     const monthlyRecurring = paidSubscriptions.reduce((total, estab) => {
       const planValue = PLAN_PRICES[clean(estab.plano)] || 0;
-      const iaValue = estab.iaSimulacaoAtiva === true
-        ? Number(estab.iaSimulacaoValor || 0)
-        : 0;
 
-      return total + planValue + iaValue;
+      return total + planValue;
     }, 0);
 
     const approvedPayments = payments.filter(payment => isApproved(payment.status));
@@ -610,7 +607,7 @@ export default function SuperAdminFinanceScreen() {
                     <View style={s.rowTitleWrap}>
                       <Text style={s.rowTitle} numberOfLines={1}>{estab.nome || 'Sem nome'}</Text>
                       <Text style={s.rowMeta}>
-                        Plano {plan.toUpperCase()} {estab.iaSimulacaoAtiva ? '+ IA' : ''}
+                        Plano {plan.toUpperCase()}
                       </Text>
                     </View>
                     <View style={[s.pill, { backgroundColor: visual.bg }]}>
@@ -620,7 +617,7 @@ export default function SuperAdminFinanceScreen() {
 
                   <View style={s.subscriptionValueRow}>
                     <Text style={s.paymentValue}>
-                      {money((PLAN_PRICES[plan] || 0) + (estab.iaSimulacaoAtiva ? Number(estab.iaSimulacaoValor || 0) : 0))}
+                      {money(PLAN_PRICES[plan] || 0)}
                     </Text>
                     <Text style={s.paymentMethod}>
                       {estab.paymentType === 'credit_card'

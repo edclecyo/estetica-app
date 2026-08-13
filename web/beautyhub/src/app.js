@@ -1,4 +1,4 @@
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+﻿import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {
   getAuth,
   onAuthStateChanged,
@@ -655,7 +655,7 @@ function renderAgenda() {
   const rows = state.agendamentos.map(a => `
     <div class="list-item">
       <div class="row"><strong>${html(a.estabelecimentoNome || 'BeautyHub')}</strong><span class="badge">${html(a.status || 'confirmado')}</span></div>
-      <div class="meta">${html(a.servicoNome)} • ${html(a.data)} as ${html(a.horario)}</div>
+      <div class="meta">${html(a.servicoNome)} â€¢ ${html(a.data)} as ${html(a.horario)}</div>
     </div>
   `).join('');
   return shell(`<section class="hero"><h1>Meus horarios</h1><p>Acompanhe seus agendamentos.</p></section><div class="list">${rows || '<div class="empty">Nenhum agendamento.</div>'}</div>`, 'agenda');
@@ -768,7 +768,7 @@ function renderAdminPlanos() {
 
 function renderAdminFinanceiro() {
   if (!state.admin) return renderLogin();
-  const rows = state.pagamentos.map(p => `<div class="list-item"><div class="row"><strong>${html(p.tipo || p.plano || 'Pagamento')}</strong><span class="badge">${html(p.status || '')}</span></div><div class="meta">${money(p.valor || p.transaction_amount)} • ${html(p.estabelecimentoNome || '')}</div></div>`).join('');
+  const rows = state.pagamentos.map(p => `<div class="list-item"><div class="row"><strong>${html(p.tipo || p.plano || 'Pagamento')}</strong><span class="badge">${html(p.status || '')}</span></div><div class="meta">${money(p.valor || p.transaction_amount)} â€¢ ${html(p.estabelecimentoNome || '')}</div></div>`).join('');
   return shell(`<section class="hero"><h1>Financeiro</h1><p>Pagamentos e status carregados do Firebase.</p></section><div class="list">${rows || '<div class="empty">Nenhum pagamento carregado.</div>'}</div>`, 'admin');
 }
 
@@ -853,21 +853,6 @@ function renderSimulacaoDivulgacao() {
   `, 'admin');
 }
 
-function renderIADemo() {
-  if (!state.user) return renderLogin();
-  const e = state.selectedEstab || state.estabs[0];
-  return shell(`
-    <section class="detail-cover"><div class="detail-logo">IA</div><h1>Simulacao IA</h1><p>Previa visual usando a mesma Function gerarSimulacaoIA.</p></section>
-    <div class="booking-card">
-      <div class="field"><label>Categoria</label><select id="iaCategoria"><option value="cabelo">Cabelo</option><option value="maquiagem">Maquiagem</option><option value="sobrancelha">Sobrancelha</option></select></div>
-      <div class="field"><label>URL da imagem Firebase Storage</label><input id="iaImagem" placeholder="https://firebasestorage.googleapis.com/..." /></div>
-      <input id="iaEstab" type="hidden" value="${html(e?.id || '')}" />
-      <button class="primary android-primary" data-action="generate-ai">Gerar simulacao</button>
-      <div id="iaResult" class="meta"></div>
-    </div>
-  `, 'home');
-}
-
 function renderSuperAdmin() {
   if (state.admin?.cargo !== 'Super Admin') return renderAdmin();
   return shell(`
@@ -897,7 +882,6 @@ function render() {
   else if (state.route === 'conta-bancaria') root.innerHTML = renderContaBancaria();
   else if (state.route === 'relatorio-financeiro') root.innerHTML = renderRelatorioFinanceiro();
   else if (state.route === 'simulacao-divulgacao') root.innerHTML = renderSimulacaoDivulgacao();
-  else if (state.route === 'ia-demo') root.innerHTML = renderIADemo();
   else if (state.route === 'admin-estab') root.innerHTML = renderAdminEstab();
   else if (state.route === 'admin-planos') root.innerHTML = renderAdminPlanos();
   else if (state.route === 'admin-financeiro') root.innerHTML = renderAdminFinanceiro();
@@ -1095,17 +1079,6 @@ root.addEventListener('click', async event => {
       });
       const el = document.getElementById('reportResult');
       if (el) el.innerHTML = data.url ? `<a class="secondary" href="${html(data.url)}" target="_blank">Abrir relatorio</a>` : 'Relatorio gerado.';
-      toast('Relatorio gerado.');
-    } else if (action === 'generate-ai') {
-      const data = await call('gerarSimulacaoIA', {
-        estabelecimentoId: document.getElementById('iaEstab')?.value || '',
-        categoria: document.getElementById('iaCategoria')?.value || 'cabelo',
-        imagemUrl: document.getElementById('iaImagem')?.value?.trim() || '',
-      });
-      const el = document.getElementById('iaResult');
-      if (el) el.innerHTML = data.imagemUrl ? `<img class="cover" src="${html(data.imagemUrl)}" alt="Simulacao IA" />` : 'Simulacao gerada.';
-      toast('Simulacao gerada.');
-    }
   } catch (error) {
     console.error(error);
     toast(error.message || 'Erro ao executar acao.');

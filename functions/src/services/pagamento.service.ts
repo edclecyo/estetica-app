@@ -1,4 +1,4 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+﻿import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import axios from 'axios';
@@ -7,7 +7,7 @@ import { defineSecret } from 'firebase-functions/params';
 import { db } from '../config/firebase';
 import { REGION } from '../config/region';
 
-// 🔐 SECRET
+// ðŸ” SECRET
 const MP_ACCESS_TOKEN = defineSecret('MP_ACCESS_TOKEN');
 
 // =====================================================
@@ -93,73 +93,6 @@ const axiosInstance = axios.create({
   timeout: 20000,
 });
 
-const IA_SIMULACAO_DIAS = 30;
-const IA_CREDITO_UNITARIO_VALOR = 2.99;
-
-function getIAPlanoConfig(plano: any) {
-  const id = String(plano || '').toLowerCase().trim();
-
-  if (id === 'pro') {
-    return {
-      valor: 19.99,
-      limiteMensal: 20,
-      pacote: 'pro_ia_20',
-    };
-  }
-
-  if (id === 'elite') {
-    return {
-      valor: 14.90,
-      limiteMensal: 100,
-      pacote: 'elite_ia_100',
-    };
-  }
-
-  return null;
-}
-
-function getIACreditoPacote(pacote: any) {
-  const id = String(pacote || '1').toLowerCase().trim();
-
-  if (id === '1' || id === 'unitario') {
-    return {
-      id: '1',
-      creditos: 1,
-      valor: IA_CREDITO_UNITARIO_VALOR,
-      nome: '1 imagem IA',
-    };
-  }
-
-  if (id === '10') {
-    return {
-      id: '10',
-      creditos: 10,
-      valor: 29.90,
-      nome: '10 imagens IA',
-    };
-  }
-
-  if (id === '50') {
-    return {
-      id: '50',
-      creditos: 50,
-      valor: 149.50,
-      nome: '50 imagens IA',
-    };
-  }
-
-  if (id === '100') {
-    return {
-      id: '100',
-      creditos: 100,
-      valor: 299.00,
-      nome: '100 imagens IA',
-    };
-  }
-
-  return null;
-}
-
 // =====================================================
 // 1. PIX CLIENTE
 // =====================================================
@@ -181,7 +114,7 @@ export const criarPagamentoCliente = onCall(
     if (!agendamentoId) {
       throw new HttpsError(
         'invalid-argument',
-        'ID obrigatório'
+        'ID obrigatÃ³rio'
       );
     }
 
@@ -194,7 +127,7 @@ export const criarPagamentoCliente = onCall(
     if (!agSnap.exists) {
       throw new HttpsError(
         'not-found',
-        'Agendamento não encontrado'
+        'Agendamento nÃ£o encontrado'
       );
     }
 
@@ -221,7 +154,7 @@ export const criarPagamentoCliente = onCall(
     if (ag.clienteUid !== req.auth.uid) {
       throw new HttpsError(
         'permission-denied',
-        'Sem permissão'
+        'Sem permissÃ£o'
       );
     }
 
@@ -236,7 +169,7 @@ export const criarPagamentoCliente = onCall(
     if (!estab) {
       throw new HttpsError(
         'not-found',
-        'Estabelecimento não encontrado'
+        'Estabelecimento nÃ£o encontrado'
       );
     }
 
@@ -252,7 +185,7 @@ export const criarPagamentoCliente = onCall(
     if (!pagamentoCompleto && !pagamentoSinal) {
       throw new HttpsError(
         'failed-precondition',
-        'Este agendamento não possui pagamento online'
+        'Este agendamento nÃ£o possui pagamento online'
       );
     }
 
@@ -265,7 +198,7 @@ export const criarPagamentoCliente = onCall(
     ) {
       throw new HttpsError(
         'failed-precondition',
-        'Este estabelecimento não aceita pagamento pelo app'
+        'Este estabelecimento nÃ£o aceita pagamento pelo app'
       );
     }
 
@@ -275,7 +208,7 @@ export const criarPagamentoCliente = onCall(
     ) {
       throw new HttpsError(
         'failed-precondition',
-        'Pagamento pelo app indisponível. O estabelecimento precisa configurar os dados PIX.'
+        'Pagamento pelo app indisponÃ­vel. O estabelecimento precisa configurar os dados PIX.'
       );
     }
 
@@ -299,7 +232,7 @@ export const criarPagamentoCliente = onCall(
     ) {
       throw new HttpsError(
         'failed-precondition',
-        'Sinal de reserva indisponível para este estabelecimento'
+        'Sinal de reserva indisponÃ­vel para este estabelecimento'
       );
     }
 
@@ -334,10 +267,10 @@ export const criarPagamentoCliente = onCall(
 
 *Estabelecimento:* ${estab.nome || ag.estabelecimentoNome || ''}
 *Cliente:* ${ag.clienteNome || ''}
-*Serviço:* ${ag.servicoNome || ''}
+*ServiÃ§o:* ${ag.servicoNome || ''}
 *Data:* ${ag.data || ''}
-*Horário:* ${ag.horario || ''}
-*Valor do serviço:* R$ ${valorServico.toFixed(2).replace('.', ',')}
+*HorÃ¡rio:* ${ag.horario || ''}
+*Valor do serviÃ§o:* R$ ${valorServico.toFixed(2).replace('.', ',')}
 ${pagamentoSinal
   ? `*Sinal pago agora (50%):* R$ ${valorFinal.toFixed(2).replace('.', ',')}
 *Restante no dia:* R$ ${valorRestante.toFixed(2).replace('.', ',')}`
@@ -348,7 +281,7 @@ ${pagamentoSinal
 *ID do agendamento:* ${agendamentoId}
 
 ${pagamentoSinal
-  ? 'O sinal confirma a reserva. Se precisar cancelar ou remarcar, avise o estabelecimento com antecedência. Em caso de ausência no dia, o sinal pode ficar com o estabelecimento pelo horário reservado.'
+  ? 'O sinal confirma a reserva. Se precisar cancelar ou remarcar, avise o estabelecimento com antecedÃªncia. Em caso de ausÃªncia no dia, o sinal pode ficar com o estabelecimento pelo horÃ¡rio reservado.'
   : 'Pagamento completo realizado pelo app.'}
 
 Ola, realizei o pagamento ${pagamentoSinal ? 'do sinal de reserva' : 'do agendamento'} via PIX direto para o estabelecimento. Segue o resumo; estou enviando o comprovante em anexo.`;
@@ -382,7 +315,7 @@ Ola, realizei o pagamento ${pagamentoSinal ? 'do sinal de reserva' : 'do agendam
       txid: agendamentoId,
     });
 
-    // ✅ marca geração do pagamento
+    // âœ… marca geraÃ§Ã£o do pagamento
     await agRef.update({
 
       pixManualGerado: true,
@@ -488,20 +421,20 @@ export const confirmarPagamentoManual = onCall(
     const { agendamentoId } = req.data || {};
 
     if (!agendamentoId) {
-      throw new HttpsError('invalid-argument', 'Agendamento obrigatório');
+      throw new HttpsError('invalid-argument', 'Agendamento obrigatÃ³rio');
     }
 
     const agRef = db.collection('agendamentos').doc(agendamentoId);
     const agSnap = await agRef.get();
 
     if (!agSnap.exists) {
-      throw new HttpsError('not-found', 'Agendamento não encontrado');
+      throw new HttpsError('not-found', 'Agendamento nÃ£o encontrado');
     }
 
     const ag = agSnap.data() as any;
 
     if (ag.adminId !== req.auth.uid) {
-      throw new HttpsError('permission-denied', 'Sem permissão');
+      throw new HttpsError('permission-denied', 'Sem permissÃ£o');
     }
 
     if (
@@ -510,7 +443,7 @@ export const confirmarPagamentoManual = onCall(
     ) {
       throw new HttpsError(
         'failed-precondition',
-        'Este agendamento não é pagamento pelo app'
+        'Este agendamento nÃ£o Ã© pagamento pelo app'
       );
     }
 
@@ -578,8 +511,8 @@ export const confirmarPagamentoManual = onCall(
         ? 'Sinal confirmado'
         : 'Pagamento confirmado',
       mensagem: ag.formaPagamento === 'sinal'
-        ? `Seu sinal de 50% foi confirmado e seu horário de ${ag.servicoNome || 'serviço'} está liberado. O restante deve ser pago no dia do atendimento.`
-        : `Seu pagamento foi confirmado e seu horário de ${ag.servicoNome || 'serviço'} está liberado.`,
+        ? `Seu sinal de 50% foi confirmado e seu horÃ¡rio de ${ag.servicoNome || 'serviÃ§o'} estÃ¡ liberado. O restante deve ser pago no dia do atendimento.`
+        : `Seu pagamento foi confirmado e seu horÃ¡rio de ${ag.servicoNome || 'serviÃ§o'} estÃ¡ liberado.`,
 
       lida: false,
       apagada: false,
@@ -616,7 +549,6 @@ export const criarPagamentoPixAssinatura = onCall(
   estabelecimentoId,
   plano,
   valor,
-  addIA,
 } = req.data || {};
 
     if (
@@ -626,7 +558,7 @@ export const criarPagamentoPixAssinatura = onCall(
     ) {
       throw new HttpsError(
         'invalid-argument',
-        'Dados inválidos'
+        'Dados invÃ¡lidos'
       );
     }
 
@@ -643,7 +575,7 @@ export const criarPagamentoPixAssinatura = onCall(
     if (!snap.exists) {
       throw new HttpsError(
         'not-found',
-        'Estabelecimento não encontrado'
+        'Estabelecimento nÃ£o encontrado'
       );
     }
 
@@ -652,13 +584,13 @@ export const criarPagamentoPixAssinatura = onCall(
     if (est.adminId !== req.auth.uid) {
       throw new HttpsError(
         'permission-denied',
-        'Sem permissão'
+        'Sem permissÃ£o'
       );
     }
 
-    // 🔥 REMOVIDO:
-    // NÃO PRECISA pixChave/pixTipo
-    // pois o PIX é da SUA conta Mercado Pago
+    // ðŸ”¥ REMOVIDO:
+    // NÃƒO PRECISA pixChave/pixTipo
+    // pois o PIX Ã© da SUA conta Mercado Pago
 
     if (
       est.assinaturaAtiva &&
@@ -666,16 +598,7 @@ export const criarPagamentoPixAssinatura = onCall(
     ) {
       throw new HttpsError(
         'already-exists',
-        'Plano já ativo'
-      );
-    }
-
-    const iaConfig = addIA === true ? getIAPlanoConfig(plano) : null;
-
-    if (addIA === true && !iaConfig) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Previa IA disponivel apenas para os planos Pro e Elite.'
+        'Plano jÃ¡ ativo'
       );
     }
 
@@ -712,7 +635,7 @@ export const criarPagamentoPixAssinatura = onCall(
       if (!accessToken) {
         throw new HttpsError(
           'internal',
-          'MP não configurado'
+          'MP nÃ£o configurado'
         );
       }
 
@@ -798,12 +721,12 @@ export const criarPagamentoPixAssinatura = onCall(
       if (!qrBase64 && !qrText) {
         throw new HttpsError(
           'internal',
-          'PIX inválido'
+          'PIX invÃ¡lido'
         );
       }
 
       // =====================================================
-      // HISTÓRICO
+      // HISTÃ“RICO
       // =====================================================
 
       await db.collection('pagamentos').add({
@@ -834,7 +757,7 @@ export const criarPagamentoPixAssinatura = onCall(
       });
 
       // =====================================================
-      // EXPIRAÇÃO
+      // EXPIRAÃ‡ÃƒO
       // =====================================================
 
       const expira = new Date();
@@ -854,12 +777,6 @@ export const criarPagamentoPixAssinatura = onCall(
   paymentStatus: 'pending',
 
   paymentType: 'pix',
-
-  iaSimulacaoPendente:
-    addIA === true,
-
-  iaSimulacaoValor:
-    iaConfig ? iaConfig.valor : 0,
 
   pixPagamentoId:
     String(data?.id),
@@ -901,423 +818,6 @@ export const criarPagamentoPixAssinatura = onCall(
   }
 );
 // =====================================================
-// 4. PIX PREVIA IA
-// =====================================================
-
-export const criarPagamentoPixIA = onCall(
-  {
-    region: REGION,
-    secrets: [MP_ACCESS_TOKEN],
-  },
-
-  async (req) => {
-    if (!req.auth) {
-      throw new HttpsError('unauthenticated', 'Acesso negado');
-    }
-
-    const { estabelecimentoId } = req.data || {};
-
-    if (!estabelecimentoId) {
-      throw new HttpsError('invalid-argument', 'Estabelecimento obrigatorio');
-    }
-
-    const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
-    const snap = await ref.get();
-
-    if (!snap.exists) {
-      throw new HttpsError('not-found', 'Estabelecimento nao encontrado');
-    }
-
-    const est = snap.data()!;
-
-    if (est.adminId !== req.auth.uid) {
-      throw new HttpsError('permission-denied', 'Sem permissao');
-    }
-
-    const agora = new Date();
-    const plano = String(est.planoAprovado || est.plano || '').toLowerCase();
-    const expiraPlano = est.expiraEm?.toDate?.() || null;
-    const planoAtivo =
-      plano === 'trial'
-        ? expiraPlano instanceof Date && expiraPlano > agora
-        : est.assinaturaAtiva === true &&
-          ['pro', 'elite'].includes(plano) &&
-          (!expiraPlano || expiraPlano > agora);
-
-    if (!planoAtivo) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Ative o plano Pro ou Elite antes de contratar a Previa IA.'
-      );
-    }
-
-    const iaConfig = getIAPlanoConfig(plano);
-
-    if (!iaConfig) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Previa IA disponivel apenas para os planos Pro e Elite.'
-      );
-    }
-
-    const iaExpira = est.iaSimulacaoExpiraEm?.toDate?.() || null;
-
-    if (
-      est.iaSimulacaoAtiva === true &&
-      iaExpira instanceof Date &&
-      iaExpira > agora
-    ) {
-      throw new HttpsError(
-        'already-exists',
-        'A Previa IA ja esta ativa para este estabelecimento.'
-      );
-    }
-
-    const pendente = est.iaSimulacaoPagamentoPendente || null;
-    const pendenteExpira = pendente?.expiraEm?.toDate?.() || null;
-
-    if (
-      pendente?.status === 'pending' &&
-      pendenteExpira instanceof Date &&
-      pendenteExpira > agora
-    ) {
-      return {
-        qr_code: pendente.qrCode || null,
-        qr_code_base64: pendente.qrCodeBase64 || null,
-        mercadoPagoId: pendente.mercadoPagoId || null,
-      };
-    }
-
-    const lockRef = db
-      .collection('locks')
-      .doc(`pix_ia_${estabelecimentoId}`);
-
-    const lockSnap = await lockRef.get();
-
-    if (lockSnap.exists) {
-      const created = lockSnap.data()?.createdAt?.toMillis?.() || 0;
-
-      if (Date.now() - created < 60000) {
-        throw new HttpsError('resource-exhausted', 'Em processamento');
-      }
-
-      await lockRef.delete();
-    }
-
-    await lockRef.set({
-      createdAt: FieldValue.serverTimestamp(),
-    });
-
-    try {
-      const accessToken = String(MP_ACCESS_TOKEN.value() || '').trim();
-
-      if (!accessToken) {
-        throw new HttpsError('internal', 'MP nao configurado');
-      }
-
-      const userSnap = await db.collection('users').doc(req.auth.uid).get();
-      const user = userSnap.data();
-
-      const response = await axiosInstance.post(
-        'https://api.mercadopago.com/v1/payments',
-        {
-          transaction_amount: iaConfig.valor,
-          payment_method_id: 'pix',
-          description: `Previa IA ${plano.toUpperCase()} por 30 dias`,
-          external_reference: estabelecimentoId,
-          notification_url:
-            'https://webhookmercadopago-eoqa32y7ca-rj.a.run.app',
-
-          payer: {
-            email:
-              user?.email ||
-              req.auth.token.email ||
-              est.responsavelEmail ||
-              'cliente@app.com',
-
-            first_name:
-              user?.nome ||
-              est.responsavelNome ||
-              'Cliente',
-
-            identification: user?.cpf
-              ? {
-                  type: 'CPF',
-                  number: String(user.cpf).replace(/\D/g, ''),
-                }
-              : est.responsavelCpf
-              ? {
-                  type: 'CPF',
-                  number: String(est.responsavelCpf).replace(/\D/g, ''),
-                }
-              : undefined,
-
-            phone: user?.telefone
-              ? {
-                  number: String(user.telefone).replace(/\D/g, ''),
-                }
-              : est.responsavelTelefone
-              ? {
-                  number: String(est.responsavelTelefone).replace(/\D/g, ''),
-                }
-              : undefined,
-          },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'X-Idempotency-Key': `ia_${estabelecimentoId}_${Date.now()}`,
-          },
-        }
-      );
-
-      const data: any = response.data;
-      const qr = data?.point_of_interaction?.transaction_data;
-      const qrBase64 = qr?.qr_code_base64 || null;
-      const qrText = qr?.qr_code || null;
-
-      if (!qrBase64 && !qrText) {
-        throw new HttpsError('internal', 'PIX invalido');
-      }
-
-      const expira = new Date();
-      expira.setMinutes(expira.getMinutes() + 30);
-
-      const pagamentoRef = await db.collection('pagamentos').add({
-        tipo: 'ia_simulacao',
-        estabelecimentoId,
-        plano,
-        valor: iaConfig.valor,
-        dias: IA_SIMULACAO_DIAS,
-        limiteMensal: iaConfig.limiteMensal,
-        pacote: iaConfig.pacote,
-        clienteId: req.auth.uid,
-        clienteEmail: req.auth.token.email || null,
-        clienteNome:
-          user?.nome ||
-          est.responsavelNome ||
-          'Estabelecimento',
-        status: 'pending',
-        metodo: 'pix',
-        mercadoPagoId: String(data.id),
-        qrCode: qrText,
-        qrCodeBase64: qrBase64,
-        criadoEm: FieldValue.serverTimestamp(),
-        expiraEm: Timestamp.fromDate(expira),
-      });
-
-      await ref.update({
-        iaSimulacaoPaymentStatus: 'pending',
-        iaSimulacaoPagamentoPendente: {
-          pagamentoDocId: pagamentoRef.id,
-          mercadoPagoId: String(data.id),
-          valor: iaConfig.valor,
-          dias: IA_SIMULACAO_DIAS,
-          limiteMensal: iaConfig.limiteMensal,
-          pacote: iaConfig.pacote,
-          status: 'pending',
-          qrCode: qrText,
-          qrCodeBase64: qrBase64,
-          criadoEm: FieldValue.serverTimestamp(),
-          expiraEm: Timestamp.fromDate(expira),
-        },
-        atualizadoEm: FieldValue.serverTimestamp(),
-      });
-
-      await lockRef.delete();
-
-      return {
-        qr_code: qrText,
-        qr_code_base64: qrBase64,
-        pagamentoId: pagamentoRef.id,
-        mercadoPagoId: String(data.id),
-      };
-    } catch (error: any) {
-      console.error('ERRO PIX IA:', error?.response?.data || error);
-
-      await lockRef.delete();
-
-      throw new HttpsError('internal', 'Erro ao criar PIX da Previa IA');
-    }
-  }
-);
-
-// =====================================================
-// 5. PIX CREDITOS PREVIA IA
-// =====================================================
-
-export const criarPagamentoPixCreditosIA = onCall(
-  {
-    region: REGION,
-    secrets: [MP_ACCESS_TOKEN],
-  },
-
-  async (req) => {
-    if (!req.auth) {
-      throw new HttpsError('unauthenticated', 'Acesso negado');
-    }
-
-    const {
-      estabelecimentoId,
-      pacote,
-    } = req.data || {};
-
-    if (!estabelecimentoId) {
-      throw new HttpsError('invalid-argument', 'Estabelecimento obrigatorio');
-    }
-
-    const pacoteCredito = getIACreditoPacote(pacote);
-
-    if (!pacoteCredito) {
-      throw new HttpsError('invalid-argument', 'Pacote de creditos invalido');
-    }
-
-    const ref = db.collection('estabelecimentos').doc(estabelecimentoId);
-    const snap = await ref.get();
-
-    if (!snap.exists) {
-      throw new HttpsError('not-found', 'Estabelecimento nao encontrado');
-    }
-
-    const est = snap.data()!;
-
-    if (est.adminId !== req.auth.uid) {
-      throw new HttpsError('permission-denied', 'Sem permissao');
-    }
-
-    const agora = new Date();
-    const plano = String(est.planoAprovado || est.plano || '').toLowerCase();
-    const expiraPlano = est.expiraEm?.toDate?.() || null;
-    const iaExpira = est.iaSimulacaoExpiraEm?.toDate?.() || null;
-    const planoAtivo =
-      est.assinaturaAtiva === true &&
-      ['pro', 'elite'].includes(plano) &&
-      (!expiraPlano || expiraPlano > agora);
-    const iaAtiva =
-      est.iaSimulacaoAtiva === true &&
-      (!iaExpira || iaExpira > agora);
-
-    if (!planoAtivo || !iaAtiva) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Ative a Previa IA em um plano Pro ou Elite antes de comprar creditos.'
-      );
-    }
-
-    const accessToken = String(MP_ACCESS_TOKEN.value() || '').trim();
-
-    if (!accessToken) {
-      throw new HttpsError('internal', 'MP nao configurado');
-    }
-
-    try {
-      const userSnap = await db.collection('users').doc(req.auth.uid).get();
-      const user = userSnap.data();
-
-      const response = await axiosInstance.post(
-        'https://api.mercadopago.com/v1/payments',
-        {
-          transaction_amount: pacoteCredito.valor,
-          payment_method_id: 'pix',
-          description: `Creditos Previa IA - ${pacoteCredito.nome}`,
-          external_reference: estabelecimentoId,
-          notification_url:
-            'https://webhookmercadopago-eoqa32y7ca-rj.a.run.app',
-
-          payer: {
-            email:
-              user?.email ||
-              req.auth.token.email ||
-              est.responsavelEmail ||
-              'cliente@app.com',
-
-            first_name:
-              user?.nome ||
-              est.responsavelNome ||
-              'Cliente',
-          },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'X-Idempotency-Key':
-              `ia_creditos_${estabelecimentoId}_${pacoteCredito.id}_${Date.now()}`,
-          },
-        }
-      );
-
-      const data: any = response.data;
-      const qr = data?.point_of_interaction?.transaction_data;
-      const qrBase64 = qr?.qr_code_base64 || null;
-      const qrText = qr?.qr_code || null;
-
-      if (!qrBase64 && !qrText) {
-        throw new HttpsError('internal', 'PIX invalido');
-      }
-
-      const expira = new Date();
-      expira.setMinutes(expira.getMinutes() + 30);
-
-      const pagamentoRef = await db.collection('pagamentos').add({
-        tipo: 'ia_creditos',
-        estabelecimentoId,
-        plano,
-        pacote: pacoteCredito.id,
-        pacoteNome: pacoteCredito.nome,
-        creditos: pacoteCredito.creditos,
-        valor: pacoteCredito.valor,
-        clienteId: req.auth.uid,
-        clienteEmail: req.auth.token.email || null,
-        clienteNome:
-          user?.nome ||
-          est.responsavelNome ||
-          'Estabelecimento',
-        status: 'pending',
-        metodo: 'pix',
-        mercadoPagoId: String(data.id),
-        qrCode: qrText,
-        qrCodeBase64: qrBase64,
-        criadoEm: FieldValue.serverTimestamp(),
-        expiraEm: Timestamp.fromDate(expira),
-      });
-
-      await ref.update({
-        iaCreditosPaymentStatus: 'pending',
-         iaCreditosPagamentoPendente: {
-          tipo: 'ia_creditos',
-          pagamentoDocId: pagamentoRef.id,
-          mercadoPagoId: String(data.id),
-          pacote: pacoteCredito.id,
-          pacoteNome: pacoteCredito.nome,
-          creditos: pacoteCredito.creditos,
-          valor: pacoteCredito.valor,
-          status: 'pending',
-          qrCode: qrText,
-          qrCodeBase64: qrBase64,
-          criadoEm: FieldValue.serverTimestamp(),
-          expiraEm: Timestamp.fromDate(expira),
-        },
-        atualizadoEm: FieldValue.serverTimestamp(),
-      });
-
-      return {
-        qr_code: qrText,
-        qr_code_base64: qrBase64,
-        pagamentoId: pagamentoRef.id,
-        mercadoPagoId: String(data.id),
-      };
-    } catch (error: any) {
-      console.error('ERRO PIX CREDITOS IA:', error?.response?.data || error);
-
-      throw new HttpsError(
-        'internal',
-        'Erro ao criar PIX dos creditos IA'
-      );
-    }
-  }
-);
-
-// =====================================================
 // 6. PIX IMPULSIONAMENTO / DESTAQUE
 // =====================================================
 
@@ -1343,7 +843,7 @@ export const criarPagamentoPixImpulsionamento = onCall(
     if (!estabelecimentoId || !pacoteId) {
       throw new HttpsError(
         'invalid-argument',
-        'Dados inválidos'
+        'Dados invÃ¡lidos'
       );
     }
 
@@ -1374,7 +874,7 @@ export const criarPagamentoPixImpulsionamento = onCall(
     if (!pacote) {
       throw new HttpsError(
         'invalid-argument',
-        'Pacote inválido'
+        'Pacote invÃ¡lido'
       );
     }
 
@@ -1387,7 +887,7 @@ export const criarPagamentoPixImpulsionamento = onCall(
     if (!snap.exists) {
       throw new HttpsError(
         'not-found',
-        'Estabelecimento não encontrado'
+        'Estabelecimento nÃ£o encontrado'
       );
     }
 
@@ -1396,7 +896,7 @@ export const criarPagamentoPixImpulsionamento = onCall(
     if (est.adminId !== req.auth.uid) {
       throw new HttpsError(
         'permission-denied',
-        'Sem permissão'
+        'Sem permissÃ£o'
       );
     }
 
@@ -1476,7 +976,7 @@ export const criarPagamentoPixImpulsionamento = onCall(
       if (!accessToken) {
         throw new HttpsError(
           'internal',
-          'MP não configurado'
+          'MP nÃ£o configurado'
         );
       }
 
@@ -1556,7 +1056,7 @@ export const criarPagamentoPixImpulsionamento = onCall(
       if (!qrBase64 && !qrText) {
         throw new HttpsError(
           'internal',
-          'PIX inválido'
+          'PIX invÃ¡lido'
         );
       }
 
@@ -1805,7 +1305,7 @@ export const criarPagamentoPixSelo = onCall(
 );
 
 // =====================================================
-// 3. CARTÃO ASSINATURA
+// 3. CARTÃƒO ASSINATURA
 // =====================================================
 
 export const criarAssinaturaCartao = onCall(
@@ -1830,7 +1330,6 @@ export const criarAssinaturaCartao = onCall(
   token,
   valor,
   payment_method_id,
-  addIA,
 } = req.data || {};
 
     if (
@@ -1854,7 +1353,7 @@ export const criarAssinaturaCartao = onCall(
     if (!snap.exists) {
       throw new HttpsError(
         'not-found',
-        'Estabelecimento não encontrado.'
+        'Estabelecimento nÃ£o encontrado.'
       );
     }
 
@@ -1863,7 +1362,7 @@ export const criarAssinaturaCartao = onCall(
     if (est.adminId !== req.auth.uid) {
       throw new HttpsError(
         'permission-denied',
-        'Sem permissão.'
+        'Sem permissÃ£o.'
       );
     }
 
@@ -1873,16 +1372,7 @@ export const criarAssinaturaCartao = onCall(
     ) {
       throw new HttpsError(
         'already-exists',
-        'Plano já ativo.'
-      );
-    }
-
-    const iaConfig = addIA === true ? getIAPlanoConfig(plano) : null;
-
-    if (addIA === true && !iaConfig) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Previa IA disponivel apenas para os planos Pro e Elite.'
+        'Plano jÃ¡ ativo.'
       );
     }
 
@@ -1894,7 +1384,7 @@ export const criarAssinaturaCartao = onCall(
       if (!accessToken) {
         throw new HttpsError(
           'internal',
-          'MP não configurado.'
+          'MP nÃ£o configurado.'
         );
       }
 
@@ -1924,7 +1414,7 @@ export const criarAssinaturaCartao = onCall(
                 est.responsavelEmail || email,
 
               first_name:
-                est.responsavelNome || 'Responsável',
+                est.responsavelNome || 'ResponsÃ¡vel',
 
               identification:
                 est.responsavelCpf
@@ -2014,12 +1504,6 @@ export const criarAssinaturaCartao = onCall(
   statusDetail:
     data.status_detail || null,
 
-  iaSimulacaoPendente:
-    addIA === true,
-
-  iaSimulacaoValor:
-    iaConfig ? iaConfig.valor : 0,
-
   ...(aprovado && {
 
     plano,
@@ -2033,26 +1517,6 @@ export const criarAssinaturaCartao = onCall(
     statusPlano: 'ativo',
 
     paymentStatus: 'approved',
-
-    iaSimulacaoAtiva:
-      addIA === true,
-
-    iaSimulacaoLimiteMensal:
-      iaConfig
-        ? iaConfig.limiteMensal
-        : 0,
-
-    iaSimulacaoPacote:
-      iaConfig
-        ? iaConfig.pacote
-        : null,
-
-    iaSimulacaoExpiraEm:
-      iaConfig
-        ? Timestamp.fromDate(
-            new Date(Date.now() + IA_SIMULACAO_DIAS * 24 * 60 * 60 * 1000)
-          )
-        : null,
 
     expiraEm: Timestamp.fromDate(
       new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)

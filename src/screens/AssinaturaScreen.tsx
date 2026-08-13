@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   ActivityIndicator, Alert, StatusBar, Platform, TextProps
@@ -134,33 +134,6 @@ const PLANOS = [
   },
 ];
 
-const getIAAddon = (planoId: PlanoId | string) => {
-  if (planoId === 'pro') {
-    return {
-      valor: 19.99,
-      limite: 20,
-      textoPreco: '+ R$ 19,99/mes',
-    };
-  }
-
-  if (planoId === 'elite') {
-    return {
-      valor: 14.90,
-      limite: 100,
-      textoPreco: '+ R$ 14,90/mes',
-    };
-  }
-
-  return null;
-};
-
-const IA_CREDIT_PACKS = [
-  { id: '1', label: '1 imagem', valor: 2.99 },
-  { id: '10', label: '10 imagens', valor: 29.90 },
-  { id: '50', label: '50 imagens', valor: 149.50 },
-  { id: '100', label: '100 imagens', valor: 299.00 },
-];
-
 export default function AssinaturaScreen({ navigation }: any) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [loadingDados, setLoadingDados] = useState(true);
@@ -169,10 +142,6 @@ export default function AssinaturaScreen({ navigation }: any) {
   const [assinaturaAtiva, setAssinaturaAtiva] = useState(false);
   const [trialUsado, setTrialUsado] = useState(false);
   const [trialAtivo, setTrialAtivo] = useState(false);
-  const [iaSimulacaoAtiva, setIaSimulacaoAtiva] = useState(false);
-  const [iaCreditosDisponiveis, setIaCreditosDisponiveis] = useState(0);
-const [addIA, setAddIA] = useState(false);
-  const iaPlanoAtual = getIAAddon(planoAtualId);
   useEffect(() => {
     const user = auth().currentUser;
     if (!user) return;
@@ -204,17 +173,8 @@ const [addIA, setAddIA] = useState(false);
           const assinaturaAtivaCalc =
             !!data.assinaturaAtiva &&
             (!expira || expira > agora);
-          const iaExpira =
-            data.iaSimulacaoExpiraEm?.toDate?.() ??
-            (data.iaSimulacaoExpiraEm ? new Date(data.iaSimulacaoExpiraEm) : null);
-          const iaAtivaCalc =
-            data.iaSimulacaoAtiva === true &&
-            (!iaExpira || iaExpira > agora);
-
           setTrialAtivo(trialAtivoCalc);
           setAssinaturaAtiva(assinaturaAtivaCalc);
-          setIaSimulacaoAtiva(iaAtivaCalc);
-          setIaCreditosDisponiveis(Number(data.iaCreditosDisponiveis || 0));
         }
         setLoadingDados(false);
       });
@@ -310,83 +270,11 @@ const res = await fn({
           </TouchableOpacity>
         )}
 
-        {(assinaturaAtiva || trialAtivo) && iaPlanoAtual && (
-          <TouchableOpacity
-            style={styles.iaStandaloneCard}
-            activeOpacity={0.86}
-            disabled={iaSimulacaoAtiva}
-            onPress={() =>
-              navigation.navigate('CheckoutPagamentoScreen', {
-                tipoCheckout: 'ia',
-                planoId: 'ia',
-                estabelecimentoId: estId,
-                planoNome: 'Previa IA',
-                valor: iaPlanoAtual.valor,
-              })
-            }
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.iaStandaloneTitle}>
-                {iaSimulacaoAtiva
-                  ? 'Previa IA ativa'
-                  : 'Adicionar Previa IA'}
-              </Text>
-              <Text style={styles.iaStandaloneDesc}>
-                {iaPlanoAtual.textoPreco} por 30 dias com {iaPlanoAtual.limite} simulacoes.
-              </Text>
-            </View>
-            <Icon
-              name={iaSimulacaoAtiva ? 'check-circle' : 'sparkles'}
-              size={26}
-              color={iaSimulacaoAtiva ? '#25D366' : '#000'}
-            />
-          </TouchableOpacity>
-        )}
-
-        {assinaturaAtiva && iaSimulacaoAtiva && iaPlanoAtual && (
-          <View style={styles.iaCreditsCard}>
-            <View style={styles.iaCreditsHead}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.iaStandaloneTitle}>Creditos extras IA</Text>
-                <Text style={styles.iaStandaloneDesc}>
-                  Saldo atual: {iaCreditosDisponiveis} imagens extras.
-                </Text>
-              </View>
-              <Icon name="image-plus" size={24} color={GOLD} />
-            </View>
-
-            <View style={styles.iaCreditsGrid}>
-              {IA_CREDIT_PACKS.map(pack => (
-                <TouchableOpacity
-                  key={pack.id}
-                  style={styles.iaCreditBtn}
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    navigation.navigate('CheckoutPagamentoScreen', {
-                      tipoCheckout: 'ia_creditos',
-                      planoId: 'ia_creditos',
-                      estabelecimentoId: estId,
-                      planoNome: pack.label,
-                      valor: pack.valor,
-                      pacoteIAId: pack.id,
-                    })
-                  }
-                >
-                  <Text style={styles.iaCreditLabel}>{pack.label}</Text>
-                  <Text style={styles.iaCreditValue}>
-                    R$ {pack.valor.toFixed(2).replace('.', ',')}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
 
         {/* PLANOS */}
         <View style={styles.listContainer}>
           {PLANOS.map((plano) => {
             const isAtivo = plano.id === planoAtualId && assinaturaAtiva;
-            const iaAddon = getIAAddon(plano.id);
 
             return (
               <LinearGradient key={plano.id} colors={DARK_GRADIENT} style={styles.planCard}>
@@ -409,8 +297,14 @@ const res = await fn({
                   <Text style={styles.priceVal}>R$ {plano.preco}</Text>
                 </View>
 <View style={styles.limitBox}>
-  <Text style={styles.limitText}>📸 {plano.storyLimite}</Text>
-  <Text style={styles.limitText}>🎬 {plano.videoLimite}</Text>
+  <View style={styles.limitLine}>
+    <Icon name="camera-outline" color={plano.cor} size={16} />
+    <Text style={styles.limitText}>{plano.storyLimite}</Text>
+  </View>
+  <View style={styles.limitLine}>
+    <Icon name="video-outline" color={plano.cor} size={16} />
+    <Text style={styles.limitText}>{plano.videoLimite}</Text>
+  </View>
 </View>
                 {plano.features.map((f, i) => (
                   <View key={i} style={styles.featureItem}>
@@ -419,63 +313,14 @@ const res = await fn({
                   </View>
                 ))}
 				
-{iaAddon && (
-  <TouchableOpacity
-    style={styles.iaAddonBox}
-    onPress={() => setAddIA(!addIA)}
-    activeOpacity={0.85}
-  >
-    <View style={styles.iaCheck}>
-      <Text style={styles.iaCheckText}>
-        {addIA ? '✓' : ''}
-      </Text>
-    </View>
-
-    <View style={{ flex: 1 }}>
-      <Text style={styles.iaAddonTitle}>
-        ✨ Adicionar Prévia IA
-      </Text>
-
-      <Text style={styles.iaAddonDesc}>
-        Clientes podem simular o resultado antes de agendar.
-      </Text>
-
-      <Text style={styles.iaAddonPrice}>
-        {iaAddon.textoPreco} - {iaAddon.limite} simulacoes por mes
-      </Text>
-    </View>
-	
-  </TouchableOpacity>
-  
-)}
-{iaAddon && (
-  <TouchableOpacity
-    style={styles.iaDemoBtn}
-    onPress={() => navigation.navigate('IADemoScreen')}
-  >
-    <Text style={styles.iaDemoText}>
-      Ver demonstração da Prévia IA
-    </Text>
-  </TouchableOpacity>
-)}
                 <TouchableOpacity
                   disabled={isAtivo}
-                  onPress={() => {
-                    const valorBase = Number(plano.preco.replace(',', '.'));
-
-const valorFinal =
-  addIA && iaAddon
-    ? valorBase + iaAddon.valor
-    : valorBase;
-
-navigation.navigate('CheckoutPagamentoScreen', {
-  planoId: plano.id,
-  estabelecimentoId: estId,
-  planoNome: plano.nome,
-  valor: valorFinal,
-  addIA: addIA && !!iaAddon,
-});
-                  }}
+                  onPress={() => navigation.navigate('CheckoutPagamentoScreen', {
+                    planoId: plano.id,
+                    estabelecimentoId: estId,
+                    planoNome: plano.nome,
+                    valor: Number(plano.preco.replace(',', '.')),
+                  })}
                 >
                   <LinearGradient
                     colors={isAtivo ? ['#333', '#222'] : GOLD_GRADIENT}
@@ -532,26 +377,18 @@ limitBox: {
   padding: 12,
   marginBottom: 18,
 },
-iaDemoBtn: {
-  borderWidth: 1,
-  borderColor: '#C9A96E',
-  borderRadius: 14,
-  padding: 13,
-  alignItems: 'center',
-  marginBottom: 14,
-},
-
-iaDemoText: {
-  color: '#C9A96E',
-  fontWeight: '900',
-},
 limitText: {
   color: '#D4AF37',
   fontSize: 12,
   fontWeight: '700',
-  marginBottom: 4,
 },
-  // Trial Card Reformado (ZONA DE CONVERSÃO)
+limitLine: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+  marginBottom: 5,
+},
+  // Trial Card Reformado
   trialWrapper: { marginHorizontal: IS_WEB ? 14 : 20, marginBottom: IS_WEB ? 18 : 30 },
   trialCard: { 
     padding: IS_WEB ? 16 : 22, 
@@ -569,27 +406,6 @@ limitText: {
   trialIconCol: { width: 50, alignItems: 'flex-end' },
   trialTitle: { color: '#000', fontWeight: '900', fontSize: IS_WEB ? 18 : 22 },
   trialSub: { color: 'rgba(0,0,0,0.7)', fontSize: IS_WEB ? 12 : 13, fontWeight: '700', marginTop: 2 },
-  iaStandaloneCard: {
-    marginHorizontal: IS_WEB ? 14 : 20,
-    marginBottom: 18,
-    backgroundColor: GOLD,
-    borderRadius: 18,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  iaStandaloneTitle: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  iaStandaloneDesc: {
-    color: '#1A1A1A',
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '700',
-  },
 
   // Listagem de Planos
   listContainer: { paddingHorizontal: IS_WEB ? 14 : 20 },
@@ -651,96 +467,4 @@ limitText: {
     lineHeight: 18,
     fontWeight: '600',
   },
-iaAddonBox: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  backgroundColor: 'rgba(212,175,55,0.08)',
-  borderWidth: 1,
-  borderColor: 'rgba(212,175,55,0.28)',
-  borderRadius: IS_WEB ? 12 : 16,
-  padding: IS_WEB ? 12 : 14,
-  marginBottom: IS_WEB ? 12 : 16,
-},
-
-iaCheck: {
-  width: 26,
-  height: 26,
-  borderRadius: 13,
-  borderWidth: 2,
-  borderColor: GOLD,
-  justifyContent: 'center',
-  alignItems: 'center',
-  marginRight: 12,
-},
-
-iaCheckText: {
-  color: GOLD,
-  fontWeight: '900',
-},
-
-iaAddonTitle: {
-  color: '#FFF',
-  fontSize: 14,
-  fontWeight: '900',
-},
-
-iaAddonDesc: {
-  color: '#AAA',
-  fontSize: 12,
-  marginTop: 3,
-},
-
-iaAddonPrice: {
-  color: GOLD,
-  fontSize: 12,
-  fontWeight: '800',
-  marginTop: 6,
-},
-
-iaCreditsCard: {
-  marginHorizontal: 20,
-  marginBottom: 20,
-  backgroundColor: '#111',
-  borderWidth: 1,
-  borderColor: 'rgba(212,175,55,0.24)',
-  borderRadius: IS_WEB ? 12 : 16,
-  padding: IS_WEB ? 12 : 14,
-},
-
-iaCreditsHead: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 10,
-  marginBottom: 12,
-},
-
-iaCreditsGrid: {
-  flexDirection: 'row',
-  flexWrap: 'wrap',
-  gap: 8,
-},
-
-iaCreditBtn: {
-  width: IS_WEB ? '48%' : '48%',
-  minHeight: 58,
-  borderRadius: IS_WEB ? 10 : 12,
-  backgroundColor: 'rgba(212,175,55,0.10)',
-  borderWidth: 1,
-  borderColor: 'rgba(212,175,55,0.28)',
-  justifyContent: 'center',
-  paddingHorizontal: 10,
-},
-
-iaCreditLabel: {
-  color: '#FFF',
-  fontSize: 12,
-  fontWeight: '900',
-},
-
-iaCreditValue: {
-  color: GOLD,
-  fontSize: 12,
-  fontWeight: '800',
-  marginTop: 4,
-},
 });

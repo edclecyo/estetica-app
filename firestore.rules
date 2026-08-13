@@ -60,11 +60,6 @@ service cloud.firestore {
         'destaqueAvisoVencimentoEm',
         'destaqueAvisoVencimentoExpiraEm',
         'impulsionamentoPendente',
-        'iaSimulacaoAtiva',
-        'iaSimulacaoLimiteMensal',
-        'iaSimulacaoPacote',
-        'iaSimulacaoPendente',
-        'iaSimulacaoValor',
         'expiraEm',
         'trialUsado'
       ];

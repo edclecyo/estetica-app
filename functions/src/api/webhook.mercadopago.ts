@@ -1,4 +1,4 @@
-import { onRequest } from 'firebase-functions/v2/https';
+﻿import { onRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import axios from 'axios';
 
@@ -22,65 +22,6 @@ type MercadoPagoPayment = {
 const isElite = (plano: any) =>
   String(plano || '').toLowerCase() === 'elite';
 
-function getIAPlanoConfig(plano: any) {
-  const id = String(plano || '').toLowerCase().trim();
-
-  if (id === 'pro') {
-    return {
-      valor: 19.99,
-      limiteMensal: 20,
-      pacote: 'pro_ia_20',
-    };
-  }
-
-  if (id === 'elite') {
-    return {
-      valor: 14.90,
-      limiteMensal: 100,
-      pacote: 'elite_ia_100',
-    };
-  }
-
-  return null;
-}
-
-function getIACreditoPacote(pacote: any) {
-  const id = String(pacote || '1').toLowerCase().trim();
-
-  if (id === '1' || id === 'unitario') {
-    return {
-      id: '1',
-      creditos: 1,
-      valor: 2.99,
-    };
-  }
-
-  if (id === '10') {
-    return {
-      id: '10',
-      creditos: 10,
-      valor: 29.90,
-    };
-  }
-
-  if (id === '50') {
-    return {
-      id: '50',
-      creditos: 50,
-      valor: 149.50,
-    };
-  }
-
-  if (id === '100') {
-    return {
-      id: '100',
-      creditos: 100,
-      valor: 299.00,
-    };
-  }
-
-  return null;
-}
 
 export const webhookMercadoPago = onRequest(
   {
@@ -94,7 +35,7 @@ export const webhookMercadoPago = onRequest(
       const accessToken = MP_ACCESS_TOKEN.value()?.trim();
 
       if (!accessToken) {
-        console.error('❌ MP_ACCESS_TOKEN AUSENTE');
+        console.error('âŒ MP_ACCESS_TOKEN AUSENTE');
         res.sendStatus(200);
         return;
       }
@@ -109,7 +50,7 @@ export const webhookMercadoPago = onRequest(
       const id = String(rawId).trim();
 
       if (!id) {
-        console.log('❌ ID NÃO ENVIADO', {
+        console.log('âŒ ID NÃƒO ENVIADO', {
           body: req.body,
           query: req.query,
         });
@@ -118,7 +59,7 @@ export const webhookMercadoPago = onRequest(
         return;
       }
 
-      console.log('📩 WEBHOOK RECEBIDO:', {
+      console.log('ðŸ“© WEBHOOK RECEBIDO:', {
         id,
         body: req.body,
         query: req.query,
@@ -142,10 +83,10 @@ export const webhookMercadoPago = onRequest(
           );
 
           if (!ok) {
-            console.warn('⚠️ assinatura inválida, consultando pagamento na API MP');
+            console.warn('âš ï¸ assinatura invÃ¡lida, consultando pagamento na API MP');
           }
         } catch (e) {
-          console.warn('⚠️ erro assinatura:', e);
+          console.warn('âš ï¸ erro assinatura:', e);
         }
       }
 
@@ -162,7 +103,7 @@ export const webhookMercadoPago = onRequest(
       const mpData = resp.data;
 
       if (!mpData?.status || !mpData?.id) {
-        console.log('❌ PAGAMENTO INVÁLIDO:', mpData);
+        console.log('âŒ PAGAMENTO INVÃLIDO:', mpData);
         res.sendStatus(200);
         return;
       }
@@ -176,7 +117,7 @@ export const webhookMercadoPago = onRequest(
         status === 'authorized' ||
         status === 'accredited';
 
-      console.log('💳 PAGAMENTO MP:', {
+      console.log('ðŸ’³ PAGAMENTO MP:', {
         paymentId,
         paymentType,
         status,
@@ -184,7 +125,7 @@ export const webhookMercadoPago = onRequest(
       });
 
       // =====================================================
-      // 🔵 PIX / BANK TRANSFER
+      // ðŸ”µ PIX / BANK TRANSFER
       // =====================================================
 
       if (paymentType === 'pix' || paymentType === 'bank_transfer') {
@@ -216,7 +157,7 @@ export const webhookMercadoPago = onRequest(
                   });
               }
 
-              console.log('⚠️ SELO STATUS:', status);
+              console.log('âš ï¸ SELO STATUS:', status);
               res.sendStatus(200);
               return;
             }
@@ -227,7 +168,7 @@ export const webhookMercadoPago = onRequest(
             } = pagamentoData;
 
             if (!solicitacaoId || !estabelecimentoId) {
-              console.log('❌ SELO SEM REFERENCIAS');
+              console.log('âŒ SELO SEM REFERENCIAS');
               res.sendStatus(200);
               return;
             }
@@ -267,7 +208,7 @@ export const webhookMercadoPago = onRequest(
 
             await batch.commit();
 
-            console.log('✅ SELO ATIVADO:', estabelecimentoId);
+            console.log('âœ… SELO ATIVADO:', estabelecimentoId);
             res.sendStatus(200);
             return;
           }
@@ -279,7 +220,7 @@ export const webhookMercadoPago = onRequest(
                 atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
               });
 
-              console.log('⚠️ IMPULSIONAMENTO STATUS:', status);
+              console.log('âš ï¸ IMPULSIONAMENTO STATUS:', status);
               res.sendStatus(200);
               return;
             }
@@ -287,7 +228,7 @@ export const webhookMercadoPago = onRequest(
             const estabelecimentoId = pagamentoData.estabelecimentoId;
 
             if (!estabelecimentoId) {
-              console.log('❌ IMPULSIONAMENTO SEM ESTABELECIMENTO');
+              console.log('âŒ IMPULSIONAMENTO SEM ESTABELECIMENTO');
               res.sendStatus(200);
               return;
             }
@@ -328,264 +269,12 @@ export const webhookMercadoPago = onRequest(
                 admin.firestore.FieldValue.serverTimestamp(),
             });
 
-            console.log('⭐ IMPULSIONAMENTO ATIVADO:', estabelecimentoId);
+            console.log('â­ IMPULSIONAMENTO ATIVADO:', estabelecimentoId);
 
             res.sendStatus(200);
             return;
           }
 
-          if (pagamentoData?.tipo === 'ia_simulacao') {
-            const estabelecimentoId = pagamentoData.estabelecimentoId;
-
-            if (!estabelecimentoId) {
-              console.log('IA SEM ESTABELECIMENTO');
-              res.sendStatus(200);
-              return;
-            }
-
-            if (!isApproved) {
-              await pagamentoRef.update({
-                status,
-                atualizadoEm:
-                  admin.firestore.FieldValue.serverTimestamp(),
-              });
-
-              await db
-                .collection('estabelecimentos')
-                .doc(estabelecimentoId)
-                .update({
-                  iaSimulacaoPaymentStatus: status,
-                  atualizadoEm:
-                    admin.firestore.FieldValue.serverTimestamp(),
-                });
-
-              console.log('IA STATUS:', status);
-              res.sendStatus(200);
-              return;
-            }
-
-            const iaConfig = getIAPlanoConfig(pagamentoData.plano);
-            const dias = Number(pagamentoData.dias || 30);
-            const limiteMensal = Number(
-              pagamentoData.limiteMensal ||
-              iaConfig?.limiteMensal ||
-              0
-            );
-            const expira = new Date();
-            expira.setDate(expira.getDate() + dias);
-
-            await db
-              .collection('estabelecimentos')
-              .doc(estabelecimentoId)
-              .update({
-                iaSimulacaoAtiva: true,
-                iaSimulacaoLimiteMensal: limiteMensal,
-                iaSimulacaoPacote:
-                  pagamentoData.pacote ||
-                  iaConfig?.pacote ||
-                  null,
-                iaSimulacaoValor: Number(
-                  pagamentoData.valor ||
-                  iaConfig?.valor ||
-                  0
-                ),
-                iaSimulacaoAtivadoEm:
-                  admin.firestore.FieldValue.serverTimestamp(),
-                iaSimulacaoExpiraEm:
-                  admin.firestore.Timestamp.fromDate(expira),
-                iaSimulacaoPaymentStatus: 'approved',
-                iaSimulacaoPagamentoPendente:
-                  admin.firestore.FieldValue.delete(),
-                atualizadoEm:
-                  admin.firestore.FieldValue.serverTimestamp(),
-              });
-
-            await pagamentoRef.update({
-              status: 'approved',
-              aprovadoEm:
-                admin.firestore.FieldValue.serverTimestamp(),
-              atualizadoEm:
-                admin.firestore.FieldValue.serverTimestamp(),
-            });
-
-            console.log('IA ATIVADA:', estabelecimentoId);
-            res.sendStatus(200);
-            return;
-          }
-
-          if (pagamentoData?.tipo === 'ia_creditos') {
-  const estabelecimentoId =
-    pagamentoData.estabelecimentoId;
-
-  if (!estabelecimentoId) {
-    console.log(
-      'CREDITOS IA SEM ESTABELECIMENTO'
-    );
-
-    res.sendStatus(200);
-    return;
-  }
-
-  const pacote = getIACreditoPacote(
-    pagamentoData.pacote
-  );
-
-  const creditos = Number(
-    pagamentoData.creditos ||
-    pacote?.creditos ||
-    0
-  );
-
-  // ============================================
-  // PAGAMENTO AINDA NÃO APROVADO
-  // ============================================
-
-  if (!isApproved) {
-    await pagamentoRef.update({
-      status,
-
-      atualizadoEm:
-        admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    await db
-      .collection('estabelecimentos')
-      .doc(estabelecimentoId)
-      .update({
-        iaCreditosPaymentStatus: status,
-
-        atualizadoEm:
-          admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-    console.log(
-      'CREDITOS IA STATUS:',
-      status
-    );
-
-    res.sendStatus(200);
-    return;
-  }
-
-  // ============================================
-  // VALIDA QUANTIDADE
-  // ============================================
-
-  if (creditos <= 0) {
-    console.log(
-      'CREDITOS IA INVALIDO:',
-      pagamentoData
-    );
-
-    res.sendStatus(200);
-    return;
-  }
-
-  const estRef = db
-    .collection('estabelecimentos')
-    .doc(estabelecimentoId);
-
-  // ============================================
-  // TRANSAÇÃO
-  // Evita liberar o mesmo pagamento 2x
-  // ============================================
-
-  await db.runTransaction(async transaction => {
-    const pagamentoAtualSnap =
-      await transaction.get(pagamentoRef);
-
-    if (!pagamentoAtualSnap.exists) {
-      throw new Error(
-        'Pagamento de créditos IA não encontrado.'
-      );
-    }
-
-    const pagamentoAtual =
-      pagamentoAtualSnap.data() as any;
-
-    // ============================================
-    // JÁ FOI LIBERADO?
-    // ============================================
-
-    if (
-      pagamentoAtual.creditosLiberados === true
-    ) {
-      console.log(
-        'CREDITOS IA JA LIBERADOS:',
-        paymentId
-      );
-
-      return;
-    }
-
-    // ============================================
-    // LIBERA OS CRÉDITOS
-    // ============================================
-
-    transaction.update(estRef, {
-      iaCreditosDisponiveis:
-        admin.firestore.FieldValue.increment(
-          creditos
-        ),
-
-      iaCreditosComprados:
-        admin.firestore.FieldValue.increment(
-          creditos
-        ),
-
-      iaUltimoPacoteCreditos:
-        pagamentoAtual.pacote ||
-        pacote?.id ||
-        null,
-
-      iaUltimoPagamentoCreditosId:
-        paymentId,
-
-      iaCreditosPaymentStatus:
-        'approved',
-
-      iaCreditosPagamentoPendente:
-        admin.firestore.FieldValue.delete(),
-
-      atualizadoEm:
-        admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    // ============================================
-    // MARCA PAGAMENTO COMO PROCESSADO
-    // ============================================
-
-    transaction.update(pagamentoRef, {
-      status: 'approved',
-
-      creditosLiberados: true,
-
-      quantidadeCreditosLiberados:
-        creditos,
-
-      aprovadoEm:
-        admin.firestore.FieldValue.serverTimestamp(),
-
-      creditosLiberadosEm:
-        admin.firestore.FieldValue.serverTimestamp(),
-
-      atualizadoEm:
-        admin.firestore.FieldValue.serverTimestamp(),
-    });
-  });
-
-  console.log(
-    'CREDITOS IA APROVADOS:',
-    {
-      estabelecimentoId,
-      creditos,
-      paymentId,
-    }
-  );
-
-  res.sendStatus(200);
-  return;
-}
 
           if (
             pagamentoData?.tipo === 'agendamento' ||
@@ -700,10 +389,10 @@ export const webhookMercadoPago = onRequest(
           .limit(1)
           .get();
 
-        console.log('📄 PIX ASSINATURA DOCS ENCONTRADOS:', snap.size);
+        console.log('ðŸ“„ PIX ASSINATURA DOCS ENCONTRADOS:', snap.size);
 
         if (snap.empty) {
-          console.log('⚠️ PIX NÃO ENCONTRADO:', paymentId);
+          console.log('âš ï¸ PIX NÃƒO ENCONTRADO:', paymentId);
           res.sendStatus(200);
           return;
         }
@@ -715,7 +404,7 @@ export const webhookMercadoPago = onRequest(
           data?.webhookProcessedPix === paymentId &&
           data?.paymentStatus === 'approved'
         ) {
-          console.log('⚠️ PIX DUPLICADO IGNORADO:', paymentId);
+          console.log('âš ï¸ PIX DUPLICADO IGNORADO:', paymentId);
           res.sendStatus(200);
           return;
         }
@@ -723,10 +412,6 @@ export const webhookMercadoPago = onRequest(
         if (isApproved) {
           const planoFinal = data?.planoPendente ?? data?.plano;
           const elite = isElite(planoFinal);
-          const iaConfig = getIAPlanoConfig(planoFinal);
-
-          const iaAtiva =
-            data?.iaSimulacaoPendente === true && !!iaConfig;
 
           await ref.update({
             plano: planoFinal,
@@ -744,26 +429,6 @@ export const webhookMercadoPago = onRequest(
 
             destaqueBasicoAtivo: elite,
             destaqueBasicoOrigem: elite ? 'plano_elite' : null,
-
-            iaSimulacaoAtiva:
-              iaAtiva ? true : data?.iaSimulacaoAtiva === true,
-            iaSimulacaoLimiteMensal:
-              iaAtiva ? iaConfig!.limiteMensal : Number(data?.iaSimulacaoLimiteMensal || 0),
-            iaSimulacaoPacote:
-              iaAtiva ? iaConfig!.pacote : data?.iaSimulacaoPacote || null,
-            iaSimulacaoValor:
-              iaAtiva ? iaConfig!.valor : Number(data?.iaSimulacaoValor || 0),
-            iaSimulacaoExpiraEm:
-              iaAtiva
-                ? admin.firestore.Timestamp.fromDate(
-                    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-                  )
-                : data?.iaSimulacaoExpiraEm || null,
-            iaSimulacaoAtivadoEm:
-              iaAtiva
-                ? admin.firestore.FieldValue.serverTimestamp()
-                : data?.iaSimulacaoAtivadoEm || null,
-            iaSimulacaoPendente: admin.firestore.FieldValue.delete(),
 
             paymentStatus: 'approved',
             paymentType: 'pix',
@@ -792,7 +457,7 @@ export const webhookMercadoPago = onRequest(
             });
           }
 
-          console.log('✅ PIX ASSINATURA APROVADO:', paymentId);
+          console.log('âœ… PIX ASSINATURA APROVADO:', paymentId);
         } else {
           await ref.update({
             pixStatus: status,
@@ -810,7 +475,7 @@ export const webhookMercadoPago = onRequest(
             });
           }
 
-          console.log('⚠️ PIX ASSINATURA STATUS:', status);
+          console.log('âš ï¸ PIX ASSINATURA STATUS:', status);
         }
 
         res.sendStatus(200);
@@ -818,7 +483,7 @@ export const webhookMercadoPago = onRequest(
       }
 
       // =====================================================
-      // 🟡 CARTÃO ASSINATURA
+      // ðŸŸ¡ CARTÃƒO ASSINATURA
       // =====================================================
 
       if (paymentType === 'credit_card') {
@@ -827,7 +492,7 @@ export const webhookMercadoPago = onRequest(
         ).trim();
 
         if (!estabelecimentoId) {
-          console.log('❌ external_reference AUSENTE');
+          console.log('âŒ external_reference AUSENTE');
           res.sendStatus(200);
           return;
         }
@@ -839,7 +504,7 @@ export const webhookMercadoPago = onRequest(
         const snap = await ref.get();
 
         if (!snap.exists) {
-          console.log('❌ estabelecimento NÃO EXISTE:', estabelecimentoId);
+          console.log('âŒ estabelecimento NÃƒO EXISTE:', estabelecimentoId);
           res.sendStatus(200);
           return;
         }
@@ -850,7 +515,7 @@ export const webhookMercadoPago = onRequest(
           data?.pagamentoId === paymentId &&
           data?.paymentStatus === 'approved'
         ) {
-          console.log('⚠️ CARTÃO DUPLICADO IGNORADO:', paymentId);
+          console.log('âš ï¸ CARTÃƒO DUPLICADO IGNORADO:', paymentId);
           res.sendStatus(200);
           return;
         }
@@ -858,10 +523,6 @@ export const webhookMercadoPago = onRequest(
         if (isApproved) {
           const planoFinal = data?.planoPendente ?? data?.plano;
           const elite = isElite(planoFinal);
-          const iaConfig = getIAPlanoConfig(planoFinal);
-
-          const iaAtiva =
-            data?.iaSimulacaoPendente === true && !!iaConfig;
 
           await ref.update({
             plano: planoFinal,
@@ -879,26 +540,6 @@ export const webhookMercadoPago = onRequest(
 
             destaqueBasicoAtivo: elite,
             destaqueBasicoOrigem: elite ? 'plano_elite' : null,
-
-            iaSimulacaoAtiva:
-              iaAtiva ? true : data?.iaSimulacaoAtiva === true,
-            iaSimulacaoLimiteMensal:
-              iaAtiva ? iaConfig!.limiteMensal : Number(data?.iaSimulacaoLimiteMensal || 0),
-            iaSimulacaoPacote:
-              iaAtiva ? iaConfig!.pacote : data?.iaSimulacaoPacote || null,
-            iaSimulacaoValor:
-              iaAtiva ? iaConfig!.valor : Number(data?.iaSimulacaoValor || 0),
-            iaSimulacaoExpiraEm:
-              iaAtiva
-                ? admin.firestore.Timestamp.fromDate(
-                    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-                  )
-                : data?.iaSimulacaoExpiraEm || null,
-            iaSimulacaoAtivadoEm:
-              iaAtiva
-                ? admin.firestore.FieldValue.serverTimestamp()
-                : data?.iaSimulacaoAtivadoEm || null,
-            iaSimulacaoPendente: admin.firestore.FieldValue.delete(),
 
             paymentStatus: 'approved',
             paymentType: 'credit_card',
@@ -932,7 +573,7 @@ export const webhookMercadoPago = onRequest(
             });
           }
 
-          console.log('✅ CARTÃO APROVADO:', paymentId);
+          console.log('âœ… CARTÃƒO APROVADO:', paymentId);
         } else {
           await ref.update({
             paymentStatus: status,
@@ -957,18 +598,18 @@ export const webhookMercadoPago = onRequest(
             });
           }
 
-          console.log('⚠️ CARTÃO STATUS:', status);
+          console.log('âš ï¸ CARTÃƒO STATUS:', status);
         }
 
         res.sendStatus(200);
         return;
       }
 
-      console.log('⚠️ PAYMENT TYPE NÃO TRATADO:', paymentType);
+      console.log('âš ï¸ PAYMENT TYPE NÃƒO TRATADO:', paymentType);
       res.sendStatus(200);
     } catch (error: any) {
       console.error(
-        '🔥 WEBHOOK ERROR:',
+        'ðŸ”¥ WEBHOOK ERROR:',
         error?.response?.data || error
       );
 

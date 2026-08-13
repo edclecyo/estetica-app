@@ -3,6 +3,7 @@ import { NavigationContainer, NavigationContainerRef } from '@react-navigation/n
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, ActivityIndicator, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useAuth } from '../contexts/AuthContext';
 import { configurarAberturaPorNotificacao } from '../services/notificacao.service';
 
@@ -16,8 +17,6 @@ import AvaliarScreen from '../screens/AvaliarScreen';
 import NotificacoesCliente from '../screens/NotificacoesCliente';
 import StoryView from '../screens/StoryView';
 import PagamentoClienteScreen from '../screens/PagamentoClienteScreen';
-import AISimulacaoScreen from '../screens/AISimulacaoScreen';
-import IACameraScreen from '../screens/IACameraScreen';
 
 // Telas Admin
 import AdminLoginScreen from '../screens/AdminLoginScreen';
@@ -33,7 +32,6 @@ import SeloVerificacaoScreen from '../screens/SeloVerificacaoScreen';
 import SeloPagamentoScreen from '../screens/SeloPagamentoScreen';
 import ImpulsionarScreen from '../screens/ImpulsionarScreen';
 import RelatorioFinanceiroScreen from '../screens/RelatorioFinanceiroScreen';
-import IADemoScreen from '../screens/IADemoScreen';
 import SimulacaoDivulgacaoScreen from '../screens/SimulacaoDivulgacaoScreen';
 
 // Telas Super Admin
@@ -83,7 +81,7 @@ function HomeTabs() {
         component={HomeScreen}
         options={{
           tabBarLabel: 'Início',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🏠</Text>,
+          tabBarIcon: ({ color }) => <Icon name="home-variant-outline" size={23} color={color} />,
         }}
       />
       <Tab.Screen
@@ -91,7 +89,7 @@ function HomeTabs() {
         component={AgendamentosScreen}
         options={{
           tabBarLabel: 'Meus Horários',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📅</Text>,
+          tabBarIcon: ({ color }) => <Icon name="calendar-clock-outline" size={23} color={color} />,
         }}
       />
     </Tab.Navigator>
@@ -182,7 +180,7 @@ export default function Navigation() {
             <Stack.Screen name="SuperAdminEstabs" component={SuperAdminEstabsScreen} />
             <Stack.Screen name="SuperAdminNotif" component={SuperAdminNotifScreen} />
             <Stack.Screen name="SuperAdminFinance" component={SuperAdminFinanceScreen} />
-            {/* ✅ Acesso ao login caso precise trocar de conta */}
+            {/* Acesso ao login caso precise trocar de conta */}
             <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
           </Stack.Group>
 
@@ -204,14 +202,9 @@ export default function Navigation() {
 			   <Stack.Screen name="SeloVerificacaoScreen" component={SeloVerificacaoScreen}/>
 			   <Stack.Screen name="SeloPagamentoScreen" component={SeloPagamentoScreen}/>
 			   <Stack.Screen name="ImpulsionarScreen" component={ImpulsionarScreen}/>
-			   <Stack.Screen
+<Stack.Screen
   name="RelatorioFinanceiroScreen"
   component={RelatorioFinanceiroScreen}
-  options={{ headerShown: false }}
-/>
-<Stack.Screen
-  name="IADemoScreen"
-  component={IADemoScreen}
   options={{ headerShown: false }}
 />
 <Stack.Screen
@@ -233,18 +226,6 @@ export default function Navigation() {
             <Stack.Screen name="NotificacoesCliente" component={NotificacoesCliente} />
             <Stack.Screen name="StoryView" component={StoryView} />
 			<Stack.Screen name="PagamentoCliente" component={PagamentoClienteScreen}/>
-			<Stack.Screen
-  name="AISimulacaoScreen"
-  component={AISimulacaoScreen}
-  options={{ headerShown: false }}
-/>
-<Stack.Screen
-  name="IACameraScreen"
-  component={IACameraScreen}
-  options={{
-    headerShown: false,
-  }}
-/>
           </Stack.Group>
         )}
 

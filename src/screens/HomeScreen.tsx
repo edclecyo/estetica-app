@@ -25,30 +25,30 @@ const TIPOS = [
 ];
 
 const TIPO_ICONS: Record<string, string> = {
-  Todos: '✦',
-  'Salão de Beleza': '✂️',
-  'Barbearia Premium': '💈',
-  'Espaço de Unhas': '💅',
-  'Manicure & Pedicure': '🎨',
-  'Clínica de Estética': '🏥',
-  'Estética Avançada': '🧬',
-  'Spa & Relaxamento': '🧖‍♀️',
-  'Especialista em Cabelos': '💇‍♀️',
-  'Terapia Capilar': '🧴',
-  'Estúdio de Maquiagem': '💄',
-  'Design de Sobrancelhas': '📐',
-  'Extensão de Cílios': '👁️',
-  Micropigmentação: '✒️',
-  'Depilação a Laser': '⚡',
-  'Depilação com Cera': '🍯',
-  'Estúdio de Tatuagem': '🎨',
-  'Body Piercing': '💎',
-  Massoterapia: '💆‍♂️',
-  'Bronzeamento Artificial': '☀️',
-  Podologia: '👣',
-  'Harmonização Facial': '✨',
-  'Estúdio de Yoga': '🧘',
-  'Centro Holístico': '🌿',
+  Todos: 'apps',
+  'Salão de Beleza': 'content-cut',
+  'Barbearia Premium': 'razor-double-edge',
+  'Espaço de Unhas': 'hand-heart-outline',
+  'Manicure & Pedicure': 'palette-outline',
+  'Clínica de Estética': 'hospital-building',
+  'Estética Avançada': 'star-four-points-outline',
+  'Spa & Relaxamento': 'spa-outline',
+  'Especialista em Cabelos': 'hair-dryer-outline',
+  'Terapia Capilar': 'bottle-tonic-outline',
+  'Estúdio de Maquiagem': 'lipstick',
+  'Design de Sobrancelhas': 'eyebrow',
+  'Extensão de Cílios': 'eye-outline',
+  Micropigmentação: 'draw-pen',
+  'Depilação a Laser': 'flash-outline',
+  'Depilação com Cera': 'water-outline',
+  'Estúdio de Tatuagem': 'needle',
+  'Body Piercing': 'diamond-stone',
+  Massoterapia: 'hand-heart-outline',
+  'Bronzeamento Artificial': 'weather-sunny',
+  Podologia: 'foot-print',
+  'Harmonização Facial': 'face-woman-shimmer-outline',
+  'Estúdio de Yoga': 'meditation',
+  'Centro Holístico': 'leaf',
 };
 
 const GOLD_GRADIENT = ['#C9A96E', '#F0D080', '#A07040'];
@@ -64,7 +64,7 @@ const SeloVerificado = React.memo(({ size = 20 }: { size?: number }) => (
   />
 ));
 
-function FotoVerificada({ uri, emoji, size = 68 }: { uri?: string | null; emoji?: string; size?: number }) {
+function FotoVerificada({ uri, iconName, size = 68 }: { uri?: string | null; iconName?: string; size?: number }) {
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -113,9 +113,7 @@ function FotoVerificada({ uri, emoji, size = 68 }: { uri?: string | null; emoji?
           }}
         />
       ) : (
-        <Text style={{ fontSize: size * 0.4 }}>
-          {emoji || '🏢'}
-        </Text>
+        <Icon name={iconName || 'store-outline'} size={size * 0.45} color={GOLD} />
       )}
     </Animated.View>
   );
@@ -359,11 +357,13 @@ function VerificadosSection({
               }
             >
               <View style={sv.fotoContainer}>
-                <FotoVerificada uri={imagemUri} emoji={item.img} size={68} />
+                <FotoVerificada uri={imagemUri} iconName={TIPO_ICONS[item.tipo] || 'store-outline'} size={68} />
                 <View style={sv.seloWrap}>
-  <Text style={{ fontSize: 13 }}>
-    {item.destaqueAtivo ? '⭐' : '👑'}
-  </Text>
+  <Icon
+    name={item.destaqueAtivo ? 'star' : 'crown-outline'}
+    size={14}
+    color="#000"
+  />
 </View>
               </View>
 
@@ -423,7 +423,7 @@ function VerificadosSection({
 
               {item.avaliacao > 0 && (
                 <View style={sv.ratingRow}>
-                  <Text style={sv.ratingStar}>★</Text>
+                  <Icon name="star" size={13} color={GOLD} />
                   <Text style={sv.ratingVal}>
                     {item.avaliacao.toFixed(1)}
                   </Text>
@@ -432,7 +432,8 @@ function VerificadosSection({
 
               {item.plano === 'elite' && (
                 <View style={sv.eliteBadge}>
-                  <Text style={sv.eliteText}>👑 Elite</Text>
+                  <Icon name="crown-outline" size={12} color={GOLD} />
+                  <Text style={sv.eliteText}>Elite</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -641,17 +642,13 @@ export default function HomeScreen() {
   const renderStars = useCallback((rating: number) => (
     <View style={s.starsRow}>
       {[1, 2, 3, 4, 5].map(star => (
-        <Text
+        <Icon
           key={star}
-          style={[
-            s.starIcon,
-            {
-              color: star <= Math.round(rating || 5) ? GOLD : '#444',
-            },
-          ]}
-        >
-          ★
-        </Text>
+          name="star"
+          size={13}
+          color={star <= Math.round(rating || 5) ? GOLD : '#444'}
+          style={s.starIcon}
+        />
       ))}
     </View>
   ), []);
@@ -755,9 +752,11 @@ export default function HomeScreen() {
                 {imagemUri && imagemUri.startsWith('http') ? (
                   <Image source={{ uri: imagemUri }} style={s.circleImage} />
                 ) : (
-                  <Text style={s.cardEmojiLarge}>
-                    {item.img || '🏢'}
-                  </Text>
+                  <Icon
+                    name={TIPO_ICONS[item.tipo] || 'store-outline'}
+                    size={42}
+                    color={item.cor || GOLD}
+                  />
                 )}
               </View>
             </View>
@@ -774,9 +773,12 @@ export default function HomeScreen() {
     )}
   </View>
 
-  <Text style={s.miniIcon}>
-    {TIPO_ICONS[item.tipo] || '✨'}
-  </Text>
+  <Icon
+    name={TIPO_ICONS[item.tipo] || 'store-outline'}
+    size={19}
+    color={item.cor || GOLD}
+    style={s.miniIcon}
+  />
 
   <Text
     style={[
@@ -887,8 +889,8 @@ export default function HomeScreen() {
           <View style={{ flex: 1 }}>
             <Text style={s.headerSub}>
               {user
-                ? `Olá, ${user.displayName?.split(' ')[0] || user.email?.split('@')[0]} 👋`
-                : 'Bem-vindo 👋'}
+                ? `Olá, ${user.displayName?.split(' ')[0] || user.email?.split('@')[0]}`
+                : 'Bem-vindo'}
             </Text>
 
             <Text style={s.headerTitulo}>
@@ -1026,9 +1028,12 @@ export default function HomeScreen() {
                         onPress={() => setFiltro(t)}
                         style={[s.chip, { backgroundColor: 'transparent' }]}
                       >
-                        <Text style={s.chipIcon}>
-                          {TIPO_ICONS[t] || '✦'}
-                        </Text>
+                        <Icon
+                          name={TIPO_ICONS[t] || 'apps'}
+                          size={17}
+                          color="#000"
+                          style={s.chipIcon}
+                        />
 
                         <Text
                           style={[
@@ -1050,9 +1055,12 @@ export default function HomeScreen() {
                       onPress={() => setFiltro(t)}
                       style={s.chip}
                     >
-                      <Text style={s.chipIcon}>
-                        {TIPO_ICONS[t] || '✦'}
-                      </Text>
+                      <Icon
+                        name={TIPO_ICONS[t] || 'apps'}
+                        size={17}
+                        color="#CCC"
+                        style={s.chipIcon}
+                      />
 
                       <Text style={s.chipText}>
                         {t}
@@ -1085,17 +1093,16 @@ const sv = StyleSheet.create({
   scroll: { gap: 12, paddingRight: 4 },
   card: { width: 148, backgroundColor: '#111', borderRadius: 20, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#222' },
   fotoContainer: { position: 'relative', marginBottom: 10, alignItems: 'center', justifyContent: 'center' },
-  seloWrap: { position: 'absolute', bottom: -4, right: -4, backgroundColor: '#111', borderRadius: 14, padding: 2, borderWidth: 1.5, borderColor: '#111' },
+  seloWrap: { position: 'absolute', bottom: -4, right: -4, backgroundColor: GOLD, borderRadius: 14, padding: 3, borderWidth: 1.5, borderColor: '#111' },
   nome: { color: '#FFF', fontSize: 13, fontWeight: '700', textAlign: 'center', marginBottom: 3 },
   tipo: { color: '#555', fontSize: 10, textAlign: 'center', marginBottom: 8 },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, marginBottom: 8 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusTxt: { fontSize: 10, fontWeight: '700' },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  ratingStar: { color: GOLD, fontSize: 12 },
   
   ratingVal: { color: GOLD, fontSize: 11, fontWeight: '700' },
-  eliteBadge: { backgroundColor: 'rgba(156,39,176,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, marginTop: 4 },
+  eliteBadge: { backgroundColor: 'rgba(201,169,110,0.18)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 3 },
   eliteText: { color: '#9C27B0', fontSize: 9, fontWeight: '800' },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 5, marginTop: 10 },
   dot: { width: 6, height: 6, borderRadius: 3 },
@@ -1190,7 +1197,7 @@ const s = StyleSheet.create({
   cardBodyCentral: { paddingHorizontal: 16, paddingBottom: 8, alignItems: 'center' },
   nomeIconRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' },
   cardNome: { fontSize: 20, fontWeight: '800', color: '#FFF', textAlign: 'center', flexShrink: 1 },
-  miniIcon: { fontSize: 18 },
+  miniIcon: { alignSelf: 'center', marginBottom: 2 },
   cardTipo: { fontSize: 12, marginTop: 2, textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: '600' },
   statusRowCentral: { flexDirection: 'row', alignItems: 'center', marginTop: 10, flexWrap: 'wrap', justifyContent: 'center' },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
@@ -1200,7 +1207,7 @@ const s = StyleSheet.create({
   distanciaInfoSub: { fontSize: 12, color: '#888', fontWeight: '500' },
   ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
   starsRow: { flexDirection: 'row' },
-  starIcon: { fontSize: 16, marginHorizontal: 1 },
+  starIcon: { marginHorizontal: 1 },
   avaliacaoNumero: { color: '#888', fontSize: 13, marginLeft: 8, fontWeight: '700' },
   cardBtn: { marginHorizontal: 24, marginBottom: 20, marginTop: 12, borderRadius: 16, padding: 16, alignItems: 'center' },
   cardBtnText: { fontWeight: '800', fontSize: 15, textTransform: 'uppercase', letterSpacing: 0.5 },

@@ -1,4 +1,4 @@
-import React, { useEffect, useState,useRef } from 'react';
+﻿import React, { useEffect, useState,useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   TextInput, StyleSheet, ActivityIndicator, Alert, Linking, Image,
@@ -11,7 +11,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { Estabelecimento } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
-import Icon from 'react-native-vector-icons/FontAwesome';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import SeloVerificado from '../assets/selo_verificado.png';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -113,6 +113,19 @@ const horarioDisponivelCompleto = (
 
   return true;
 };
+
+const getServicoFotoUri = (servico: any): string => {
+  const uri =
+    servico?.foto ||
+    servico?.fotoUrl ||
+    servico?.imagem ||
+    servico?.imageUrl ||
+    servico?.urlFoto ||
+    '';
+
+  return typeof uri === 'string' && uri.startsWith('http') ? uri : '';
+};
+
 const BannerMedia = ({ data, style }: { data: any, style: any }) => {
   const [imgErro, setImgErro] = useState(false);
 
@@ -134,9 +147,7 @@ const BannerMedia = ({ data, style }: { data: any, style: any }) => {
 
   return (
     <View style={style}>
-      <Text style={{ textAlign: 'center' }}>
-        {data?.img || '🏢'}
-      </Text>
+      <Icon name="storefront-outline" size={30} color="#C9A96E" />
     </View>
   );
 };
@@ -281,7 +292,7 @@ return () => unsub();
 
 }, [dataSel, estabelecimentoId]);
 
-// 🔥 serviço selecionado
+// serviço selecionado
 const servicoObj = estab?.servicos?.find(
   s => s.nome === servicoSel
 );
@@ -479,7 +490,7 @@ const semHorarios = todosHorarios.every(h => {
 
         {/* TOPO */}
         <View style={s.confirmCircle}>
-          <Text style={s.confirmEmoji}>🎉</Text>
+          <Icon name="check-decagram-outline" size={44} color="#C9A96E" />
         </View>
 
         <Text style={s.confirmTitulo}>
@@ -516,7 +527,7 @@ const semHorarios = todosHorarios.every(h => {
 <View style={s.confirmLinha}>
   <View style={s.confirmIconWrap}>
     <Icon
-      name="user"
+      name="account-outline"
       size={14}
       color="#C9A96E"
     />
@@ -535,7 +546,7 @@ const semHorarios = todosHorarios.every(h => {
           <View style={s.confirmLinha}>
             <View style={s.confirmIconWrap}>
               <Icon
-                name="scissors"
+                name="content-cut"
                 size={14}
                 color="#C9A96E"
               />
@@ -555,7 +566,7 @@ const semHorarios = todosHorarios.every(h => {
           <View style={s.confirmLinha}>
             <View style={s.confirmIconWrap}>
               <Icon
-                name="calendar"
+                name="calendar-month-outline"
                 size={14}
                 color="#C9A96E"
               />
@@ -575,7 +586,7 @@ const semHorarios = todosHorarios.every(h => {
           <View style={s.confirmLinha}>
             <View style={s.confirmIconWrap}>
               <Icon
-                name="clock-o"
+                name="clock-outline"
                 size={14}
                 color="#C9A96E"
               />
@@ -595,7 +606,7 @@ const semHorarios = todosHorarios.every(h => {
           <View style={s.confirmLinha}>
             <View style={s.confirmIconWrap}>
               <Icon
-                name="credit-card"
+                name="credit-card-outline"
                 size={14}
                 color="#C9A96E"
               />
@@ -625,7 +636,7 @@ const semHorarios = todosHorarios.every(h => {
           </Text>
         </View>
 
-        {/* BOTÃO */}
+        {/* BOTAO */}
         <TouchableOpacity
           activeOpacity={0.9}
           style={s.btnPrimario}
@@ -691,25 +702,6 @@ const semHorarios = todosHorarios.every(h => {
       >
   <View style={s.body}>
 
-    {(estab?.assinaturaAtiva === true || estab?.plano === 'trial') &&
-      (estab as any)?.iaSimulacaoAtiva === true && (
-        <TouchableOpacity
-          style={s.iaBtn}
-          onPress={() =>
-            navigation.navigate('AISimulacaoScreen', {
-              estabelecimentoId: estab.id,
-            })
-          }
-        >
-          <Text style={s.iaBtnText}>
-            ✨ Simular resultado com IA
-          </Text>
-
-          <Text style={s.iaBtnSub}>
-            Veja uma prévia antes de agendar
-          </Text>
-        </TouchableOpacity>
-    )}
 
     {profissionaisAtivos.length > 0 && (
       <View style={s.secao}>
@@ -757,7 +749,7 @@ const semHorarios = todosHorarios.every(h => {
           onPress={() => setMostrarInfoEstab(prev => !prev)}
           style={s.infoResumoBtn}
         >
-          <Text style={s.infoResumoText}>{mostrarInfoEstab ? '− Informações' : '+ Informações'}</Text>
+          <Text style={s.infoResumoText}>{mostrarInfoEstab ? '- Informações' : '+ Informações'}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -765,8 +757,18 @@ const semHorarios = todosHorarios.every(h => {
     {mostrarInfoEstab && (
       <View style={s.infoResumoBox}>
         {!!estab?.descricao && <Text style={s.infoResumoDesc}>{estab.descricao}</Text>}
-        {!!estab?.endereco && <Text style={s.infoResumoLinha}>📍 {estab.endereco}{estab.numero ? `, ${estab.numero}` : ''}</Text>}
-        {!!estab?.horarioFuncionamento && <Text style={s.infoResumoLinha}>⏰ {estab.horarioFuncionamento}</Text>}
+        {!!estab?.endereco && (
+          <View style={s.infoResumoIconLinha}>
+            <Icon name="map-marker-outline" size={15} color="#777" />
+            <Text style={s.infoResumoLinha}>{estab.endereco}{estab.numero ? `, ${estab.numero}` : ''}</Text>
+          </View>
+        )}
+        {!!estab?.horarioFuncionamento && (
+          <View style={s.infoResumoIconLinha}>
+            <Icon name="clock-outline" size={15} color="#777" />
+            <Text style={s.infoResumoLinha}>{estab.horarioFuncionamento}</Text>
+          </View>
+        )}
       </View>
     )}
 
@@ -803,8 +805,8 @@ const semHorarios = todosHorarios.every(h => {
           <Text style={s.sinalDetalheTitulo}>Reserva com sinal</Text>
           <Text style={s.sinalDetalheDesc}>
             {valorServicoSelecionado > 0
-              ? `Para reservar este horario, pague 50% agora: R$ ${valorSinal.toFixed(2).replace('.', ',')}. O restante fica para o dia do atendimento.`
-              : 'Escolha um servico para ver o valor do sinal antes de reservar.'}
+              ? `Para reservar este horário, pague 50% agora: R$ ${valorSinal.toFixed(2).replace('.', ',')}. O restante fica para o dia do atendimento.`
+              : 'Escolha um serviço para ver o valor do sinal antes de reservar.'}
           </Text>
         </View>
       </View>
@@ -823,16 +825,29 @@ const semHorarios = todosHorarios.every(h => {
 
           <View style={s.secao}>
             <Text style={s.secaoTitulo}>Serviço</Text>
-            {svcsAtivos.map(sv => (
+            {svcsAtivos.map(sv => {
+              const fotoServico = getServicoFotoUri(sv);
+
+              return (
               <TouchableOpacity key={sv.id} onPress={() => { setServicoSel(sv.nome); setStep(Math.max(step, 2)); }} style={[s.servicoCard, servicoSel === sv.nome && s.servicoCardAtivo]}>
-                {(sv as any).foto ? <Image source={{ uri: (sv as any).foto }} style={s.servicoFoto} /> : <View style={s.servicoFotoPlaceholder}><Text>💆</Text></View>}
+                {fotoServico ? (
+                  <Image source={{ uri: fotoServico }} style={s.servicoFoto} />
+                ) : (
+                  <View style={s.servicoFotoPlaceholder}>
+                    <Icon name="hand-heart-outline" size={24} color={servicoSel === sv.nome ? '#C9A96E' : '#777'} />
+                  </View>
+                )}
                 <View style={s.servicoLeft}>
                   <Text style={[s.servicoNome, servicoSel === sv.nome && { color: '#fff' }]}>{sv.nome}</Text>
-                  <Text style={[s.servicoDur, servicoSel === sv.nome && { color: '#aaa' }]}>⏱ {sv.duracao} min</Text>
+                  <View style={s.servicoDurRow}>
+                    <Icon name="clock-outline" size={13} color={servicoSel === sv.nome ? '#aaa' : '#888'} />
+                    <Text style={[s.servicoDur, servicoSel === sv.nome && { color: '#aaa' }]}>{sv.duracao} min</Text>
+                  </View>
                 </View>
                 <View style={[s.servicoPrecoBox, servicoSel === sv.nome && { backgroundColor: '#C9A96E' }]}><Text style={[s.servicoPreco, servicoSel === sv.nome && { color: '#1A1A1A' }]}>R${sv.preco}</Text></View>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
 
           {step >= 2 && (
@@ -918,9 +933,9 @@ const semHorarios = todosHorarios.every(h => {
       >
         {h}
 
-        {ocupado && ' 🔒'}
+        {ocupado && ' Bloqueado'}
 
-        {jaPassou && !ocupado && ' ⏰'}
+        {jaPassou && !ocupado && ' Passou'}
       </Text>
     </TouchableOpacity>
   );
@@ -930,7 +945,7 @@ const semHorarios = todosHorarios.every(h => {
           )}
 {semHorarios && (
   <View style={s.semHorarioCard}>
-    <Text style={s.semHorarioEmoji}>😕</Text>
+    <Icon name="calendar-remove-outline" size={34} color="#C9A96E" />
 
     <Text style={s.semHorarioTitulo}>
       Ops! Sem horários disponíveis
@@ -947,7 +962,10 @@ const semHorarios = todosHorarios.every(h => {
               <View style={s.secao}>
                 <Text style={s.secaoTitulo}>Seu nome</Text>
                 {nomeUsuario ? (
-                  <View style={s.nomeLogadoWrap}><Text style={s.nomeLogadoIc}>👤</Text><Text style={s.nomeLogadoTxt}>{nomeUsuario}</Text></View>
+                  <View style={s.nomeLogadoWrap}>
+                    <Icon name="account-outline" size={20} color="#C9A96E" />
+                    <Text style={s.nomeLogadoTxt}>{nomeUsuario}</Text>
+                  </View>
                 ) : (
                   <TextInput style={s.input} placeholder="Nome completo" value={nome} onChangeText={setNome} />
                 )}
@@ -956,34 +974,30 @@ const semHorarios = todosHorarios.every(h => {
              <View style={s.resumoFinalCard}>
   <Text style={s.resumoFinalTitulo}>Resumo do Agendamento</Text>
 
-  {/* 👤 CLIENTE */}
   <View style={s.resumoFinalLinha}>
-    <Icon name="user" size={16} color="#C9A96E" />
+    <Icon name="account-outline" size={16} color="#C9A96E" />
     <Text style={s.resumoFinalTexto}>
       {nomeUsuario || nome}
     </Text>
   </View>
 
-  {/* 💆 SERVIÇO */}
   <View style={s.resumoFinalLinha}>
-    <Icon name="check-circle" size={16} color="#C9A96E" />
+    <Icon name="content-cut" size={16} color="#C9A96E" />
     <Text style={s.resumoFinalTexto}>
-      {servicoSel} — R$
+      {servicoSel} - R$
       {estab?.servicos?.find(s => s.nome === servicoSel)?.preco}
     </Text>
   </View>
 
-  {/* 📅 DATA/HORA */}
   <View style={s.resumoFinalLinha}>
-    <Icon name="calendar" size={16} color="#C9A96E" />
+    <Icon name="calendar-month-outline" size={16} color="#C9A96E" />
     <Text style={s.resumoFinalTexto}>
       {dataSel?.dia}, {dataSel?.numero} de {dataSel?.mes} às {horarioSel}
     </Text>
   </View>
 
-  {/* 💳 PAGAMENTO (🔥 NOVO) */}
   <View style={s.resumoFinalLinha}>
-    <Icon name="credit-card" size={16} color="#C9A96E" />
+    <Icon name="credit-card-outline" size={16} color="#C9A96E" />
     <Text style={s.resumoFinalTexto}>
       {formaPagamento === 'sinal'
         ? `Sinal agora: R$ ${valorSinal.toFixed(2).replace('.', ',')}`
@@ -1002,7 +1016,7 @@ const semHorarios = todosHorarios.every(h => {
       </View>
 
       <Text style={s.resumoFinalObs}>
-        O horario so e confirmado depois da aprovacao do PIX. Se precisar cancelar ou remarcar, avise o estabelecimento com antecedencia. Em caso de ausencia no dia, o sinal pode ficar com o estabelecimento pelo horario reservado.
+        O horário só é confirmado depois da aprovação do PIX. Se precisar cancelar ou remarcar, avise o estabelecimento com antecedência. Em caso de ausência no dia, o sinal pode ficar com o estabelecimento pelo horário reservado.
       </Text>
     </>
   )}
@@ -1042,16 +1056,18 @@ const semHorarios = todosHorarios.every(h => {
       !podePagarNoApp && { opacity: 0.4 }
     ]}
   >
-    <Text style={s.pagamentoTitulo}>💳 Pagar agora</Text>
+    <View style={s.pagamentoTituloRow}>
+      <Icon name="credit-card-outline" size={18} color="#1A1A1A" />
+      <Text style={s.pagamentoTitulo}>Pagar agora</Text>
+    </View>
 
     <Text style={s.pagamentoDesc}>
       {podePagarNoApp
         ? 'Pagamento completo pelo app.'
-        : 'Pagamento completo pelo app disponivel apenas em estabelecimentos Pro ou Elite com PIX e WhatsApp cadastrados.'}
+        : 'Pagamento completo pelo app disponível apenas em estabelecimentos Pro ou Elite com PIX e WhatsApp cadastrados.'}
     </Text>
   </TouchableOpacity>
 
-  {/* 🏢 PAGAR NO LOCAL (SEMPRE LIBERADO) */}
   <TouchableOpacity
     disabled={sinalFestivoAtivo}
     onPress={() => setFormaPagamento('local')}
@@ -1061,12 +1077,15 @@ const semHorarios = todosHorarios.every(h => {
       sinalFestivoAtivo && { opacity: 0.4 }
     ]}
   >
-    <Text style={s.pagamentoTitulo}>🏢 Pagar no local</Text>
+    <View style={s.pagamentoTituloRow}>
+      <Icon name="storefront-outline" size={18} color="#1A1A1A" />
+      <Text style={s.pagamentoTitulo}>Pagar no local</Text>
+    </View>
 
     <Text style={s.pagamentoDesc}>
       {sinalFestivoAtivo
-        ? 'Neste periodo, a reserva e feita somente com sinal de 50%.'
-        : 'Pague apos o atendimento diretamente no estabelecimento'}
+        ? 'Neste período, a reserva é feita somente com sinal de 50%.'
+        : 'Pague após o atendimento diretamente no estabelecimento'}
     </Text>
   </TouchableOpacity>
 </View>
@@ -1245,6 +1264,7 @@ confirmAlertText: {
   infoResumoText: { color: '#C9A96E', fontSize: 14, fontWeight: '900' },
   infoResumoBox: { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginTop: -6, marginBottom: 18, borderWidth: 1, borderColor: '#EFE7D6' },
   infoResumoDesc: { color: '#444', fontSize: 13, lineHeight: 20, marginBottom: 8 },
+  infoResumoIconLinha: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   infoResumoLinha: { color: '#555', fontSize: 12, lineHeight: 18, marginTop: 4 },
   maisCard: { width: 148, minHeight: 184, backgroundColor: '#fff', borderRadius: 16, padding: 14, marginRight: 12, alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#EFE7D6', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.07, shadowRadius: 8 },
   maisCardAtivo: { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
@@ -1285,6 +1305,7 @@ confirmAlertText: {
   servicoFotoPlaceholder: { width: 50, height: 50, borderRadius: 10, backgroundColor: '#F5F5F5', marginRight: 12, justifyContent: 'center', alignItems: 'center' },
   servicoLeft: { flex: 1 },
   servicoNome: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
+  servicoDurRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   servicoDur: { fontSize: 11, color: '#888' },
   servicoPrecoBox: { backgroundColor: '#F5F5F5', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   servicoPreco: { fontSize: 14, fontWeight: '700' },
@@ -1350,6 +1371,12 @@ pagamentoTitulo: {
   fontSize: 14,
   fontWeight: '700',
   color: '#1A1A1A'
+},
+pagamentoTituloRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+  marginBottom: 6,
 },
 pagamentoDesc: {
   fontSize: 12,

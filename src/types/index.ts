@@ -28,6 +28,10 @@ export interface Servico {
   ativo: boolean;
   descricao?: string;
   foto?: string;
+  fotoUrl?: string;
+  imagem?: string;
+  imageUrl?: string;
+  urlFoto?: string;
 }
 
 export interface Profissional {
@@ -99,9 +103,6 @@ export interface Estabelecimento {
   destaquePacoteDias?: number;
   destaqueAvisoVencimentoEm?: any;
   destaqueAvisoVencimentoExpiraEm?: any;
-  iaSimulacaoAtiva?: boolean;
-  iaSimulacaoLimiteMensal?: number;
-  iaSimulacaoPacote?: string | null;
   paymentStatus?:
     | 'idle'
     | 'none'

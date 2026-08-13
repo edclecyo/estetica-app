@@ -145,9 +145,9 @@ export default function SimulacaoDivulgacaoScreen({ route, navigation }: any) {
 
       <TouchableOpacity style={s.primaryBtn} activeOpacity={0.86} onPress={avancar}>
         <Text style={s.primaryText}>
-        {passoAtual === passos.length - 1 ? 'Concluir simulacao' : 'Proximo passo'}
-      </Text>
-    </TouchableOpacity>
+          {passoAtual === passos.length - 1 ? 'Concluir simulacao' : 'Proximo passo'}
+        </Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }

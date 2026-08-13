@@ -12,8 +12,6 @@ export default defineConfig({
   resolve: {
     extensions: ['.web.tsx', '.web.ts', '.tsx', '.ts', '.jsx', '.js', '.json'],
     alias: [
-      { find: '../../../src/screens/IADemoScreen', replacement: shim('../screens/IADemoScreen.web.tsx') },
-      { find: '../screens/IADemoScreen', replacement: shim('../screens/IADemoScreen.web.tsx') },
       { find: '../../../src/screens/CartaoScreen', replacement: shim('../screens/CartaoScreen.web.tsx') },
       { find: '../screens/CartaoScreen', replacement: shim('../screens/CartaoScreen.web.tsx') },
       { find: '../../../src/contexts/AuthContext', replacement: shim('../AuthContext.web.tsx') },

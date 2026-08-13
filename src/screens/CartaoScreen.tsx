@@ -18,7 +18,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 
 export default function CartaoScreen({ route, navigation }: any) {
-  const { estabelecimentoId, planoId, valor, addIA } = route.params;
+  const { estabelecimentoId, planoId, valor } = route.params;
 
   const webRef = useRef<WebView>(null);
   const unsubscribeRef = useRef<any>(null);
@@ -168,7 +168,6 @@ if (
     data.payer,
 
   valor: Number(valor),
-  addIA: addIA === true,
 });
 
         monitorarPagamento();

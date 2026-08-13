@@ -16,7 +16,6 @@ export * from './services/avaliacao.service';
 export * from './services/story.service';
 export * from './services/comunicado.service';
 export * from './services/relatorio.service';
-export * from './services/ia.service';
 export * from './services/metricas.service';
 
 // 2. TRIGGERS (Gatilhos de Banco de Dados)

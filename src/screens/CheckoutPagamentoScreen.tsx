@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+﻿import React, { useState, useRef, useEffect } from 'react';
 
 import {
   View,
@@ -24,24 +24,6 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Clipboard from '@react-native-clipboard/clipboard';
 
-const getIAAddon = (planoId: string) => {
-  if (planoId === 'pro') {
-    return {
-      textoPreco: '+ R$ 19,99/mes',
-      limite: 20,
-    };
-  }
-
-  if (planoId === 'elite') {
-    return {
-      textoPreco: '+ R$ 14,90/mes',
-      limite: 100,
-    };
-  }
-
-  return null;
-};
-
 export default function CheckoutScreen({
   route,
   navigation
@@ -53,16 +35,10 @@ export default function CheckoutScreen({
   valor,
   planoNome,
   estabelecimentoId,
-  addIA,
-  tipoCheckout,
-  pacoteIAId,
 } = route.params;
 
 const valorFinal =
   Number(valor ?? preco ?? 0);
-const isIACreditos = tipoCheckout === 'ia_creditos';
-const isIA = tipoCheckout === 'ia' || isIACreditos;
-const iaAddon = getIAAddon(String(planoId || ''));
   
   const functionsInstance = getFunctions(
     getApp(),
@@ -108,9 +84,6 @@ const iaAddon = getIAAddon(String(planoId || ''));
   const timerRef =
     useRef<any>(null);
 
-  const pagamentoAlvoRef =
-    useRef<any>(null);
-
   // =====================================================
   // TEMPO REAL
   // =====================================================
@@ -130,9 +103,7 @@ const iaAddon = getIAAddon(String(planoId || ''));
         // STATUS PIX
         // =================================================
 
-       const status = isIA
-        ? data.iaSimulacaoPaymentStatus || 'idle'
-        : data.paymentStatus || 'idle';
+       const status = data.paymentStatus || 'idle';
 
         setStatusPix(status);
 
@@ -164,42 +135,17 @@ const iaAddon = getIAAddon(String(planoId || ''));
         // PIX SOMENTE DO PLANO ATUAL
         // =================================================
 
-        const pendenteIA =
-          data.iaSimulacaoPagamentoPendente || null;
-
-        const isThisPix = isIACreditos
-          ? pendenteIA?.status === 'pending' &&
-            pendenteIA?.tipo === 'ia_creditos'
-          : isIA
-          ? pendenteIA?.status === 'pending' &&
-            pendenteIA?.tipo !== 'ia_creditos'
-          : data.planoPendente === planoId;
-
-        if (
-          isThisPix &&
-          isIA &&
-          !pagamentoAlvoRef.current &&
-          pendenteIA?.mercadoPagoId
-        ) {
-          pagamentoAlvoRef.current = pendenteIA.mercadoPagoId;
-        }
+        const isThisPix = data.planoPendente === planoId;
 
 if (
   status === 'pending' &&
-  (isIA
-    ? data.iaSimulacaoPagamentoPendente?.qrCodeBase64
-    : data.pixQrCodeBase64) &&
+  data.pixQrCodeBase64 &&
   isThisPix
 ) {
 
           setPix({
-            qr_code: isIA
-              ? data.iaSimulacaoPagamentoPendente?.qrCode
-              : data.pixQrCode,
-            qr_code_base64:
-              isIA
-                ? data.iaSimulacaoPagamentoPendente?.qrCodeBase64
-                : data.pixQrCodeBase64
+            qr_code: data.pixQrCode,
+            qr_code_base64: data.pixQrCodeBase64
           });
 
         } else {
@@ -209,13 +155,10 @@ if (
         }
 
         // =================================================
-        // EXPIRAÇÃO
+        // EXPIRACAO
         // =================================================
 
-        const expira =
-          isIA
-            ? data.iaSimulacaoPagamentoPendente?.expiraEm?.toDate?.()
-            : data.pixExpiraEm?.toDate?.();
+        const expira = data.pixExpiraEm?.toDate?.();
 
         if (expira) {
 
@@ -252,20 +195,13 @@ if (
         // PIX APROVADO
         // =================================================
 
-        const pagamentoDestePlano = isIACreditos
-          ? data.iaUltimoPagamentoCreditosId === pagamentoAlvoRef.current
-          : isIA
-          ? data.iaSimulacaoAtiva === true
-          : data.plano === planoId ||
-            data.planoAprovado === planoId;
+        const pagamentoDestePlano =
+          data.plano === planoId ||
+          data.planoAprovado === planoId;
 
 if (
   status === 'approved' &&
-  (isIACreditos
-    ? data.iaUltimoPagamentoCreditosId === pagamentoAlvoRef.current
-    : isIA
-    ? data.iaSimulacaoAtiva === true
-    : data.assinaturaAtiva === true) &&
+  data.assinaturaAtiva === true &&
   pagamentoDestePlano &&
   !alertaExibido
 ) {
@@ -280,11 +216,7 @@ if (
 
           Alert.alert(
             'Pagamento aprovado',
-            isIACreditos
-              ? 'Creditos extras adicionados a sua Previa IA.'
-              : isIA
-              ? 'A Previa IA foi ativada por 30 dias.'
-              : 'Seu plano foi ativado com sucesso!',
+            'Seu plano foi ativado com sucesso!',
             [
               {
                 text: 'Continuar',
@@ -335,10 +267,10 @@ if (
 
  const pagarPix = async () => {
 
-  if (!isIA && (
+  if (
     assinaturaAtiva &&
     planoAtual === planoId
-  )) {
+  ) {
 
     Alert.alert('Plano já ativo');
 
@@ -359,35 +291,20 @@ if (
 
     const fn = httpsCallable(
       functionsInstance,
-      isIACreditos
-        ? 'criarPagamentoPixCreditosIA'
-        : isIA
-        ? 'criarPagamentoPixIA'
-        : 'criarPagamentoPixAssinatura'
+      'criarPagamentoPixAssinatura'
     );
 
-    const payload = isIACreditos
-      ? {
-          estabelecimentoId,
-          pacote: pacoteIAId || '1',
-        }
-      : isIA
-      ? { estabelecimentoId }
-      : {
-          estabelecimentoId,
-          plano: planoId,
-          valor: valorFinal,
-          addIA: addIA === true,
-        };
+    const payload = {
+      estabelecimentoId,
+      plano: planoId,
+      valor: valorFinal,
+    };
 
     const { data }: any = await fn(payload);
 
     if (!data?.qr_code_base64) {
       throw new Error('PIX inválido');
     }
-
-    pagamentoAlvoRef.current =
-      data?.mercadoPagoId || null;
 
     setPix(data);
 
@@ -406,18 +323,10 @@ if (
   }
 };
   // =====================================================
-  // PAGAR CARTÃO
+  // PAGAR CARTAO
   // =====================================================
 
   const pagarCartao = () => {
-    if (isIA) {
-      Alert.alert(
-        'Pagamento por PIX',
-        'A Previa IA por 30 dias esta disponivel por PIX.'
-      );
-      return;
-    }
-
     if (
       assinaturaAtiva &&
       planoAtual === planoId
@@ -436,8 +345,7 @@ if (
       {
         estabelecimentoId,
         planoId,
-        valor,
-        addIA: addIA === true
+        valor: valorFinal
       }
     );
   };
@@ -497,7 +405,6 @@ if (
   // =====================================================
 
   const mesmoPlano =
-    !isIA &&
     assinaturaAtiva &&
     planoAtual === planoId;
 
@@ -506,7 +413,7 @@ if (
   // =====================================================
 
   const pixDessePlano =
-    (isIA || planoPixAtual === planoId) &&
+    planoPixAtual === planoId &&
     statusPix === 'pending';
 
   // =====================================================
@@ -541,11 +448,7 @@ if (
         </TouchableOpacity>
 
         <Text style={s.title}>
-          {isIACreditos
-            ? 'Comprar creditos IA'
-            : isIA
-            ? 'Ativar Previa IA'
-            : 'Finalizar Assinatura'}
+          Finalizar Assinatura
         </Text>
 
       </View>
@@ -563,16 +466,8 @@ if (
         </Text>
 
         <Text style={s.valor}>
-          R$ {Number(valor).toFixed(2)}
+          R$ {valorFinal.toFixed(2)}
         </Text>
-{!isIA && addIA === true && (
-  <Text style={s.iaResumo}>
-    ✨ Prévia IA incluída:
-    {iaAddon
-      ? ` ${iaAddon.textoPreco} - ${iaAddon.limite} simulacoes por mes`
-      : ' pacote IA'}
-  </Text>
-)}
         <View style={s.badgeRow}>
 
           <Text
@@ -665,9 +560,8 @@ if (
 
       </TouchableOpacity>
 
-      {/* CARTÃO */}
+      {/* CARTAO */}
 
-      {!isIA && (
       <TouchableOpacity
         style={[
 
@@ -702,7 +596,6 @@ if (
         </Text>
 
       </TouchableOpacity>
-      )}
 
       {/* QR CODE */}
 
@@ -883,11 +776,4 @@ const s = StyleSheet.create({
   copyText: {
     color: '#C9A96E'
   },
-iaResumo: {
-  color: '#D4AF37',
-  fontSize: 13,
-  fontWeight: '800',
-  marginTop: 10,
-  textAlign: 'center',
-},
 });

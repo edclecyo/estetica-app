@@ -12,6 +12,7 @@ import { useRoute, useNavigation } from "@react-navigation/native";
 import { useAuth } from "../contexts/AuthContext";
 import Video from 'react-native-video';
 import RNFS from 'react-native-fs';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 const { width } = Dimensions.get("window");
 import auth from '@react-native-firebase/auth';
 type MediaItem = {
@@ -514,21 +515,21 @@ const uploadUri = m.uri.startsWith('file://')
           {midias.length === 0 && (
             <Animated.View style={[s.banner, { opacity: fadeAnim }]}>
               <View style={s.bannerIcon}>
-                <Text style={{ fontSize: 28 }}>✨</Text>
+                <Icon name="star-four-points-outline" size={30} color="#C9A96E" />
               </View>
               <Text style={s.bannerTitulo}>Stories que vendem</Text>
               <Text style={s.bannerDesc}>
         <Text style={s.planoInfo}>{textoPlanoStory}</Text>
 			  <Text style={[s.planoInfo, { display: 'none' }]}>
   {admin?.plano === 'essencial'
-    ? '📸 Seu plano permite apenas fotos'
+    ? 'Seu plano permite apenas fotos'
     : admin?.plano === 'trial'
-    ? 'ðŸ“¸ Teste Essencial: apenas fotos'
+    ? 'Teste Essencial: apenas fotos'
     : admin?.plano === 'pro'
-    ? '🎥 Vídeos até 15 segundos'
+    ? 'Vídeos até 15 segundos'
     : admin?.plano === 'elite'
-    ? '🚀 Vídeos até 30 segundos'
-    : '🔒 Ative um plano para publicar'}
+    ? 'Vídeos até 30 segundos'
+    : 'Ative um plano para publicar'}
 </Text>
                 Publique fotos e vídeos visíveis para todos os clientes por 24 horas.
                 Use para mostrar promoções, resultados e novidades do seu espaço.
@@ -538,13 +539,13 @@ const uploadUri = m.uri.startsWith('file://')
               </View>
               <View style={s.featuresRow}>
                 {[
-                  { icon: '🖼️', label: `Ate ${limiteMidias || 0}\nmidias` },
-                  { icon: '✍️', label: 'Texto\npersonalizado' },
-                  { icon: '⏱️', label: '24h\nvisível' },
-                  { icon: '📊', label: 'Ver\natividade' },
+                  { icon: 'image-multiple-outline', label: `Até ${limiteMidias || 0}\nmídias` },
+                  { icon: 'text-box-edit-outline', label: 'Texto\npersonalizado' },
+                  { icon: 'clock-outline', label: '24h\nvisível' },
+                  { icon: 'chart-line', label: 'Ver\natividade' },
                 ].map((f, i) => (
                   <View key={i} style={s.featureItem}>
-                    <Text style={s.featureIcon}>{f.icon}</Text>
+                    <Icon name={f.icon} size={22} color="#C9A96E" style={s.featureIcon} />
                     <Text style={s.featureLabel}>{f.label}</Text>
                   </View>
                 ))}
@@ -570,7 +571,10 @@ const uploadUri = m.uri.startsWith('file://')
                   </View>
                 ) : null}
                 <View style={s.typeBadge}>
-                  <Text style={s.typeBadgeText}>{midiaAtiva.type === 'video' ? '🎥 Vídeo' : '📷 Foto'}</Text>
+                  <View style={s.typeBadgeRow}>
+                    <Icon name={midiaAtiva.type === 'video' ? 'video-outline' : 'camera-outline'} size={14} color="#FFF" />
+                    <Text style={s.typeBadgeText}>{midiaAtiva.type === 'video' ? 'Vídeo' : 'Foto'}</Text>
+                  </View>
                 </View>
                 {midias.length > 1 && (
                   <View style={s.counterBadge}>
@@ -581,7 +585,7 @@ const uploadUri = m.uri.startsWith('file://')
             ) : (
               <View style={s.emptyPreview}>
                 <View style={s.emptyIconWrap}>
-                  <Text style={{ fontSize: 44 }}>📱</Text>
+                  <Icon name="cellphone-plus" size={44} color="#C9A96E" />
                 </View>
                 <Text style={s.emptyTitle}>Adicionar mídia</Text>
                 <Text style={s.emptySub}>Fotos e vídeos da galeria</Text>
@@ -592,7 +596,10 @@ const uploadUri = m.uri.startsWith('file://')
                     <Text style={s.emptyBtnText}>+ Galeria</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[s.emptyBtn, { backgroundColor: '#FFF' }]} onPress={abrirCamera}>
-                    <Text style={[s.emptyBtnText, { color: '#000' }]}>📸 Câmera</Text>
+                    <View style={s.emptyBtnRow}>
+                      <Icon name="camera-outline" size={16} color="#000" />
+                      <Text style={[s.emptyBtnText, { color: '#000' }]}>Câmera</Text>
+                    </View>
                   </TouchableOpacity>
                 </View>
 
@@ -738,13 +745,14 @@ const s = StyleSheet.create({
   bannerDicaText: { color: GOLD, fontSize: 13, fontWeight: '600', textAlign: 'center' },
   featuresRow: { flexDirection: 'row', justifyContent: 'space-around' },
   featureItem: { alignItems: 'center', gap: 6 },
-  featureIcon: { fontSize: 22 },
+  featureIcon: { marginBottom: 3 },
   featureLabel: { color: '#666', fontSize: 11, textAlign: 'center', lineHeight: 15 },
   preview: { marginHorizontal: 16, height: width * 1.55, borderRadius: 20, overflow: 'hidden', backgroundColor: '#111', marginTop: 8 },
   previewMedia: { width: '100%', height: '100%' },
   captionOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'rgba(0,0,0,0.55)' },
   captionOverlayText: { color: '#FFF', fontSize: 15, fontWeight: '600', textAlign: 'center' },
   typeBadge: { position: 'absolute', top: 14, left: 14, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  typeBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   typeBadgeText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
   counterBadge: { position: 'absolute', top: 14, right: 14, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   counterText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
@@ -753,6 +761,7 @@ const s = StyleSheet.create({
   emptyTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', marginBottom: 6 },
   emptySub: { color: '#555', fontSize: 14, marginBottom: 20 },
   emptyBtn: { backgroundColor: GOLD, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 16 },
+  emptyBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   emptyBtnText: { color: '#000', fontWeight: '800', fontSize: 15 },
   captionWrap: { marginHorizontal: 16, marginTop: 14 },
   captionLabel: { color: GOLD, fontSize: 10, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8 },

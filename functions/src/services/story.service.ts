@@ -18,15 +18,13 @@ function normalizarPlano(est: any): Plano {
   ].map(plano => String(plano || '').toLowerCase().trim());
 
   const plano =
-    candidatos.find(item =>
-      ['elite', 'pro', 'essencial', 'trial'].includes(item)
-    ) || 'free';
+    candidatos.find(item => item.includes('elite')) ? 'elite' :
+    candidatos.find(item => item.includes('pro')) ? 'pro' :
+    candidatos.find(item => item.includes('essencial')) ? 'essencial' :
+    candidatos.find(item => item.includes('trial') || item.includes('teste')) ? 'trial' :
+    'free';
 
-  if (['trial', 'essencial', 'pro', 'elite'].includes(plano)) {
-    return plano as Plano;
-  }
-
-  return 'free';
+  return plano as Plano;
 }
 
 function assinaturaPagaAtiva(est: any) {

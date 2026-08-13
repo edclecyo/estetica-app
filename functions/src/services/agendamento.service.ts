@@ -48,6 +48,44 @@ const getDiaSemanaBR = (dataBr: string) => {
   return DIAS_SEMANA[data.getDay()];
 };
 
+function liberarHorarioReserva(
+  ag: any,
+  t: FirebaseFirestore.Transaction
+) {
+  const key = ag.dataKey || dataKey(ag.data);
+  const duracao = Number(
+    ag.servicoDuracaoMin ||
+    ag.duracao ||
+    30
+  );
+  const intervalo = Number(ag.intervaloMin || 30);
+  const slots = gerarSlots(ag.horario, duracao, intervalo);
+
+  t.delete(
+    db.collection('agendamentoLocks')
+      .doc(`${ag.clienteUid}_${ag.data}_${ag.horario}`)
+  );
+
+  t.delete(
+    db.collection('agendamentoLocks')
+      .doc(`${ag.estabelecimentoId}_${key}_${ag.horario}`)
+  );
+
+  if (ag.id) {
+    t.delete(
+      db.collection('agendamentoLocks')
+        .doc(String(ag.id))
+    );
+  }
+
+  for (const horario of slots) {
+    t.delete(
+      db.collection('horariosOcupados')
+        .doc(`${ag.estabelecimentoId}_${key}_${horario}`)
+    );
+  }
+}
+
 export const criarAgendamento = onCall(
   {
     region: REGION,
@@ -633,6 +671,123 @@ export const apagarAgendamentoCliente = onCall(
         n.userId === request.auth?.uid ||
         n.clienteId === request.auth?.uid ||
         n.tipo === 'cliente'
+      ) {
+        batch.delete(doc.ref);
+      }
+    });
+
+    await batch.commit();
+
+    return {
+      ok: true,
+      id: agendamentoId,
+      estabelecimentoId: agendamento?.estabelecimentoId || '',
+    };
+  }
+);
+
+export const apagarAgendamentoAdmin = onCall(
+  {
+    region: REGION,
+    maxInstances: 50,
+  },
+
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Acesso negado');
+    }
+
+    const { agendamentoId } = request.data || {};
+
+    if (!agendamentoId) {
+      throw new HttpsError('invalid-argument', 'Agendamento obrigatorio');
+    }
+
+    const agRef = db.collection('agendamentos').doc(agendamentoId);
+    let agendamento: any = null;
+
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(agRef);
+
+      if (!snap.exists) {
+        throw new HttpsError('not-found', 'Agendamento nao encontrado');
+      }
+
+      const ag = snap.data() as any;
+
+      if (ag.adminId !== request.auth?.uid) {
+        throw new HttpsError('permission-denied', 'Sem permissao');
+      }
+
+      const expiraMs = ag.pagamentoExpiraEm?.toMillis?.() || 0;
+      const expirado =
+        ag.pagamentoExpirado === true ||
+        ag.statusPagamento === 'expired' ||
+        (
+          ag.status === 'aguardando_pagamento' &&
+          ag.statusPagamento !== 'approved' &&
+          expiraMs > 0 &&
+          expiraMs <= Date.now()
+        );
+
+      if (ag.status !== 'cancelado' && !expirado) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Apenas reservas expiradas ou canceladas podem ser apagadas.'
+        );
+      }
+
+      if (ag.statusPagamento === 'approved') {
+        throw new HttpsError(
+          'failed-precondition',
+          'Pagamentos aprovados nao podem ser apagados como expirados.'
+        );
+      }
+
+      t.update(agRef, {
+        deletadoAdmin: true,
+        apagadoAdminEm: FieldValue.serverTimestamp(),
+        statusPagamento: expirado ? 'expired' : ag.statusPagamento,
+        pixStatus: expirado ? 'expired' : ag.pixStatus,
+        reservaTemporaria: false,
+        pagamentoExpirado: expirado || ag.pagamentoExpirado === true,
+        horarioLiberado: true,
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+
+      if (expirado) {
+        liberarHorarioReserva({ id: agendamentoId, ...ag }, t);
+      }
+
+      agendamento = ag;
+    });
+
+    const [pagamentosSnap, notificacoesSnap] = await Promise.all([
+      db.collection('pagamentos')
+        .where('agendamentoId', '==', agendamentoId)
+        .limit(20)
+        .get(),
+      db.collection('notificacoes')
+        .where('agendamentoId', '==', agendamentoId)
+        .limit(50)
+        .get(),
+    ]);
+
+    const batch = db.batch();
+
+    pagamentosSnap.docs.forEach(doc => {
+      if (doc.data()?.status !== 'approved') {
+        batch.delete(doc.ref);
+      }
+    });
+
+    notificacoesSnap.docs.forEach(doc => {
+      const n = doc.data() as any;
+
+      if (
+        n.adminId === request.auth?.uid ||
+        n.estabelecimentoId === agendamento?.estabelecimentoId ||
+        n.tipo === 'admin'
       ) {
         batch.delete(doc.ref);
       }

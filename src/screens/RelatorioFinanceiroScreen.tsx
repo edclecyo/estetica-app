@@ -14,6 +14,7 @@ import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getApp } from '@react-native-firebase/app';
 
 const GOLD = '#C9A96E';
+type PeriodoRelatorio = 'dia' | 'semana' | 'mes' | 'ano';
 
 export default function RelatorioFinanceiroScreen({ route, navigation }: any) {
   const { estabelecimentoId } = route.params || {};
@@ -29,9 +30,9 @@ export default function RelatorioFinanceiroScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [urlPdf, setUrlPdf] = useState('');
   const [resumo, setResumo] = useState<any>(null);
-  const [periodo, setPeriodo] = useState<'dia' | 'semana' | 'mes'>('mes');
+  const [periodo, setPeriodo] = useState<PeriodoRelatorio>('mes');
 
-  const aplicarPeriodo = (tipo: 'dia' | 'semana' | 'mes') => {
+  const aplicarPeriodo = (tipo: PeriodoRelatorio) => {
     const fim = new Date();
     const inicio = new Date();
 
@@ -41,6 +42,10 @@ export default function RelatorioFinanceiroScreen({ route, navigation }: any) {
 
     if (tipo === 'mes') {
       inicio.setDate(1);
+    }
+
+    if (tipo === 'ano') {
+      inicio.setMonth(0, 1);
     }
 
     setPeriodo(tipo);
@@ -117,6 +122,7 @@ export default function RelatorioFinanceiroScreen({ route, navigation }: any) {
             { k: 'dia', l: 'Dia' },
             { k: 'semana', l: 'Semana' },
             { k: 'mes', l: 'Mes' },
+            { k: 'ano', l: 'Ano' },
           ].map(item => {
             const ativo = periodo === item.k;
 

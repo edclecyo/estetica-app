@@ -152,6 +152,11 @@ export interface Agendamento {
   reservaTemporaria?: boolean;
   pagamentoExpiraEm?: any;
   pagamentoExpirado?: boolean;
+  deletado?: boolean;
+  deletadoCliente?: boolean;
+  deletadoAdmin?: boolean;
+  apagadoClienteEm?: any;
+  apagadoAdminEm?: any;
   statusPagamento?:
     | 'aguardando_comprovante'
     | 'approved'

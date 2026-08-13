@@ -36,7 +36,7 @@ const TIPO_ICONS: Record<string, string> = {
   'Especialista em Cabelos': 'hair-dryer-outline',
   'Terapia Capilar': 'bottle-tonic-outline',
   'Estúdio de Maquiagem': 'lipstick',
-  'Design de Sobrancelhas': 'eyebrow',
+  'Design de Sobrancelhas': 'face-woman-outline',
   'Extensão de Cílios': 'eye-outline',
   Micropigmentação: 'draw-pen',
   'Depilação a Laser': 'flash-outline',
@@ -64,7 +64,19 @@ const SeloVerificado = React.memo(({ size = 20 }: { size?: number }) => (
   />
 ));
 
-function FotoVerificada({ uri, iconName, size = 68 }: { uri?: string | null; iconName?: string; size?: number }) {
+function getEmojiEstabelecimento(estab: Partial<Estabelecimento>): string {
+  const img = String(estab.img || '').trim();
+
+  if (!img || img.startsWith('http')) return '';
+
+  // Valores antigos usados como padrão no cadastro; quando o estabelecimento não escolheu,
+  // a Home deve ficar sem ícone/emoji em vez de mostrar um fallback.
+  if (img === '✨' || img === 'âœ¨') return '';
+
+  return img;
+}
+
+function FotoVerificada({ uri, emoji, size = 68 }: { uri?: string | null; emoji?: string; size?: number }) {
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -112,8 +124,10 @@ function FotoVerificada({ uri, iconName, size = 68 }: { uri?: string | null; ico
             borderRadius: size / 2,
           }}
         />
+      ) : emoji ? (
+        <Text style={{ fontSize: size * 0.48 }}>{emoji}</Text>
       ) : (
-        <Icon name={iconName || 'store-outline'} size={size * 0.45} color={GOLD} />
+        null
       )}
     </Animated.View>
   );
@@ -339,6 +353,7 @@ function VerificadosSection({
           const imagemUri =
             item.fotoPerfil ||
             (item.img?.startsWith('http') ? item.img : null);
+          const emoji = getEmojiEstabelecimento(item);
 
           const aberto = estaAberto(
             getHorarioReal(item),
@@ -357,7 +372,7 @@ function VerificadosSection({
               }
             >
               <View style={sv.fotoContainer}>
-                <FotoVerificada uri={imagemUri} iconName={TIPO_ICONS[item.tipo] || 'store-outline'} size={68} />
+                <FotoVerificada uri={imagemUri} emoji={emoji} size={68} />
                 <View style={sv.seloWrap}>
   <Icon
     name={item.destaqueAtivo ? 'star' : 'crown-outline'}
@@ -657,6 +672,7 @@ export default function HomeScreen() {
     const aberto = item._aberto;
     const dist = item._dist < 9999 ? item._dist : null;
     const imagemUri = item.fotoPerfil || (item.img?.startsWith('http') ? item.img : null);
+    const emoji = getEmojiEstabelecimento(item);
     const verificado =
   item.verificado === true ||
   item.plano === 'elite';
@@ -751,12 +767,10 @@ export default function HomeScreen() {
               >
                 {imagemUri && imagemUri.startsWith('http') ? (
                   <Image source={{ uri: imagemUri }} style={s.circleImage} />
+                ) : emoji ? (
+                  <Text style={s.cardEmojiLarge}>{emoji}</Text>
                 ) : (
-                  <Icon
-                    name={TIPO_ICONS[item.tipo] || 'store-outline'}
-                    size={42}
-                    color={item.cor || GOLD}
-                  />
+                  null
                 )}
               </View>
             </View>
@@ -773,12 +787,9 @@ export default function HomeScreen() {
     )}
   </View>
 
-  <Icon
-    name={TIPO_ICONS[item.tipo] || 'store-outline'}
-    size={19}
-    color={item.cor || GOLD}
-    style={s.miniIcon}
-  />
+  {emoji ? (
+    <Text style={s.miniEmoji}>{emoji}</Text>
+  ) : null}
 
   <Text
     style={[
@@ -1198,6 +1209,7 @@ const s = StyleSheet.create({
   nomeIconRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' },
   cardNome: { fontSize: 20, fontWeight: '800', color: '#FFF', textAlign: 'center', flexShrink: 1 },
   miniIcon: { alignSelf: 'center', marginBottom: 2 },
+  miniEmoji: { alignSelf: 'center', marginBottom: 2, fontSize: 19 },
   cardTipo: { fontSize: 12, marginTop: 2, textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: '600' },
   statusRowCentral: { flexDirection: 'row', alignItems: 'center', marginTop: 10, flexWrap: 'wrap', justifyContent: 'center' },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },

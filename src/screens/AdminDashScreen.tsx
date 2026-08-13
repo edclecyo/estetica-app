@@ -12,6 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { BarChart } from 'react-native-chart-kit';
 import Share from 'react-native-share';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 
 import type { Estabelecimento, Agendamento } from '../types';
@@ -22,6 +23,7 @@ const GOLD = '#C9A96E';
 type AgendaListItem =
   | { tipo: 'header'; key: string; titulo: string; resumo: string }
   | { tipo: 'agendamento'; key: string; agendamento: Agendamento };
+type PeriodoRelatorio = 'dia' | 'semana' | 'mes' | 'ano';
 
 // ===== COMPONENT =====
 const EstabImage = ({ item }: { item: Estabelecimento }) => {
@@ -41,7 +43,9 @@ const EstabImage = ({ item }: { item: Estabelecimento }) => {
 
   return (
     <View style={[s.estabIcon, { backgroundColor: (item.cor || GOLD) + '15' }]}>
-      <Text style={s.estabEmoji}>{(!isUrl ? item.img : null) || '🏪'}</Text>
+      {!isUrl && item.img ? (
+        <Text style={s.estabEmoji}>{item.img}</Text>
+      ) : null}
     </View>
   );
 };
@@ -113,14 +117,14 @@ export default function AdminDashScreen() {
     useState(() => Date.now());
 
  const [loadingAcao, setLoadingAcao] =
-  useState<{ id: string; acao: 'concluido' | 'cancelado' } | null>(null);
+  useState<{ id: string; acao: 'concluido' | 'cancelado' | 'apagar' } | null>(null);
   const [loadingSinalFestivo, setLoadingSinalFestivo] = useState(false);
   const [mostrarAvisoContaSinal, setMostrarAvisoContaSinal] = useState(false);
   
   const [periodoGrafico, setPeriodoGrafico] =
   useState<'dia' | 'mes' | 'ano'>('dia');
   const [periodoRelatorioBasico, setPeriodoRelatorioBasico] =
-  useState<'dia' | 'semana' | 'mes'>('dia');
+  useState<PeriodoRelatorio>('dia');
   const [whatsSuporte, setWhatsSuporte] = useState<string | null>(null);
   // ===== LÓGICA =====
 const temEstabelecimento = estabs.length > 0;
@@ -194,7 +198,7 @@ useEffect(() => {
       mensagem = 'Sua assinatura expirou. Renove seu plano.';
     }
 
-    Alert.alert('Acesso bloqueado 🔒', mensagem);
+    Alert.alert('Acesso bloqueado', mensagem);
     return;
   }
 
@@ -223,7 +227,7 @@ const checarBloqueio = () => {
     mensagem = 'Ative um plano para continuar.';
   }
 
-  Alert.alert('Função bloqueada 🔒', mensagem);
+  Alert.alert('Função bloqueada', mensagem);
   return true;
 };
 const getStoryMediaUriAdmin = (story: any) =>
@@ -344,10 +348,12 @@ const abrirStoryAdmin = (storyId: string) => {
       if (!snap) return;
 
       setAgends(
-        snap.docs.map(d => ({
-          id: d.id,
-          ...d.data()
-        })) as Agendamento[]
+        snap.docs
+          .map(d => ({
+            id: d.id,
+            ...d.data()
+          }))
+          .filter((a: any) => a.deletado !== true && a.deletadoAdmin !== true) as Agendamento[]
       );
     },
     err => {
@@ -512,7 +518,7 @@ const formatDate = (date: any): string => {
   return d.toLocaleDateString('pt-BR');
 };
 
-const obterIntervaloRelatorio = (periodo: 'dia' | 'semana' | 'mes') => {
+const obterIntervaloRelatorio = (periodo: PeriodoRelatorio) => {
   const inicio = new Date();
   inicio.setHours(0, 0, 0, 0);
 
@@ -527,10 +533,15 @@ const obterIntervaloRelatorio = (periodo: 'dia' | 'semana' | 'mes') => {
     inicio.setDate(1);
   }
 
+  if (periodo === 'ano') {
+    inicio.setMonth(0, 1);
+  }
+
   const labels = {
     dia: 'Hoje',
     semana: 'Ultimos 7 dias',
     mes: 'Mes atual',
+    ano: 'Ano atual',
   };
 
   return {
@@ -574,6 +585,35 @@ const fimAgendamento = (agendamento: Agendamento): Date | null => {
   );
 };
 
+const getTimestampMs = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  if (timestamp.toMillis) return timestamp.toMillis();
+  if (timestamp.toDate) return timestamp.toDate().getTime();
+
+  const parsed = new Date(timestamp).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const isReservaPagamentoExpirada = (agendamento: Agendamento): boolean => {
+  if (
+    agendamento.pagamentoExpirado === true ||
+    agendamento.statusPagamento === 'expired'
+  ) {
+    return true;
+  }
+
+  const aguardandoPagamento =
+    agendamento.status === 'aguardando_pagamento' &&
+    (agendamento.formaPagamento === 'app' || agendamento.formaPagamento === 'sinal') &&
+    agendamento.statusPagamento !== 'approved';
+
+  if (!aguardandoPagamento) return false;
+
+  const expiraMs = getTimestampMs(agendamento.pagamentoExpiraEm);
+
+  return expiraMs > 0 && expiraMs <= Date.now();
+};
+
   useEffect(() => {
     const timer = setInterval(
       () => setAgoraAgendamentos(Date.now()),
@@ -584,7 +624,15 @@ const fimAgendamento = (agendamento: Agendamento): Date | null => {
   }, []);
 
   const agendamentosVisiveis = agends.filter(a => {
-    if (a.status === 'concluido' || a.status === 'cancelado') {
+    if ((a as any).deletado === true || (a as any).deletadoAdmin === true) {
+      return false;
+    }
+
+    if (a.status === 'concluido') {
+      return false;
+    }
+
+    if (a.status === 'cancelado' && !isReservaPagamentoExpirada(a)) {
       return false;
     }
 
@@ -678,6 +726,18 @@ const fimAgendamento = (agendamento: Agendamento): Date | null => {
     try {
       const intervalo = obterIntervaloRelatorio(periodoRelatorioBasico);
       const agendsPeriodo = agends.filter(a => {
+        if ((a as any).deletado === true || (a as any).deletadoAdmin === true) {
+          return false;
+        }
+
+        if (isReservaPagamentoExpirada(a)) {
+          return false;
+        }
+
+        if (a.status !== 'confirmado' && a.status !== 'concluido') {
+          return false;
+        }
+
         const dataAg = parseDataBR(a.data);
         if (!dataAg) return false;
 
@@ -693,8 +753,8 @@ const fimAgendamento = (agendamento: Agendamento): Date | null => {
       }
 
       const linhas = agendsPeriodo.map(a =>
-        `📅 ${a.data} às ${a.horario}\n👤 ${a.clienteNome}\n✂️ ${a.servicoNome}\n💰 R$ ${a.servicoPreco}\n📌 ${a.status?.toUpperCase()}\n`
-      ).join('\n─────────────────────\n');
+        `Data: ${a.data} às ${a.horario}\nCliente: ${a.clienteNome}\nServiço: ${a.servicoNome}\nValor: R$ ${a.servicoPreco}\nStatus: ${a.status?.toUpperCase()}\n`
+      ).join('\n---------------------\n');
 
       const receitaConf = agendsPeriodo
         .filter(a => a.status === 'confirmado' || a.status === 'concluido')
@@ -800,7 +860,7 @@ Gerado pelo BeautyHub`;
     const message = e?.message || 'Erro interno';
 
     if (code.includes('failed-precondition')) {
-      Alert.alert('Plano necessário 🔒', message);
+      Alert.alert('Plano necessário', message);
       return;
     }
 
@@ -859,6 +919,60 @@ const confirmarPagamentoManual = async (
       e?.message || 'Erro ao confirmar pagamento'
     );
   }
+};
+
+const apagarAgendamentoAdmin = (item: Agendamento) => {
+  Alert.alert(
+    'Apagar reserva expirada',
+    'Esta reserva expirada sera removida da sua agenda e nao entrara nos relatorios. Deseja continuar?',
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Apagar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setLoadingAcao({ id: item.id, acao: 'apagar' });
+
+            const functionsInstance = getFunctions(
+              getApp(),
+              'southamerica-east1'
+            );
+
+            const fn = httpsCallable(
+              functionsInstance,
+              'apagarAgendamentoAdmin'
+            );
+
+            await fn({
+              agendamentoId: item.id,
+            });
+
+            setAgends(lista =>
+              lista.filter(agendamento => agendamento.id !== item.id)
+            );
+          } catch (e: any) {
+            const code = e?.code || '';
+            const message = e?.message || 'Nao foi possivel apagar esta reserva.';
+
+            if (code.includes('failed-precondition')) {
+              Alert.alert('Reserva ainda ativa', message);
+              return;
+            }
+
+            if (code.includes('permission-denied')) {
+              Alert.alert('Sem permissao', 'Voce nao pode apagar esta reserva.');
+              return;
+            }
+
+            Alert.alert('Erro', message);
+          } finally {
+            setLoadingAcao(null);
+          }
+        },
+      },
+    ]
+  );
 };
 const [saindo, setSaindo] = useState(false);
   const handleLogout = () => {
@@ -1159,7 +1273,7 @@ const renderStoryCard = () => (
     activeOpacity={0.8}
     onPress={() => {
       if (isBloqueado) {
-        Alert.alert('Recurso bloqueado 📸', 'Ative seu período de teste ou plano.');
+        Alert.alert('Recurso bloqueado', 'Ative seu período de teste ou plano.');
       } else {
         navigation.navigate('PostarStory');
       }
@@ -1167,7 +1281,11 @@ const renderStoryCard = () => (
   >
     <View style={[s.storyGradientBorder, isBloqueado && { backgroundColor: '#666' }]}>
       <View style={s.storyIconInner}>
-        <Text style={s.storyEmoji}>{isBloqueado ? '🔒' : '📸'}</Text>
+        <Icon
+          name={isBloqueado ? 'lock-outline' : 'movie-open-outline'}
+          size={26}
+          color={isBloqueado ? '#777' : '#C9A96E'}
+        />
       </View>
     </View>
 
@@ -1233,7 +1351,7 @@ const renderStoryCard = () => (
       {/* ABAS */}
       <View style={s.abasContainer}>
         <View style={s.abasInner}>
-          {([['dash', '📊 Dash'], ['agends', '📅 Agenda'], ['stories', '🎬 Posts'], ['estabs', '🏪 Locais']] as [string, string][])
+          {([['dash', 'Dash'], ['agends', 'Agenda'], ['stories', 'Posts'], ['estabs', 'Locais']] as [string, string][])
             .map(([k, l]) => (
               <TouchableOpacity
                 key={k}
@@ -1516,7 +1634,7 @@ const renderStoryCard = () => (
   }}
 >
   <Text style={s.btnRelatorioFaturamentoText}>
-    📊 Relatório financeiro profissional
+    Relatório financeiro profissional
   </Text>
 </TouchableOpacity>
           </View>
@@ -1588,17 +1706,17 @@ const renderStoryCard = () => (
           {/* STATS */}
           <View style={s.statsRow}>
             <View style={[s.statCard, { backgroundColor: '#1A1A1A' }]}>
-              <Text style={s.statIc}>❤️</Text>
+              <Icon name="heart-outline" size={22} color="#C9A96E" />
               <Text style={[s.statV, { color: '#FFF' }]}>{totalLikes}</Text>
               <Text style={s.statL}>Curtidas</Text>
             </View>
             <View style={s.statCard}>
-              <Text style={s.statIc}>📅</Text>
+              <Icon name="calendar-month-outline" size={22} color="#C9A96E" />
               <Text style={s.statV}>{agends.length}</Text>
               <Text style={s.statL}>Total Agend.</Text>
             </View>
             <View style={s.statCard}>
-              <Text style={s.statIc}>📉</Text>
+              <Icon name="chart-line" size={22} color="#C9A96E" />
               <Text style={s.statV}>{estabs.reduce((a, e) => a + (e.avaliacoesNegativas || 0), 0)}</Text>
               <Text style={s.statL}>Negativas</Text>
             </View>
@@ -1664,7 +1782,7 @@ const renderStoryCard = () => (
     }}
   >
     <Text style={s.whatsBtnText}>
-      💬 Falar com Suporte
+      Falar com Suporte
     </Text>
   </TouchableOpacity>
 </View>
@@ -1687,7 +1805,7 @@ const renderStoryCard = () => (
               >
               {normalizarStoryAdmin(item).type === 'video' ? (
                 <View style={[s.storyMiniatura, s.storyVideoMiniatura]}>
-                  <Text style={s.storyVideoIcon}>▶</Text>
+                  <Icon name="play-circle-outline" size={32} color="#C9A96E" />
                 </View>
               ) : (
                 <Image source={{ uri: getStoryMediaUriAdmin(item) }} style={s.storyMiniatura} />
@@ -1698,12 +1816,12 @@ const renderStoryCard = () => (
     ? new Date(item.timestamp.seconds * 1000).toLocaleDateString('pt-BR')
     : 'Sem data'}
 </Text>
-                <Text style={s.storyInfoSub}>❤️ {item.likesCount || 0} curtidas  •  👁️ {item.views || 0} views</Text>
+                <Text style={s.storyInfoSub}>{item.likesCount || 0} curtidas - {item.views || 0} views</Text>
                 <Text style={s.storyInfoHint}>Toque para ver o story</Text>
               </View>
               </TouchableOpacity>
               <TouchableOpacity style={s.btnLixo} onPress={() => deletarStory(item.id)}>
-                <Text style={{ fontSize: 18 }}>🗑️</Text>
+                <Icon name="delete-outline" size={22} color="#FFF" />
               </TouchableOpacity>
             </View>
           )}
@@ -1737,6 +1855,7 @@ const renderStoryCard = () => (
             { k: 'dia', l: 'Dia' },
             { k: 'semana', l: 'Semana' },
             { k: 'mes', l: 'Mes' },
+            { k: 'ano', l: 'Ano' },
           ].map(item => {
             const ativo = periodoRelatorioBasico === item.k;
 
@@ -1775,6 +1894,11 @@ const renderStoryCard = () => (
       }
 
       const item = agendaItem.agendamento;
+      const aguardandoPagamento =
+        (item.formaPagamento === 'app' || item.formaPagamento === 'sinal') &&
+        item.status === 'aguardando_pagamento' &&
+        item.statusPagamento !== 'approved';
+      const reservaExpirada = isReservaPagamentoExpirada(item);
 
       return (
       <View style={s.agendCard}>
@@ -1813,7 +1937,8 @@ const renderStoryCard = () => (
 {/* ✅ NOVO BOTÃO */}
 {(item.formaPagamento === 'app' || item.formaPagamento === 'sinal') &&
   item.status === 'aguardando_pagamento' &&
-  item.statusPagamento !== 'approved' && (
+  item.statusPagamento !== 'approved' &&
+  !reservaExpirada && (
     <TouchableOpacity
       style={s.btnConfirmarPagamento}
       onPress={() => {
@@ -1840,6 +1965,26 @@ const renderStoryCard = () => (
           : 'Confirmar pagamento recebido'}
       </Text>
     </TouchableOpacity>
+)}
+
+{reservaExpirada && (
+  <>
+    <Text style={s.agendExpiradoText}>
+      Reserva expirada: o cliente nao pagou dentro do prazo.
+    </Text>
+
+    <TouchableOpacity
+      style={s.btnApagarExpirado}
+      disabled={loadingAcao?.id === item.id}
+      onPress={() => apagarAgendamentoAdmin(item)}
+    >
+      {loadingAcao?.id === item.id && loadingAcao?.acao === 'apagar' ? (
+        <ActivityIndicator color="#F44336" />
+      ) : (
+        <Text style={s.btnApagarExpiradoText}>Apagar</Text>
+      )}
+    </TouchableOpacity>
+  </>
 )}
 
 {item.status === 'confirmado' && (
@@ -2342,6 +2487,26 @@ btnConfirmarPagamentoText: {
   fontSize: 14,
   fontWeight: '800',
 },
+  agendExpiradoText: {
+    color: '#F44336',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 10,
+  },
+  btnApagarExpirado: {
+    marginTop: 12,
+    backgroundColor: '#FFEBEE',
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFCDD2',
+  },
+  btnApagarExpiradoText: {
+    color: '#F44336',
+    fontSize: 14,
+    fontWeight: '900',
+  },
   novoBtn: { backgroundColor: GOLD, borderRadius: 16, padding: 18, alignItems: 'center', marginVertical: 20 },
   novoBtnText: { color: '#1A1A1A', fontSize: 15, fontWeight: '800' },
   estabCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 12, flexDirection: 'row', alignItems: 'center', borderLeftWidth: 6 },

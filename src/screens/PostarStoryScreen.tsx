@@ -11,6 +11,7 @@ import firestore from "@react-native-firebase/firestore";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useAuth } from "../contexts/AuthContext";
 import Video from 'react-native-video';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const { width, height } = Dimensions.get("window");
 const STORY_H = width * 1.55;
@@ -22,11 +23,11 @@ type MediaItem = {
 };
 
 const DICAS = [
-  "📸 Mostre seus trabalhos mais recentes",
-  "🎨 Antes e depois transformam seguidores em clientes",
-  "💬 Promoções exclusivas geram urgência",
-  "⏰ Stories somem em 24h — crie senso de oportunidade",
-  "✨ Qualidade visual atrai clientes premium",
+  "Mostre seus trabalhos mais recentes",
+  "Antes e depois transformam seguidores em clientes",
+  "Promoções exclusivas geram urgência",
+  "Stories somem em 24h — crie senso de oportunidade",
+  "Qualidade visual atrai clientes premium",
 ];
 
 export default function PostarStory() {
@@ -132,7 +133,7 @@ export default function PostarStory() {
 
       setUploadProgress(100);
       await new Promise<void>(resolve => setTimeout(() => resolve(), 500));
-      Alert.alert("Publicado! 🎉", `${midias.length} story${midias.length > 1 ? 's' : ''} no ar!`);
+      Alert.alert("Publicado!", `${midias.length} story${midias.length > 1 ? 's' : ''} no ar!`);
       navigation.goBack();
     } catch (e) {
       console.error(e);
@@ -153,7 +154,7 @@ export default function PostarStory() {
         {/* HEADER */}
         <Animated.View style={[s.header, { opacity: fadeAnim }]}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
-            <Text style={s.backIcon}>✕</Text>
+            <Icon name="close" size={20} color="#FFF" />
           </TouchableOpacity>
           <View style={s.headerCenter}>
             <Text style={s.headerTitle}>Novo Story</Text>
@@ -177,7 +178,7 @@ export default function PostarStory() {
           {midias.length === 0 && (
             <Animated.View style={[s.banner, { opacity: fadeAnim }]}>
               <View style={s.bannerIcon}>
-                <Text style={{ fontSize: 28 }}>✨</Text>
+                <Icon name="star-four-points-outline" size={30} color="#C9A96E" />
               </View>
               <Text style={s.bannerTitulo}>Stories que vendem</Text>
               <Text style={s.bannerDesc}>
@@ -190,13 +191,13 @@ export default function PostarStory() {
 
               <View style={s.featuresRow}>
                 {[
-                  { icon: '🖼️', label: 'Até 10\nmídias' },
-                  { icon: '✍️', label: 'Texto\npersonalizado' },
-                  { icon: '⏱️', label: '24h\nvisível' },
-                  { icon: '📊', label: 'Ver\natividade' },
+                  { icon: 'image-multiple-outline', label: 'Até 10\nmídias' },
+                  { icon: 'text-box-edit-outline', label: 'Texto\npersonalizado' },
+                  { icon: 'clock-outline', label: '24h\nvisível' },
+                  { icon: 'chart-line', label: 'Ver\natividade' },
                 ].map((f, i) => (
                   <View key={i} style={s.featureItem}>
-                    <Text style={s.featureIcon}>{f.icon}</Text>
+                    <Icon name={f.icon} size={22} color="#C9A96E" style={s.featureIcon} />
                     <Text style={s.featureLabel}>{f.label}</Text>
                   </View>
                 ))}
@@ -226,7 +227,10 @@ export default function PostarStory() {
 
                 {/* Badge tipo */}
                 <View style={s.typeBadge}>
-                  <Text style={s.typeBadgeText}>{midiaAtiva.type === 'video' ? '🎥 Vídeo' : '📷 Foto'}</Text>
+                  <View style={s.typeBadgeRow}>
+                    <Icon name={midiaAtiva.type === 'video' ? 'video-outline' : 'camera-outline'} size={14} color="#FFF" />
+                    <Text style={s.typeBadgeText}>{midiaAtiva.type === 'video' ? 'Vídeo' : 'Foto'}</Text>
+                  </View>
                 </View>
 
                 {/* Contador */}
@@ -237,7 +241,7 @@ export default function PostarStory() {
             ) : (
               <View style={s.emptyPreview}>
                 <View style={s.emptyIconWrap}>
-                  <Text style={{ fontSize: 44 }}>📱</Text>
+                  <Icon name="cellphone-plus" size={44} color="#C9A96E" />
                 </View>
                 <Text style={s.emptyTitle}>Adicionar mídia</Text>
                 <Text style={s.emptySub}>Fotos e vídeos da galeria</Text>
@@ -254,7 +258,7 @@ export default function PostarStory() {
               <Text style={s.captionLabel}>LEGENDA (opcional)</Text>
               <TextInput
                 style={s.captionInput}
-                placeholder="Ex: Promoção especial hoje! Agende agora 🔥"
+                placeholder="Ex: Promoção especial hoje! Agende agora"
                 placeholderTextColor="#444"
                 value={midiaAtiva.caption}
                 onChangeText={atualizarLegenda}
@@ -295,14 +299,14 @@ export default function PostarStory() {
                       <Image source={{ uri: item.uri }} style={s.thumbImg} />
                       {item.type === 'video' && (
                         <View style={s.thumbVideoBadge}>
-                          <Text style={{ fontSize: 10 }}>▶</Text>
+                          <Icon name="play" size={10} color="#FFF" />
                         </View>
                       )}
                       {item.caption ? (
                         <View style={s.thumbCaptionDot} />
                       ) : null}
                       <TouchableOpacity style={s.thumbRemove} onPress={() => removerMidia(index)}>
-                        <Text style={s.thumbRemoveText}>✕</Text>
+                        <Icon name="close" size={12} color="#FFF" />
                       </TouchableOpacity>
                     </TouchableOpacity>
                   );
@@ -314,7 +318,7 @@ export default function PostarStory() {
           {/* DICAS RÁPIDAS */}
           {midias.length > 0 && (
             <View style={s.dicasWrap}>
-              <Text style={s.dicasTitle}>💡 Dica do dia</Text>
+              <Text style={s.dicasTitle}>Dica do dia</Text>
               <Text style={s.dicasText}>{DICAS[dicaIdx]}</Text>
             </View>
           )}
@@ -341,7 +345,7 @@ export default function PostarStory() {
           <View style={s.fixedFooter}>
             <TouchableOpacity style={s.publishBtn} onPress={postar}>
               <Text style={s.publishBtnText}>
-                Publicar {midias.length} story{midias.length > 1 ? 's' : ''} →
+                Publicar {midias.length} story{midias.length > 1 ? 's' : ''}
               </Text>
             </TouchableOpacity>
           </View>
@@ -386,6 +390,7 @@ const s = StyleSheet.create({
   captionOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'rgba(0,0,0,0.55)' },
   captionOverlayText: { color: '#FFF', fontSize: 15, fontWeight: '600', textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   typeBadge: { position: 'absolute', top: 14, left: 14, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  typeBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   typeBadgeText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
   counterBadge: { position: 'absolute', top: 14, right: 14, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   counterText: { color: '#FFF', fontSize: 12, fontWeight: '700' },

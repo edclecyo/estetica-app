@@ -53,6 +53,15 @@ function assinaturaRelatorioAtiva(est: any) {
   );
 }
 
+function agendamentoIgnoradoRelatorio(a: any) {
+  return (
+    a?.deletado === true ||
+    a?.deletadoAdmin === true ||
+    a?.pagamentoExpirado === true ||
+    a?.statusPagamento === 'expired'
+  );
+}
+
 export const gerarRelatorioFinanceiro = onCall(
   {
     region: REGION,
@@ -124,6 +133,8 @@ export const gerarRelatorioFinanceiro = onCall(
       .map(d => ({ id: d.id, ...d.data() })) as any[];
 
     const filtrados = agendamentos.filter(a => {
+      if (agendamentoIgnoradoRelatorio(a)) return false;
+
       const dataAg = parseDataBR(a.data);
       if (!dataValida(dataAg)) return false;
 
@@ -139,6 +150,8 @@ export const gerarRelatorioFinanceiro = onCall(
     });
 
     const cancelados = agendamentos.filter(a => {
+      if (agendamentoIgnoradoRelatorio(a)) return false;
+
       const dataAg = parseDataBR(a.data);
       if (!dataValida(dataAg)) return false;
 
@@ -177,6 +190,8 @@ export const gerarRelatorioFinanceiro = onCall(
     });
 
     agendamentos.forEach(a => {
+      if (agendamentoIgnoradoRelatorio(a)) return;
+
       const dataAg = parseDataBR(a.data);
       if (!dataValida(dataAg)) return;
 

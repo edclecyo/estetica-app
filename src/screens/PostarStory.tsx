@@ -39,11 +39,11 @@ const limiteMidiasPorPlano = (plano: string) => {
 };
 
 const DICAS = [
-  "📸 Mostre seus trabalhos mais recentes",
-  "🎨 Antes e depois transformam seguidores em clientes",
-  "💬 Promoções exclusivas geram urgência",
-  "⏰ Stories somem em 24h — crie senso de oportunidade",
-  "✨ Qualidade visual atrai clientes premium",
+  { icon: 'camera-outline', text: 'Mostre seus trabalhos mais recentes' },
+  { icon: 'palette-outline', text: 'Antes e depois transformam seguidores em clientes' },
+  { icon: 'message-text-outline', text: 'Promoções exclusivas geram urgência' },
+  { icon: 'clock-outline', text: 'Stories somem em 24h — crie senso de oportunidade' },
+  { icon: 'star-four-points-outline', text: 'Qualidade visual atrai clientes premium' },
 ];
 
 export default function PostarStory() {
@@ -491,7 +491,7 @@ const uploadUri = m.uri.startsWith('file://')
             style={s.backBtn}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Text style={s.backIcon}>✕</Text>
+            <Icon name="close" size={20} color="#FFF" />
           </TouchableOpacity>
           <View style={s.headerCenter}>
             <Text style={s.headerTitle}>Novo Story</Text>
@@ -535,12 +535,13 @@ const uploadUri = m.uri.startsWith('file://')
                 Use para mostrar promoções, resultados e novidades do seu espaço.
               </Text>
               <View style={s.bannerDica}>
-                <Text style={s.bannerDicaText}>{DICAS[dicaIdx]}</Text>
+                <Icon name={DICAS[dicaIdx].icon} size={16} color={GOLD} />
+                <Text style={s.bannerDicaText}>{DICAS[dicaIdx].text}</Text>
               </View>
               <View style={s.featuresRow}>
                 {[
                   { icon: 'image-multiple-outline', label: `Até ${limiteMidias || 0}\nmídias` },
-                  { icon: 'text-box-edit-outline', label: 'Texto\npersonalizado' },
+                  { icon: 'text-box-outline', label: 'Texto\npersonalizado' },
                   { icon: 'clock-outline', label: '24h\nvisível' },
                   { icon: 'chart-line', label: 'Ver\natividade' },
                 ].map((f, i) => (
@@ -585,7 +586,7 @@ const uploadUri = m.uri.startsWith('file://')
             ) : (
               <View style={s.emptyPreview}>
                 <View style={s.emptyIconWrap}>
-                  <Icon name="cellphone-plus" size={44} color="#C9A96E" />
+                  <Icon name="image-plus" size={44} color="#C9A96E" />
                 </View>
                 <Text style={s.emptyTitle}>Adicionar mídia</Text>
                 <Text style={s.emptySub}>Fotos e vídeos da galeria</Text>
@@ -593,7 +594,10 @@ const uploadUri = m.uri.startsWith('file://')
                 {/* BOTÕES DE AÇÃO */}
                 <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
                   <TouchableOpacity style={s.emptyBtn} onPress={escolherMidias}>
-                    <Text style={s.emptyBtnText}>+ Galeria</Text>
+                    <View style={s.emptyBtnRow}>
+                      <Icon name="image-multiple-outline" size={16} color="#000" />
+                      <Text style={s.emptyBtnText}>Galeria</Text>
+                    </View>
                   </TouchableOpacity>
                   <TouchableOpacity style={[s.emptyBtn, { backgroundColor: '#FFF' }]} onPress={abrirCamera}>
                     <View style={s.emptyBtnRow}>
@@ -613,7 +617,7 @@ const uploadUri = m.uri.startsWith('file://')
               <Text style={s.captionLabel}>LEGENDA (opcional)</Text>
               <TextInput
                 style={s.captionInput}
-                placeholder="Ex: Promoção especial hoje! Agende agora 🔥"
+                placeholder="Ex: Promoção especial hoje! Agende agora"
                 placeholderTextColor="#444"
                 value={midiaAtiva.caption}
                 onChangeText={atualizarLegenda}
@@ -637,7 +641,7 @@ const uploadUri = m.uri.startsWith('file://')
                 if (item.uri === '__add__') {
                   return (
                     <TouchableOpacity style={s.thumbAdd} onPress={escolherMidias}>
-                      <Text style={s.thumbAddIcon}>+</Text>
+                      <Icon name="plus" size={24} color={GOLD} />
                       <Text style={s.thumbAddText}>Mais</Text>
                     </TouchableOpacity>
                   );
@@ -647,11 +651,13 @@ const uploadUri = m.uri.startsWith('file://')
                   <TouchableOpacity onPress={() => setIndexAtivo(index)} style={[s.thumb, ativo && s.thumbAtivo]}>
                     <Image source={{ uri: item.uri }} style={s.thumbImg} />
                     {item.type === 'video' && (
-                      <View style={s.thumbVideoBadge}><Text style={{ fontSize: 9, color: '#FFF' }}>▶</Text></View>
+                      <View style={s.thumbVideoBadge}>
+                        <Icon name="play" size={10} color="#FFF" />
+                      </View>
                     )}
                     {item.caption ? <View style={s.thumbCaptionDot} /> : null}
                     <TouchableOpacity style={s.thumbRemove} onPress={() => removerMidia(index)}>
-                      <Text style={s.thumbRemoveText}>✕</Text>
+                      <Icon name="close" size={12} color="#FFF" />
                     </TouchableOpacity>
                   </TouchableOpacity>
                 );
@@ -662,8 +668,14 @@ const uploadUri = m.uri.startsWith('file://')
           {/* DICA */}
           {midias.length > 0 && (
             <View style={s.dicasWrap}>
-              <Text style={s.dicasTitle}>💡 Dica</Text>
-              <Text style={s.dicasText}>{DICAS[dicaIdx]}</Text>
+              <View style={s.dicasTitleRow}>
+                <Icon name="lightbulb-outline" size={14} color={GOLD} />
+                <Text style={s.dicasTitle}>Dica</Text>
+              </View>
+              <View style={s.dicasTextRow}>
+                <Icon name={DICAS[dicaIdx].icon} size={15} color="#888" />
+                <Text style={s.dicasText}>{DICAS[dicaIdx].text}</Text>
+              </View>
             </View>
           )}
 
@@ -686,9 +698,12 @@ const uploadUri = m.uri.startsWith('file://')
         {midias.length > 0 && !uploading && (
           <View style={s.fixedFooter}>
             <TouchableOpacity style={s.publishBtn} onPress={postar}>
-              <Text style={s.publishBtnText}>
-                Publicar {midias.length} story{midias.length > 1 ? 's' : ''} →
-              </Text>
+              <View style={s.publishBtnContent}>
+                <Text style={s.publishBtnText}>
+                  Publicar {midias.length} story{midias.length > 1 ? 's' : ''}
+                </Text>
+                <Icon name="arrow-right" size={20} color="#000" />
+              </View>
             </TouchableOpacity>
           </View>
         )}
@@ -741,8 +756,8 @@ const s = StyleSheet.create({
   bannerIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(201,169,110,0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 14, alignSelf: 'center' },
   bannerTitulo: { color: '#FFF', fontSize: 20, fontWeight: '800', textAlign: 'center', marginBottom: 10 },
   bannerDesc: { color: '#888', fontSize: 14, lineHeight: 22, textAlign: 'center', marginBottom: 16 },
-  bannerDica: { backgroundColor: 'rgba(201,169,110,0.08)', borderRadius: 12, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(201,169,110,0.2)' },
-  bannerDicaText: { color: GOLD, fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  bannerDica: { backgroundColor: 'rgba(201,169,110,0.08)', borderRadius: 12, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(201,169,110,0.2)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  bannerDicaText: { color: GOLD, fontSize: 13, fontWeight: '600', textAlign: 'center', flexShrink: 1 },
   featuresRow: { flexDirection: 'row', justifyContent: 'space-around' },
   featureItem: { alignItems: 'center', gap: 6 },
   featureIcon: { marginBottom: 3 },
@@ -779,13 +794,16 @@ const s = StyleSheet.create({
   thumbAddIcon: { color: GOLD, fontSize: 22, fontWeight: '300' },
   thumbAddText: { color: '#555', fontSize: 9, fontWeight: '700' },
   dicasWrap: { marginHorizontal: 16, marginTop: 16, backgroundColor: 'rgba(201,169,110,0.06)', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(201,169,110,0.15)' },
-  dicasTitle: { color: GOLD, fontSize: 12, fontWeight: '800', marginBottom: 6 },
-  dicasText: { color: '#888', fontSize: 13, lineHeight: 20 },
+  dicasTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  dicasTitle: { color: GOLD, fontSize: 12, fontWeight: '800' },
+  dicasTextRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  dicasText: { color: '#888', fontSize: 13, lineHeight: 20, flex: 1 },
   progressWrap: { marginHorizontal: 16, marginTop: 16 },
   progressTrack: { height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
   progressBar: { height: '100%', backgroundColor: GREEN, borderRadius: 3 },
   progressText: { color: '#666', fontSize: 12, textAlign: 'center', marginTop: 8 },
   fixedFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: '#0A0A0A', borderTopWidth: 1, borderTopColor: '#1A1A1A' },
   publishBtn: { backgroundColor: GOLD, borderRadius: 18, padding: 18, alignItems: 'center', shadowColor: GOLD, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 8 },
+  publishBtnContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   publishBtnText: { color: '#000', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 },
 });
